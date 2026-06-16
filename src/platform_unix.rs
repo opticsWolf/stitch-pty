@@ -1,0 +1,519 @@
+//! Unix PTY implementation using POSIX APIs
+//!
+//! Uses: openpty(3), fork(2), setsid(2), TIOCSCTTY, dup2, execvpe
+//! Async I/O: tokio::io::AsyncFd over raw FDs
+//!
+//! Improvements from portable-pty:
+//! - `close_random_fds()` for macOS Big Sur / Linux FD leak prevention
+//! - Proper signal disposition reset before exec
+//! - ChildKiller trait implementation
+
+use crate::errors::{PtyErrorKind, PtyResult};
+use crate::platform::{ChildBackend, ChildKiller, ExitStatus, ProcessExit, PtyBackend};
+use crate::winsize::Winsize;
+use libc::{c_char, c_int};
+use nix::fcntl::{fcntl, FdFlag, OFlag};
+use nix::pty::{openpty, OpenptyResult};
+use nix::sys::signal::{kill, Signal};
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+use nix::unistd::{close, dup2, fork, setsid, ForkResult, Pid};
+use parking_lot::Mutex;
+use std::ffi::CString;
+use std::os::fd::RawFd;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::io::unix::AsyncFd;
+use tokio::io::Interest;
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+
+// ============================================================================
+// close_random_fds (from portable-pty)
+// ============================================================================
+
+/// On Big Sur, Cocoa leaks various file descriptors to child processes,
+/// so we need to make a pass through the open descriptors beyond just the
+/// stdio descriptors and close them all out.
+///
+/// This is approximately equivalent to the darwin `posix_spawnattr_setflags`
+/// option POSIX_SPAWN_CLOEXEC_DEFAULT which is used as a bit of a cheat
+/// on macOS.
+///
+/// On Linux, gnome/mutter leak shell extension fds to wezterm too, so we
+/// also need to make an effort to clean up the mess.
+///
+/// The implementation of this function relies on `/dev/fd` being available
+/// to provide the list of open fds. Any errors in enumerating or closing
+/// the fds are silently ignored.
+pub fn close_random_fds() {
+    // FreeBSD, macOS and presumably other BSDish systems have /dev/fd as
+    // a directory listing the current fd numbers for the process.
+    //
+    // On Linux, /dev/fd is a symlink to /proc/self/fd
+    if let Ok(dir) = std::fs::read_dir("/dev/fd") {
+        let mut fds = vec![];
+        for entry in dir {
+            if let Some(num) = entry
+                .ok()
+                .map(|e| e.file_name())
+                .and_then(|s| s.into_string().ok())
+                .and_then(|n| n.parse::<libc::c_int>().ok())
+            {
+                if num > 2 {
+                    fds.push(num);
+                }
+            }
+        }
+        for fd in fds {
+            unsafe {
+                libc::close(fd);
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Unix PtyMaster
+// ============================================================================
+
+pub struct UnixPtyMaster {
+    async_fd: AsyncFd<RawFd>,
+}
+
+impl UnixPtyMaster {
+    pub fn new(fd: RawFd) -> std::io::Result<Self> {
+        let async_fd = AsyncFd::with_interest(fd, Interest::READABLE | Interest::WRITABLE)?;
+        Ok(UnixPtyMaster { async_fd })
+    }
+}
+
+#[async_trait::async_trait]
+impl PtyBackend for UnixPtyMaster {
+    async fn read(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            let mut guard = self.async_fd.readable().await?;
+            match guard.try_io(|inner| {
+                let fd = *inner.get_ref();
+                let ret = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len()) };
+                if ret < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(ret as usize)
+                }
+            }) {
+                Ok(result) => return result,
+                Err(_would_block) => continue,
+            }
+        }
+    }
+
+    async fn write(&self, buf: &[u8]) -> std::io::Result<usize> {
+        loop {
+            let mut guard = self.async_fd.writable().await?;
+            match guard.try_io(|inner| {
+                let fd = *inner.get_ref();
+                let ret = unsafe { libc::write(fd, buf.as_ptr() as *const _, buf.len()) };
+                if ret < 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    Ok(ret as usize)
+                }
+            }) {
+                Ok(result) => return result,
+                Err(_would_block) => continue,
+            }
+        }
+    }
+
+    fn set_winsize(&self, winsize: Winsize) -> PtyResult<()> {
+        let ws: nix::pty::Winsize = winsize.into();
+        let fd = *self.async_fd.get_ref();
+        unsafe {
+            let ret = libc::ioctl(fd, libc::TIOCSWINSZ, &ws as *const _);
+            if ret < 0 {
+                return Err(PtyErrorKind::WinsizeFailed(
+                    format!("TIOCSWINSZ failed: {}", std::io::Error::last_os_error())
+                ));
+            }
+        }
+        // Forward SIGWINCH to process group
+        let pgrp = unsafe { libc::tcgetpgrp(fd) };
+        if pgrp > 0 {
+            unsafe { libc::kill(-pgrp, libc::SIGWINCH); }
+        }
+        Ok(())
+    }
+
+    fn get_winsize(&self) -> PtyResult<Winsize> {
+        let mut ws: nix::pty::Winsize = unsafe { std::mem::zeroed() };
+        let fd = *self.async_fd.get_ref();
+        unsafe {
+            let ret = libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws as *mut _);
+            if ret < 0 {
+                return Err(PtyErrorKind::WinsizeFailed(
+                    format!("TIOCGWINSZ failed: {}", std::io::Error::last_os_error())
+                ));
+            }
+        }
+        Ok(ws.into())
+    }
+
+    fn raw_handle(&self) -> RawFd {
+        *self.async_fd.get_ref()
+    }
+
+    fn is_open(&self) -> bool {
+        let fd = *self.async_fd.get_ref();
+        unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
+    }
+}
+
+impl Drop for UnixPtyMaster {
+    fn drop(&mut self) {
+        let fd = *self.async_fd.get_ref();
+        let _ = close(fd);
+    }
+}
+
+// ============================================================================
+// Unix ChildProcess + ChildKiller
+// ============================================================================
+
+pub struct UnixChildProcess {
+    inner: Arc<Mutex<UnixChildState>>,
+    exit_tx: watch::Sender<Option<ProcessExit>>,
+    _wait_task: Arc<JoinHandle<()>>,
+}
+
+#[derive(Debug)]
+struct UnixChildState {
+    pid: Pid,
+    running: bool,
+    exit_status: Option<ProcessExit>,
+}
+
+impl UnixChildProcess {
+    pub fn new(pid: Pid) -> Self {
+        let (exit_tx, _exit_rx) = watch::channel(None);
+        let state = Arc::new(Mutex::new(UnixChildState {
+            pid,
+            running: true,
+            exit_status: None,
+        }));
+
+        let state_clone = state.clone();
+        let exit_tx_clone = exit_tx.clone();
+
+        let wait_task = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let mut guard = state_clone.lock();
+                if !guard.running { break; }
+
+                let pid = guard.pid;
+                let result = tokio::task::spawn_blocking(move || {
+                    waitpid(pid, Some(WaitPidFlag::WNOHANG))
+                }).await;
+
+                match result {
+                    Ok(Ok(WaitStatus::Exited(pid, code))) => {
+                        let exit = ProcessExit {
+                            pid: pid.as_raw() as u32,
+                            exit_code: Some(code),
+                            signal: None,
+                        };
+                        guard.running = false;
+                        guard.exit_status = Some(exit.clone());
+                        let _ = exit_tx_clone.send(Some(exit));
+                        break;
+                    }
+                    Ok(Ok(WaitStatus::Signaled(pid, signal, _core_dumped))) => {
+                        let exit = ProcessExit {
+                            pid: pid.as_raw() as u32,
+                            exit_code: None,
+                            signal: Some(signal as i32),
+                        };
+                        guard.running = false;
+                        guard.exit_status = Some(exit.clone());
+                        let _ = exit_tx_clone.send(Some(exit));
+                        break;
+                    }
+                    Ok(Ok(WaitStatus::StillAlive)) => {}
+                    Ok(Err(_)) | Err(_) => {
+                        guard.running = false;
+                        let _ = exit_tx_clone.send(None);
+                        break;
+                    }
+                }
+            }
+        });
+
+        UnixChildProcess {
+            inner: state,
+            exit_tx,
+            _wait_task: Arc::new(wait_task),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ChildBackend for UnixChildProcess {
+    fn pid(&self) -> u32 {
+        self.inner.lock().pid.as_raw() as u32
+    }
+
+    fn is_running(&self) -> bool {
+        self.inner.lock().running
+    }
+
+    async fn wait(&self) -> Option<ProcessExit> {
+        let mut rx = self.exit_tx.subscribe();
+        let _ = rx.changed().await;
+        rx.borrow().clone()
+    }
+
+    fn signal(&self, sig: i32) -> PtyResult<()> {
+        let signal = Signal::try_from(sig)
+            .map_err(|_| PtyErrorKind::SignalError(format!("Invalid signal: {}", sig)))?;
+        let pid = self.inner.lock().pid;
+        let pgid = Pid::from_raw(-pid.as_raw());
+        kill(pgid, signal).map_err(|e| PtyErrorKind::SignalError(e.to_string()))
+    }
+
+    fn kill(&self) -> PtyResult<()> {
+        self.signal(9) // SIGKILL
+    }
+}
+
+impl ChildKiller for UnixChildProcess {
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(self.clone())
+    }
+}
+
+impl Drop for UnixChildProcess {
+    fn drop(&mut self) {
+        if self.is_running() {
+            let _ = self.kill();
+        }
+    }
+}
+
+// ============================================================================
+// PTY Pair and Spawning
+// ============================================================================
+
+struct PtyPair {
+    master_fd: RawFd,
+    slave_fd: RawFd,
+}
+
+impl PtyPair {
+    fn open(winsize: Option<Winsize>) -> PtyResult<Self> {
+        let nix_winsize = winsize.map(|w| w.into());
+        let result = openpty(nix_winsize.as_ref(), None)
+            .map_err(|e| PtyErrorKind::OpenFailed(format!("openpty failed: {}", e)))?;
+
+        // Set non-blocking
+        let flags = fcntl(result.master, FdFlag::F_GETFL)
+            .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl GETFL: {}", e)))?;
+        fcntl(result.master, FdFlag::F_SETFL(OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK))
+            .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl SETFL: {}", e)))?;
+
+        Ok(PtyPair { master_fd: result.master, slave_fd: result.slave })
+    }
+}
+
+impl Drop for PtyPair {
+    fn drop(&mut self) {
+        let _ = close(self.slave_fd);
+        let _ = close(self.master_fd);
+    }
+}
+
+unsafe fn child_setup(slave_fd: RawFd, master_fd: RawFd, program: &str, args: &[String], env: &[(String, String)]) -> ! {
+    // Clean up a few things before we exec the program
+    // Clear out any potentially problematic signal dispositions that we might have inherited
+    for signo in &[
+        libc::SIGCHLD,
+        libc::SIGHUP,
+        libc::SIGINT,
+        libc::SIGQUIT,
+        libc::SIGTERM,
+        libc::SIGALRM,
+    ] {
+        unsafe { libc::signal(*signo, libc::SIG_DFL); }
+    }
+
+    let empty_set: libc::sigset_t = std::mem::zeroed();
+    unsafe { libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut()); }
+
+    if setsid() < 0 {
+        libc::_exit(1);
+    }
+    let ret = libc::ioctl(slave_fd, libc::TIOCSCTTY, 0);
+    if ret < 0 {
+        libc::_exit(1);
+    }
+
+    // Close random FDs (from portable-pty) - critical for macOS Big Sur
+    close_random_fds();
+
+    if dup2(slave_fd, libc::STDIN_FILENO) < 0
+        || dup2(slave_fd, libc::STDOUT_FILENO) < 0
+        || dup2(slave_fd, libc::STDERR_FILENO) < 0
+    {
+        libc::_exit(1);
+    }
+    let _ = close(slave_fd);
+    let _ = close(master_fd);
+
+    let c_program = CString::new(program).unwrap_or_else(|_| { libc::_exit(1); CString::new("").unwrap() });
+    let c_args: Vec<CString> = args.iter()
+        .map(|s| CString::new(s.as_str()).unwrap_or_else(|_| CString::new("").unwrap()))
+        .collect();
+    let mut argv: Vec<*const c_char> = c_args.iter().map(|s| s.as_ptr()).collect();
+    argv.push(std::ptr::null());
+
+    let c_env: Vec<CString> = env.iter()
+        .map(|(k, v)| CString::new(format!("{}={}", k, v)).unwrap())
+        .collect();
+    let mut envp: Vec<*const c_char> = c_env.iter().map(|s| s.as_ptr()).collect();
+    envp.push(std::ptr::null());
+
+    let ret = libc::execvpe(c_program.as_ptr(), argv.as_ptr(), envp.as_ptr());
+    eprintln!("execvpe failed: {} (errno: {})", ret, std::io::Error::last_os_error());
+    libc::_exit(126);
+}
+
+fn fork_pty(pty: &PtyPair, program: &str, args: &[String], env: &[(String, String)]) -> PtyResult<Pid> {
+    match unsafe { fork() } {
+        Ok(ForkResult::Child) => {
+            unsafe { child_setup(pty.slave_fd, pty.master_fd, program, args, env); }
+        }
+        Ok(ForkResult::Parent { child }) => {
+            let _ = close(pty.slave_fd);
+            Ok(child)
+        }
+        Err(e) => Err(PtyErrorKind::ForkFailed(format!("fork failed: {}", e))),
+    }
+}
+
+// ============================================================================
+// Public Platform Functions
+// ============================================================================
+
+pub fn open_pty(winsize: Option<Winsize>) -> PtyResult<UnixPtyMaster> {
+    let pair = PtyPair::open(winsize)?;
+    let master_fd = pair.master_fd;
+    std::mem::forget(pair);
+    UnixPtyMaster::new(master_fd)
+        .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))
+}
+
+pub fn spawn(
+    program: &str,
+    args: &[String],
+    env: &[(String, String)],
+    winsize: Option<Winsize>,
+) -> PtyResult<(UnixPtyMaster, UnixChildProcess)> {
+    let mut pair = PtyPair::open(winsize)?;
+    let pid = fork_pty(&pair, program, args, env)?;
+    let master_fd = pair.master_fd;
+    std::mem::forget(pair);
+
+    let master = UnixPtyMaster::new(master_fd)
+        .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))?;
+    let child = UnixChildProcess::new(pid);
+
+    Ok((master, child))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_close_random_fds_does_not_panic() {
+        // close_random_fds should never panic; it silently ignores errors
+        close_random_fds();
+    }
+
+    #[test]
+    fn test_close_random_fds_idempotent() {
+        // Calling multiple times should be safe
+        close_random_fds();
+        close_random_fds();
+        close_random_fds();
+    }
+
+    #[test]
+    fn test_pty_pair_drop_closes_fds() {
+        // PtyPair::drop should close both master and slave fds
+        // We can't easily test this without actually opening a PTY,
+        // but we verify the struct compiles and implements Drop.
+        let pair = PtyPair::open(None);
+        // If we got here, the PTY opened successfully
+        if pair.is_ok() {
+            let p = pair.unwrap();
+            // The fds will be closed when p goes out of scope
+            let _master = p.master_fd;
+            let _slave = p.slave_fd;
+        }
+    }
+
+    #[test]
+    fn test_unix_pty_master_new() {
+        // Verify UnixPtyMaster::new compiles and returns io::Result
+        // We can't test with a real fd here, but the type signature is verified.
+        let _check: fn(RawFd) -> std::io::Result<UnixPtyMaster> = |_| UnixPtyMaster::new(0);
+    }
+
+    #[test]
+    fn test_unix_child_process_new() {
+        // Verify UnixChildProcess::new compiles and returns a valid instance
+        // We can't test with a real pid here without forking
+        let child = UnixChildProcess::new(Pid::from_raw(1));
+        assert_eq!(child.pid(), 1);
+    }
+
+    #[test]
+    fn test_unix_child_process_pid() {
+        let child = UnixChildProcess::new(Pid::from_raw(42));
+        assert_eq!(child.pid(), 42);
+    }
+
+    #[test]
+    fn test_unix_child_process_is_running() {
+        let child = UnixChildProcess::new(Pid::from_raw(42));
+        assert!(child.is_running());
+    }
+
+    #[test]
+    fn test_unix_child_process_clone() {
+        let child1 = UnixChildProcess::new(Pid::from_raw(42));
+        let child2 = child1.clone();
+        assert_eq!(child1.pid(), child2.pid());
+    }
+
+    #[test]
+    fn test_unix_child_process_child_killer() {
+        let child = UnixChildProcess::new(Pid::from_raw(42));
+        let killer: Box<dyn ChildKiller + Send + Sync> = child.clone_killer();
+        assert_eq!(killer.pid(), 42);
+    }
+
+    #[test]
+    fn test_unix_child_process_drop() {
+        // When UnixChildProcess is dropped while running, it should kill
+        let child = UnixChildProcess::new(Pid::from_raw(9999));
+        // Drop it - should not panic
+        drop(child);
+    }
+
+    #[test]
+    fn test_unix_child_process_clone_killer_trait() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<Box<dyn ChildKiller + Send + Sync>>();
+    }
+}

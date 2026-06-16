@@ -1,0 +1,3 @@
+recursive-include python/stitch_pty
+global-exclude *.pyc
+global-exclude __pycache__
