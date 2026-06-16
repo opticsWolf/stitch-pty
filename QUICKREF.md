@@ -38,17 +38,17 @@ asyncio.run(main())
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Python layer (python/stitch_pty/__init__.py)                │
-│  PtySession │ PtyMaster │ PtyChild │ PtyError                │
+│  Python layer (python/stitch_pty/__init__.py)               │
+│  PtySession │ PtyMaster │ PtyChild │ PtyError               │
 ├─────────────────────────────────────────────────────────────┤
-│  PyO3 bindings (python_api.rs + terminal_api.rs)             │
-│  PtyMaster │ PtyChild │ PtySession │ TerminalState            │
+│  PyO3 bindings (python_api.rs + terminal_api.rs)            │
+│  PtyMaster │ PtyChild │ PtySession │ TerminalState          │
 ├─────────────────────────────────────────────────────────────┤
-│  Terminal emulation (terminal/ — embedded pyte_rs)           │
-│  Parser → Screen → HistoryScreen (scrollback)                │
+│  Terminal emulation (terminal/ — embedded pyte_rs)          │
+│  Parser → Screen → HistoryScreen (scrollback)               │
 ├─────────────────────────────────────────────────────────────┤
-│  Platform layer (platform_unix.rs / platform_windows.rs)     │
-│  PtyBackend │ ChildBackend │ ChildKiller traits               │
+│  Platform layer (platform_unix.rs / platform_windows.rs)    │
+│  PtyBackend │ ChildBackend │ ChildKiller traits             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
