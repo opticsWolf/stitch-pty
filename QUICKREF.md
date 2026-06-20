@@ -144,6 +144,23 @@ Async. Opens a raw PTY pair without spawning a child.
 | `scrollback_lines` | Scrollback capacity |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
 
+#### Live mode flags
+
+Mode state recovered from the parsed stream, so front-ends don't have to
+re-scan raw bytes to drive cursor rendering, key encoding, mouse forwarding,
+or paste wrapping.
+
+| Property | Description |
+|----------|-------------|
+| `app_cursor` | DECCKM (`?1`) — application cursor keys active (`bool`) |
+| `cursor_visible` | DECTCEM (`?25`) — text cursor visible (`bool`) |
+| `cursor_shape` | DECSCUSR shape: `"block"`, `"underline"`, or `"bar"` (`str`) |
+| `cursor_blink` | DECSCUSR — cursor blinks vs. steady (`bool`) |
+| `mouse_proto` | Highest active mouse mode: `1003` / `1002` / `1000` / `0` (`int`) |
+| `sgr_mouse` | SGR mouse encoding (`?1006`) active (`bool`) |
+| `bracketed_paste` | Bracketed paste (`?2004`) active (`bool`) |
+| `alt_screen` | Alternate screen (`?1049`/`?1047`/`?47`) active — flag only, no buffer swap (`bool`) |
+
 ## Error Types
 
 | Exception | Inherits | On |
@@ -197,8 +214,10 @@ Async. Opens a raw PTY pair without spawning a child.
 | `DECTCEM` | private | on | Text cursor visible |
 | `DECSCNM` | private | off | Reverse video |
 | `DECCKM` | private | off | Application keypad |
-| `BRACKETED_PASTE` | private | off | Mouse paste mode |
+| `BRACKETED_PASTE` | private | off | Bracketed paste mode (2004) |
 | Mouse modes | private | off | 1000/1002/1003/1004 |
+| `SGR_MOUSE` | private | off | SGR mouse encoding (1006) |
+| Alt screen | private | off | 1049/1047/47 — tracked as a flag only (no buffer swap) |
 
 ### SGR Color Formats
 

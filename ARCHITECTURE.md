@@ -225,7 +225,7 @@ Manages a 2D grid of `Char` cells, cursor position, tab stops, character sets,
 scroll margins, and dirty tracking. Supports:
 
 - **SGR**: 8-color, 256-color, true color (24-bit RGB), aixterm bright colors
-- **Cursor**: movement, save/restore, style (DECSCUSR)
+- **Cursor**: movement, save/restore, style + blink (DECSCUSR, stored on `Screen` as `cursor_style` / `cursor_blink`)
 - **Modes**: public ANSI (IRM, LNM) + private DEC (DECOM, DECAWM, DECCOLM, etc.)
 - **Character sets**: G0/G1 with DEC Special line drawing
 - **Scroll region**: configurable top/bottom margins
@@ -264,7 +264,16 @@ pub struct Cursor {
 | `DECTCEM` (25) | private | on | Text cursor visible |
 | `DECSCNM` (5) | private | off | Reverse video |
 | `X10_MOUSE` (1000) | private | off | Mouse tracking |
+| `SGR_MOUSE` (1006) | private | off | SGR mouse encoding |
+| Alt screen (1049/1047/47) | private | off | Alternate screen — flag only, no buffer swap |
 | `BRACKETED_PASTE` (2004) | private | off | Paste mode |
+
+`Modes` also provides convenience queries used by the Python binding:
+`has_private(mode)` (named modes via bitflags, everything else via a
+`HashSet<u16>`), plus `mouse_protocol()` (highest active mouse mode, or 0),
+`sgr_mouse()`, and `is_alt_screen()`. Because the CSI `?…h/l` dispatch routes
+*every* private-mode number through `set_mode`/`reset_mode`, modes the engine
+doesn't act on (1006, 1049, 1047, 47) are still recorded and thus queryable.
 
 ### `HistoryScreen` — Scrollback Buffer
 
@@ -296,6 +305,7 @@ pub struct HistoryScreen {
 | `history_size()` / `scrollback_lines()` | Capacity info |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
 | `cursor()` / `mode()` / `title()` | Accessors |
+| `cursor_style()` / `cursor_blink()` / `cursor_shape()` | DECSCUSR cursor state (`cursor_shape()` returns `"block"`/`"underline"`/`"bar"`) |
 
 **`styled_viewport()` Output:**
 ```rust
@@ -458,6 +468,19 @@ Delegates to `PtyMaster` + `PtyChild`. Adds:
 | `styled_viewport()` | Full buffer as styled cells |
 | `total_lines()` | Total lines = history + visible |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
+| `app_cursor` | DECCKM (`?1`) active — application cursor keys (`bool`) |
+| `cursor_visible` | DECTCEM (`?25`) — cursor visible (`bool`) |
+| `cursor_shape` | DECSCUSR shape: `"block"` / `"underline"` / `"bar"` (`str`) |
+| `cursor_blink` | DECSCUSR — blinking vs. steady (`bool`) |
+| `mouse_proto` | Highest active mouse mode: `1003`/`1002`/`1000`/`0` (`int`) |
+| `sgr_mouse` | SGR mouse encoding (`?1006`) active (`bool`) |
+| `bracketed_paste` | Bracketed paste (`?2004`) active (`bool`) |
+| `alt_screen` | Alternate screen (`?1049`/`?1047`/`?47`) active — flag only (`bool`) |
+
+The mode-flag getters read state the parser already tracks (private modes live
+in `Modes`, cursor shape/blink on `Screen`), so a front-end can drive cursor
+rendering, key encoding, mouse forwarding, and paste wrapping without
+re-scanning the raw byte stream.
 
 ## Testing Strategy
 
@@ -532,7 +555,8 @@ GitHub Actions
 
 1. **DCS sequences**: Partially supported (hook/passthrough/unhook tracked but not rendered)
 2. **Private modes**: Most DEC private modes supported; extended modes use HashSet
-3. **Mouse protocols**: Mode constants defined but input handling not implemented
-4. **Subparameter parsing**: CSI subparameters via `:` treated as param separators (not subparams) — differs from vte crate
-5. **Wide character handling**: Width-2 characters (CJK, emoji) handled; combining marks overwrite previous cell
-6. **OSC passthrough**: OSC 3 (set icon name) not implemented
+3. **Mouse protocols**: Mode state is tracked and exposed (`mouse_proto`, `sgr_mouse`), but input event encoding is not implemented in the engine — a front-end must encode mouse reports itself
+4. **Alternate screen**: `?1049`/`?1047`/`?47` are tracked and exposed via `alt_screen`, but the screen buffer is not actually swapped or restored — it is a flag only
+5. **Subparameter parsing**: CSI subparameters via `:` treated as param separators (not subparams) — differs from vte crate
+6. **Wide character handling**: Width-2 characters (CJK, emoji) handled; combining marks overwrite previous cell
+7. **OSC passthrough**: OSC 3 (set icon name) not implemented
