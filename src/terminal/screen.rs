@@ -118,6 +118,7 @@ pub struct Screen {
     pub title: String,
     pub write_process_input: Box<dyn FnMut(&str) + Send + Sync + 'static>,
     pub cursor_style: CursorStyle,
+    pub cursor_blink: bool,
     pub keyboard_mode: u16,
     pub keyboard_mode_stack: Vec<u16>,
 }
@@ -135,6 +136,7 @@ impl Screen {
             charset: CharsetRef::Ascii, charset_index: 0, dirty: BTreeSet::new(),
             icon_name: String::new(), title: String::new(),
             write_process_input: Box::new(|_: &str| {}) as Box<dyn FnMut(&str) + Send + Sync + 'static>, cursor_style: CursorStyle::Default,
+            cursor_blink: true,
             keyboard_mode: 0, keyboard_mode_stack: Vec::new(),
         };
         screen.init_tabstops();
@@ -154,7 +156,7 @@ impl Screen {
         self.mode = Modes::new(); self.margins = None; self.cursor = Cursor::default();
         self.g0_charset = CharsetRef::Ascii; self.g1_charset = CharsetRef::Ascii;
         self.charset = CharsetRef::Ascii; self.charset_index = 0;
-        self.icon_name.clear(); self.title.clear(); self.cursor_style = CursorStyle::Default;
+        self.icon_name.clear(); self.title.clear(); self.cursor_style = CursorStyle::Default; self.cursor_blink = true;
         self.keyboard_mode = 0; self.keyboard_mode_stack.clear(); self.init_tabstops();
         self.dirty.clear();
         for line in &mut self.buffer { for ch in line { *ch = self.default_char.clone(); } }
@@ -500,6 +502,8 @@ impl Screen {
             3 | 4 => CursorStyle::Underline, 5 | 6 => CursorStyle::Beam,
             _ => CursorStyle::Default,
         };
+        // DECSCUSR: 0 and odd ids blink; even non-zero ids are steady.
+        self.cursor_blink = matches!(style_id, 0 | 1 | 3 | 5);
     }
     pub fn set_keyboard_mode(&mut self, mode: u16, behavior: KeyboardApplyBehavior) {
         self.keyboard_mode = match behavior {
@@ -1058,10 +1062,12 @@ mod tests {
     #[test]
     fn test_set_cursor_style_block() {
         let mut s = make_screen(10, 10);
-        s.set_cursor_style(1);
+        s.set_cursor_style(1); // blinking block
         assert_eq!(s.cursor_style, CursorStyle::Block);
-        s.set_cursor_style(2); // blinking block
+        assert!(s.cursor_blink);
+        s.set_cursor_style(2); // steady block
         assert_eq!(s.cursor_style, CursorStyle::Block);
+        assert!(!s.cursor_blink);
     }
 
     #[test]

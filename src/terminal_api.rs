@@ -3,6 +3,7 @@
 //! Exposes `TerminalState` as a Python class that wraps the Rust `HistoryScreen`
 //! + `Parser` combo, providing `feed()`, `display()`, `history_display()`, etc.
 
+use crate::terminal::modes as mo;
 use crate::terminal::{HistoryScreen, Parser};
 use pyo3::prelude::*;
 
@@ -111,6 +112,61 @@ impl TerminalState {
     /// Absolute cursor position: (x, history_len + on-screen_y).
     pub fn absolute_cursor(&self) -> (usize, usize) {
         self.screen.absolute_cursor()
+    }
+
+    // ── Live terminal mode flags ─────────────────────────────────────────
+    //
+    // These surface mode state the parser already tracks, so front-ends no
+    // longer need to re-scan the raw byte stream to recover them.
+
+    /// DECCKM (?1) — application cursor keys. Affects arrow/Home/End encoding.
+    #[getter]
+    pub fn app_cursor(&self) -> bool {
+        self.screen.mode().has_private(mo::DECCKM)
+    }
+
+    /// DECTCEM (?25) — whether the text cursor is visible.
+    #[getter]
+    pub fn cursor_visible(&self) -> bool {
+        self.screen.mode().has_private(mo::DECTCEM)
+    }
+
+    /// ?2004 — bracketed paste mode.
+    #[getter]
+    pub fn bracketed_paste(&self) -> bool {
+        self.screen.mode().has_private(mo::BRACKETED_PASTE)
+    }
+
+    /// ?1006 — SGR mouse encoding.
+    #[getter]
+    pub fn sgr_mouse(&self) -> bool {
+        self.screen.mode().sgr_mouse()
+    }
+
+    /// Whether an alternate-screen mode (?1049/?1047/?47) is active.
+    ///
+    /// Flag only — the buffer is not actually swapped (see `Modes::is_alt_screen`).
+    #[getter]
+    pub fn alt_screen(&self) -> bool {
+        self.screen.mode().is_alt_screen()
+    }
+
+    /// Highest-precedence active mouse-tracking mode: 1003, 1002, 1000, or 0.
+    #[getter]
+    pub fn mouse_proto(&self) -> u16 {
+        self.screen.mode().mouse_protocol()
+    }
+
+    /// Cursor shape from DECSCUSR: "block", "underline", or "bar".
+    #[getter]
+    pub fn cursor_shape(&self) -> &'static str {
+        self.screen.cursor_shape()
+    }
+
+    /// Whether the cursor blinks (DECSCUSR steady vs. blinking).
+    #[getter]
+    pub fn cursor_blink(&self) -> bool {
+        self.screen.cursor_blink()
     }
 
     fn __repr__(&self) -> String {

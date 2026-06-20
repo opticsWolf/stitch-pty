@@ -18,7 +18,13 @@ pub const X10_MOUSE: u16 = 1000;
 pub const NORMAL_MOUSE: u16 = 1002;
 pub const ANY_EVENT_MOUSE: u16 = 1003;
 pub const FOCUS_EVENT: u16 = 1004;
+pub const SGR_MOUSE: u16 = 1006;
 pub const BRACKETED_PASTE: u16 = 2004;
+
+// Alternate screen buffer (tracked as a flag only — no buffer swap is performed)
+pub const ALT_SCREEN_1049: u16 = 1049;
+pub const ALT_SCREEN_1047: u16 = 1047;
+pub const ALT_SCREEN_47: u16 = 47;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -107,6 +113,37 @@ impl Modes {
             _ => { self.extended.remove(&mode); }
         }
     }
+
+    // ── Convenience queries (used by the Python binding) ────────────
+
+    /// Highest-precedence active mouse tracking mode (0 = none).
+    pub fn mouse_protocol(&self) -> u16 {
+        if self.has_private(ANY_EVENT_MOUSE) {
+            ANY_EVENT_MOUSE
+        } else if self.has_private(NORMAL_MOUSE) {
+            NORMAL_MOUSE
+        } else if self.has_private(X10_MOUSE) {
+            X10_MOUSE
+        } else {
+            0
+        }
+    }
+
+    /// Whether SGR (1006) mouse encoding is active.
+    pub fn sgr_mouse(&self) -> bool {
+        self.has_private(SGR_MOUSE)
+    }
+
+    /// Whether any alternate-screen mode is active.
+    ///
+    /// Note: this is a flag only — the screen buffer is not swapped or
+    /// restored. It reports that the application requested the alternate
+    /// screen, which is what a front-end needs to decide e.g. wheel behavior.
+    pub fn is_alt_screen(&self) -> bool {
+        self.has_private(ALT_SCREEN_1049)
+            || self.has_private(ALT_SCREEN_1047)
+            || self.has_private(ALT_SCREEN_47)
+    }
 }
 
 #[cfg(test)]
@@ -161,6 +198,27 @@ mod tests {
         // Others should still be set
         assert!(modes.has_private(NORMAL_MOUSE));
         assert!(modes.has_private(BRACKETED_PASTE));
+    }
+
+    #[test]
+    fn test_mode_query_helpers() {
+        let mut modes = Modes::new();
+        assert_eq!(modes.mouse_protocol(), 0);
+        assert!(!modes.sgr_mouse());
+        assert!(!modes.is_alt_screen());
+
+        modes.set_private(X10_MOUSE);
+        assert_eq!(modes.mouse_protocol(), X10_MOUSE);
+        modes.set_private(ANY_EVENT_MOUSE);
+        assert_eq!(modes.mouse_protocol(), ANY_EVENT_MOUSE); // highest precedence
+
+        modes.set_private(SGR_MOUSE);
+        assert!(modes.sgr_mouse());
+
+        modes.set_private(ALT_SCREEN_1049);
+        assert!(modes.is_alt_screen());
+        modes.clear_private(ALT_SCREEN_1049);
+        assert!(!modes.is_alt_screen());
     }
 
     #[test]

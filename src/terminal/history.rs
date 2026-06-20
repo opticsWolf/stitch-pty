@@ -220,6 +220,18 @@ impl HistoryScreen {
 
     pub fn cursor(&self) -> &super::screen::Cursor { &self.inner.cursor }
     pub fn cursor_mut(&mut self) -> &mut super::screen::Cursor { &mut self.inner.cursor }
+    pub fn cursor_style(&self) -> super::screen::CursorStyle { self.inner.cursor_style }
+    pub fn cursor_blink(&self) -> bool { self.inner.cursor_blink }
+
+    /// Cursor shape as a front-end-friendly name: "block", "underline", or "bar".
+    pub fn cursor_shape(&self) -> &'static str {
+        use super::screen::CursorStyle;
+        match self.inner.cursor_style {
+            CursorStyle::Underline => "underline",
+            CursorStyle::Beam => "bar",
+            CursorStyle::Block | CursorStyle::Default => "block",
+        }
+    }
     pub fn mode(&self) -> &super::modes::Modes { &self.inner.mode }
     pub fn mode_mut(&mut self) -> &mut super::modes::Modes { &mut self.inner.mode }
     pub fn margins(&self) -> Option<Margins> { self.inner.margins }
