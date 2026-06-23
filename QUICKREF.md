@@ -129,7 +129,7 @@ Async. Opens a raw PTY pair without spawning a child.
 | `visible_display()` | Visible screen only (`list[str]`) |
 | `history_display()` | Scrollback only (`list[str]`) |
 | `dirty()` | Modified row indices (`list[int]`) |
-| `resize(lines, cols)` | Resize screen buffer |
+| `resize(lines, cols)` | Resize; shrink pushes top overflow into scrollback, grow pads at the bottom |
 | `reset()` | Reset terminal + clear history |
 | `styled_viewport()` | Full buffer as styled cells: `list[list[(text, fg, bg, attrs_bitmask)]]` |
 | `total_lines()` | Total lines = history + visible |
@@ -159,7 +159,7 @@ or paste wrapping.
 | `mouse_proto` | Highest active mouse mode: `1003` / `1002` / `1000` / `0` (`int`) |
 | `sgr_mouse` | SGR mouse encoding (`?1006`) active (`bool`) |
 | `bracketed_paste` | Bracketed paste (`?2004`) active (`bool`) |
-| `alt_screen` | Alternate screen (`?1049`/`?1047`/`?47`) active — flag only, no buffer swap (`bool`) |
+| `alt_screen` | Alternate screen (`?1049`/`?1047`/`?47`) active — real buffer swap (`bool`) |
 
 ## Error Types
 
@@ -217,7 +217,7 @@ or paste wrapping.
 | `BRACKETED_PASTE` | private | off | Bracketed paste mode (2004) |
 | Mouse modes | private | off | 1000/1002/1003/1004 |
 | `SGR_MOUSE` | private | off | SGR mouse encoding (1006) |
-| Alt screen | private | off | 1049/1047/47 — tracked as a flag only (no buffer swap) |
+| Alt screen | private | off | 1049/1047/47 — real buffer swap (1049 saves/restores cursor) |
 
 ### SGR Color Formats
 

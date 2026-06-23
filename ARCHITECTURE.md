@@ -228,7 +228,8 @@ scroll margins, and dirty tracking. Supports:
 - **Cursor**: movement, save/restore, style + blink (DECSCUSR, stored on `Screen` as `cursor_style` / `cursor_blink`)
 - **Modes**: public ANSI (IRM, LNM) + private DEC (DECOM, DECAWM, DECCOLM, etc.)
 - **Character sets**: G0/G1 with DEC Special line drawing
-- **Scroll region**: configurable top/bottom margins
+- **Scroll region**: configurable top/bottom margins; a full-screen `scroll_up` evicts the top line into `scrolled_off` for scrollback capture
+- **Alternate screen**: `?1049`/`?1047`/`?47` park the primary buffer in `saved_buffer` and swap in a fresh one (`1049` also saves/restores the cursor); scrollback capture is suppressed while active
 - **Kitty Keyboard Protocol**: mode push/pop/replace
 - **Unicode**: width-1 and width-2 characters, combining marks, CJK, emoji
 
@@ -265,7 +266,7 @@ pub struct Cursor {
 | `DECSCNM` (5) | private | off | Reverse video |
 | `X10_MOUSE` (1000) | private | off | Mouse tracking |
 | `SGR_MOUSE` (1006) | private | off | SGR mouse encoding |
-| Alt screen (1049/1047/47) | private | off | Alternate screen — flag only, no buffer swap |
+| Alt screen (1049/1047/47) | private | off | Alternate screen buffer (swapped; 1049 also saves/restores the cursor) |
 | `BRACKETED_PASTE` (2004) | private | off | Paste mode |
 
 `Modes` also provides convenience queries used by the Python binding:
@@ -273,7 +274,10 @@ pub struct Cursor {
 `HashSet<u16>`), plus `mouse_protocol()` (highest active mouse mode, or 0),
 `sgr_mouse()`, and `is_alt_screen()`. Because the CSI `?…h/l` dispatch routes
 *every* private-mode number through `set_mode`/`reset_mode`, modes the engine
-doesn't act on (1006, 1049, 1047, 47) are still recorded and thus queryable.
+doesn't act on (1006) are still recorded and thus queryable. (For the
+alternate screen, `Screen::alt_screen` is the authoritative state — what the
+buffer actually did — and is what `TerminalState.alt_screen` reports;
+`Modes::is_alt_screen()` reflects the raw mode bit.)
 
 ### `HistoryScreen` — Scrollback Buffer
 
@@ -289,7 +293,7 @@ pub struct HistoryScreen {
 
 | Method | Description |
 |--------|-------------|
-| `feed(data)` | Feed raw bytes (parses ANSI, updates screen) |
+| `feed(data)` | Feed raw bytes (parses ANSI, updates screen, captures scroll-off into history) |
 | `display()` | Full display (history + visible) |
 | `visible_display()` | Visible screen only |
 | `history_display()` | Scrollback only |
@@ -300,12 +304,24 @@ pub struct HistoryScreen {
 | `styled_viewport()` | Full buffer as styled cells |
 | `dirty()` | Modified row indices (BTreeSet) |
 | `reset()` | Reset terminal + clear history |
-| `resize(lines, cols)` | Resize screen buffer |
+| `resize(lines, cols)` | Resize; on shrink the top overflow is pushed to history; grow pads at the bottom (no pull) |
 | `columns()` / `lines()` | Current dimensions |
 | `history_size()` / `scrollback_lines()` | Capacity info |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
 | `cursor()` / `mode()` / `title()` | Accessors |
 | `cursor_style()` / `cursor_blink()` / `cursor_shape()` | DECSCUSR cursor state (`cursor_shape()` returns `"block"`/`"underline"`/`"bar"`) |
+| `alt_screen()` | Whether the alternate screen buffer is active |
+
+**Scrollback capture:** `feed()` drives the parser against the inner `Screen`,
+whose `scroll_up` (on a full-screen scroll, i.e. no DECSTBM margins) evicts the
+top line into `Screen::scrolled_off`. After parsing, `feed()` drains that buffer
+into the scrollback history. Region scrolls inside a margin (pagers, status
+lines) are intentionally **not** captured. On `resize`, shrinking pushes the
+top overflow into history (after first dropping unused blank rows below the
+cursor). Growing pads at the bottom and deliberately does **not** pull lines
+back out of history: the shell redraws on SIGWINCH and would clear pulled rows,
+so a subsequent shrink would push blanks back — repeated fast resizes would then
+drain real scrollback. Pushing-only keeps scrollback stable across resizes.
 
 **`styled_viewport()` Output:**
 ```rust
@@ -475,7 +491,7 @@ Delegates to `PtyMaster` + `PtyChild`. Adds:
 | `mouse_proto` | Highest active mouse mode: `1003`/`1002`/`1000`/`0` (`int`) |
 | `sgr_mouse` | SGR mouse encoding (`?1006`) active (`bool`) |
 | `bracketed_paste` | Bracketed paste (`?2004`) active (`bool`) |
-| `alt_screen` | Alternate screen (`?1049`/`?1047`/`?47`) active — flag only (`bool`) |
+| `alt_screen` | Alternate screen (`?1049`/`?1047`/`?47`) active (`bool`) |
 
 The mode-flag getters read state the parser already tracks (private modes live
 in `Modes`, cursor shape/blink on `Screen`), so a front-end can drive cursor
@@ -556,7 +572,7 @@ GitHub Actions
 1. **DCS sequences**: Partially supported (hook/passthrough/unhook tracked but not rendered)
 2. **Private modes**: Most DEC private modes supported; extended modes use HashSet
 3. **Mouse protocols**: Mode state is tracked and exposed (`mouse_proto`, `sgr_mouse`), but input event encoding is not implemented in the engine — a front-end must encode mouse reports itself
-4. **Alternate screen**: `?1049`/`?1047`/`?47` are tracked and exposed via `alt_screen`, but the screen buffer is not actually swapped or restored — it is a flag only
+4. **Alternate screen**: `?1049`/`?1047`/`?47` swap to a real alternate buffer (cursor saved/restored for `1049`, scrollback suppressed while active). The alternate buffer is recreated fresh on each entry rather than persisted across switches
 5. **Subparameter parsing**: CSI subparameters via `:` treated as param separators (not subparams) — differs from vte crate
 6. **Wide character handling**: Width-2 characters (CJK, emoji) handled; combining marks overwrite previous cell
 7. **OSC passthrough**: OSC 3 (set icon name) not implemented
