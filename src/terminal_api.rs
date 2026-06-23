@@ -104,6 +104,14 @@ impl TerminalState {
         self.screen.styled_viewport()
     }
 
+    /// Styled cells for absolute rows ``[start, start + count)``, clamped to the
+    /// buffer. Serializes only the on-screen window instead of the whole
+    /// scrollback — O(window) rather than O(total_lines) per frame.
+    pub fn styled_range(&self, start: usize, count: usize)
+            -> Vec<Vec<(String, String, String, u8)>> {
+        self.screen.styled_range(start, count)
+    }
+
     /// Total lines: scrollback history + visible screen.
     pub fn total_lines(&self) -> usize {
         self.screen.total_lines()

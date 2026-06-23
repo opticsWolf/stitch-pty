@@ -302,6 +302,7 @@ pub struct HistoryScreen {
 | `total_lines()` | history_len + visible_lines |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
 | `styled_viewport()` | Full buffer as styled cells |
+| `styled_range(start, count)` | Styled cells for absolute rows `[start, start+count)`, clamped — serialize only the on-screen window (O(window), not O(total)) |
 | `dirty()` | Modified row indices (BTreeSet) |
 | `reset()` | Reset terminal + clear history |
 | `resize(lines, cols)` | Resize; on shrink the top overflow is pushed to history; grow pads at the bottom (no pull) |
@@ -323,11 +324,13 @@ back out of history: the shell redraws on SIGWINCH and would clear pulled rows,
 so a subsequent shrink would push blanks back — repeated fast resizes would then
 drain real scrollback. Pushing-only keeps scrollback stable across resizes.
 
-**`styled_viewport()` Output:**
+**`styled_viewport()` / `styled_range()` Output:**
 ```rust
 Vec<Vec<(text: String, fg: String, bg: String, attrs: u8)>>
 ```
 Attrs bitmask: bit 0=bold, 1=dim, 2=italics, 3=underscore, 4=blink, 5=reverse, 6=hidden, 7=strikethrough.
+
+`styled_viewport()` returns the entire buffer (history + visible); `styled_range(start, count)` returns only absolute rows `[start, start+count)`, clamped to `[0, total_lines())` — rows below `history_len` come from scrollback, the rest from the visible screen, with identical cell encoding. A front-end that only paints what's on screen should call `styled_range` with the current viewport window instead of serializing the whole scrollback every frame: cost becomes O(window) rather than O(total_lines), which matters once scrollback is deep.
 
 ### `Stream` — High-Level Handler
 
@@ -482,6 +485,7 @@ Delegates to `PtyMaster` + `PtyChild`. Adds:
 | `scrollback_lines` | Scrollback capacity |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
 | `styled_viewport()` | Full buffer as styled cells |
+| `styled_range(start, count)` | Styled cells for absolute rows `[start, start+count)` (clamped) — window serialization, O(window) not O(total) |
 | `total_lines()` | Total lines = history + visible |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
 | `app_cursor` | DECCKM (`?1`) active — application cursor keys (`bool`) |
@@ -497,6 +501,108 @@ The mode-flag getters read state the parser already tracks (private modes live
 in `Modes`, cursor shape/blink on `Screen`), so a front-end can drive cursor
 rendering, key encoding, mouse forwarding, and paste wrapping without
 re-scanning the raw byte stream.
+
+## Front-end Integration
+
+This section documents the recommended pattern for building an interactive GUI
+on top of `PtySession`, as implemented by the reference PySide6 front-end
+(`terminal_emulator.py`). The module deliberately stays UI-agnostic; everything
+below lives in the front-end, but the design is shaped by how the module
+exposes terminal state.
+
+### Threading model
+
+PTY I/O is async and the terminal state machine is mutated as bytes are read, so
+both run on a dedicated worker thread that owns an asyncio event loop. The GUI
+runs on the main thread. They communicate one way — worker → GUI — by handing
+the GUI immutable *frame* snapshots (never the live `TerminalState`, which the
+worker keeps mutating). Input flows GUI → worker by scheduling a write onto the
+loop.
+
+```
+┌──────────────── GUI thread ───────────────┐      ┌──── worker thread (asyncio) ────┐
+│  paint(window)  ◄── frame snapshot ──────  │ ◄──  │  read → feed(TerminalState)     │
+│  key/mouse      ──► schedule write ───────►│ ──►  │  render pump → emit frame       │
+│  scroll/resize  ──► set_viewport ─────────►│ ──►  │  (loop owns the PtySession)     │
+└────────────────────────────────────────────┘      └─────────────────────────────────┘
+```
+
+A subtlety worth calling out: the worker thread runs `loop.run_forever()`, not a
+Qt event loop, so cross-thread Qt slots delivered to worker-thread objects would
+never run. Signals whose handlers only flip a few fields on the worker (input,
+viewport updates) are therefore connected with `DirectConnection` and execute on
+the GUI thread, mutating plain attributes that the worker reads (atomic under the
+GIL). Frame delivery worker → GUI uses an ordinary queued signal.
+
+### Render pump (decouple rendering from reading)
+
+Rendering must **not** be driven from the read loop. On Windows ConPTY an idle
+`read_timeout` does not reliably time out — it parks waiting for the next byte —
+so if the final frame after a command (the new prompt) were flushed only when a
+read returns, it would not appear until the next keystroke produced data. This
+manifests as "the prompt isn't shown until I type" and as input that feels one
+keystroke behind.
+
+The fix is a *render pump*: a `loop.call_later` callback that reschedules itself
+every frame interval (~16 ms) and emits a frame whenever there is unrendered
+output. It runs on the event loop independently of the read coroutine, so it
+fires even while a read is parked. The read loop's only rendering job is to set
+a `dirty` flag; the pump clears it on emit. This naturally rate-limits to the
+frame interval during heavy output and guarantees the last frame is flushed
+within one interval after output settles.
+
+```python
+def _pump(self):
+    if self._dirty:
+        self._emit_frame()      # serialize + emit; clears _dirty
+    self._handle = loop.call_later(1/60, self._pump)
+```
+
+### Windowed frames
+
+A naive front-end serializes the whole buffer with `styled_viewport()` every
+frame — O(total scrollback). Once history is deep this dominates and makes
+typing sluggish. Instead, each frame carries only the styled rows the view can
+actually display, obtained with `styled_range(start, count)`:
+
+- **`rows`** — styled cells for the on-screen window only (plus a screenful of
+  margin each side so small scrolls don't need a round-trip), via `styled_range`.
+- **`window_start`** — absolute index of `rows[0]`; the painter maps an absolute
+  row `r` to `rows[r - window_start]` and skips rows outside the window.
+- **`text_rows`** — the full buffer as plain text (`display()`), used for search,
+  selection, and URL detection across the entire scrollback. Plain strings are
+  far cheaper than styled cells, so this stays affordable even when full.
+- **cursor** — reported in absolute coordinates via `absolute_cursor()`, plus
+  `total_lines()` so the scrollbar range is correct.
+
+Per-frame styling cost becomes O(window) instead of O(total_lines); the only
+remaining full-buffer work is the cheap plain-text `text_rows` (which can be made
+conditional on search/selection being active if even that matters).
+
+### Viewport handshake
+
+The worker needs to know *which* absolute window to serialize. The view reports
+its viewport (whether it is following the bottom, its absolute top row, and its
+row count) whenever the user scrolls or the grid resizes:
+
+- **Following** (stuck to the bottom, the common case): the view sends a
+  "following" flag and the worker computes the window from `total_lines()` each
+  frame, so steadily growing output keeps the bottom in view without per-frame
+  chatter.
+- **Scrolled up**: the view sends its absolute top row; the worker serializes
+  that fixed window, so new background output grows the scrollbar range while the
+  user's position stays put.
+
+Marking the state dirty on a viewport change lets the pump re-render the new
+window within one frame interval, so scrolling stays responsive.
+
+### Graceful capability fallback
+
+`styled_range` is newer than the rest of the binding, so the front-end probes
+for it once (`hasattr`) and falls back to `styled_viewport()` with
+`window_start = 0` if it is absent. This lets the same Python front-end run
+against an older, un-rebuilt module (full-buffer rendering, no crash) and switch
+to the windowed fast path automatically once the module is rebuilt.
 
 ## Testing Strategy
 

@@ -69,7 +69,7 @@ import shutil
 import signal
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -267,15 +267,17 @@ def flags_from_terminal(t) -> TermFlags:
 
 @dataclass(frozen=True)
 class Frame:
-    rows: list                 # list[list[(text, fg, bg, attrs)]] — full buffer
+    rows: list                 # styled WINDOW: list[list[(text, fg, bg, attrs)]]
     cursor_x: int
-    cursor_y: int              # absolute row index into `rows`
+    cursor_y: int              # absolute row index into the full buffer
     title: str
     history: int               # scrollback line count
     total: int                 # total rows = history + visible
     visible: int               # number of on-screen rows
     flags: TermFlags
     alive: bool
+    window_start: int = 0      # absolute index of rows[0] in the full buffer
+    text_rows: list = field(default_factory=list)  # full buffer as plain text
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -418,6 +420,7 @@ class TerminalView(QWidget):
     key_input = Signal(bytes)            # bytes to write to the PTY
     grid_resized = Signal(int, int)      # (rows, cols) when the grid changes
     scroll_to_bottom_requested = Signal()
+    viewport_changed = Signal(bool, int, int)  # (follow, top_row, rows)
 
     def __init__(self, config: Config, scrollbar: QScrollBar,
                  parent: QWidget | None = None) -> None:
@@ -443,6 +446,7 @@ class TerminalView(QWidget):
 
         # Scroll (must exist before _apply_font, which may recompute the grid)
         self._follow = True
+        self._last_viewport = None        # last (follow, top, rows) sent upstream
         self.vbar.valueChanged.connect(self._on_scrollbar)
 
         self._apply_font()
@@ -523,6 +527,7 @@ class TerminalView(QWidget):
         if cols != self.cols or rows != self.rows:
             self.cols, self.rows = cols, rows
             self._update_scrollbar()
+            self._notify_viewport()
             self.grid_resized.emit(rows, cols)
 
     def resizeEvent(self, event) -> None:
@@ -547,7 +552,17 @@ class TerminalView(QWidget):
     def _on_scrollbar(self, value: int) -> None:
         max_top = self.vbar.maximum()
         self._follow = value >= max_top
+        self._notify_viewport()
         self.update()
+
+    def _notify_viewport(self) -> None:
+        # Tell the runner which absolute window to serialize. When following we
+        # send a sentinel top (-1) so steadily-growing output doesn't spam a new
+        # viewport every frame; the runner tracks the bottom itself.
+        key = (self._follow, -1 if self._follow else self.top_row, self.rows)
+        if key != self._last_viewport:
+            self._last_viewport = key
+            self.viewport_changed.emit(self._follow, self.top_row, self.rows)
 
     @property
     def top_row(self) -> int:
@@ -624,14 +639,16 @@ class TerminalView(QWidget):
                 return
 
             rows = self.frame.rows
+            ws = self.frame.window_start
             top = self.top_row
             sel = self._normalized_selection()
 
             for screen_row in range(self.rows):
-                ridx = top + screen_row
-                if ridx >= len(rows):
-                    break
-                self._paint_row(p, screen_row, ridx, rows[ridx], theme, sel)
+                ridx = top + screen_row        # absolute row index
+                widx = ridx - ws               # index within the styled window
+                if widx < 0 or widx >= len(rows):
+                    continue                   # outside the serialized window
+                self._paint_row(p, screen_row, ridx, rows[widx], theme, sel)
 
             self._paint_cursor(p, theme, top)
         finally:
@@ -759,18 +776,21 @@ class TerminalView(QWidget):
     # ── data access helpers ──────────────────────────────────────────
 
     def _char_at(self, row: int, col: int) -> str:
-        if not self.frame or row >= len(self.frame.rows):
+        if not self.frame:
             return " "
-        cells = self.frame.rows[row]
-        if col < len(cells):
-            t = cells[col][0]
-            return t if t else " "
-        return " "
+        tr = self.frame.text_rows
+        if row < 0 or row >= len(tr):
+            return " "
+        line = tr[row]
+        return line[col] if 0 <= col < len(line) else " "
 
     def _row_text(self, row: int) -> str:
-        if not self.frame or row >= len(self.frame.rows):
+        if not self.frame:
             return ""
-        return "".join((c[0] if c[0] else " ") for c in self.frame.rows[row])
+        tr = self.frame.text_rows
+        if row < 0 or row >= len(tr):
+            return ""
+        return tr[row]
 
     # ── coordinate mapping ────────────────────────────────────────────
 
@@ -779,7 +799,7 @@ class TerminalView(QWidget):
         col = max(0, min(self.cols - 1, col))
         row = self.top_row + int(pos.y() / self.cell_h)
         if self.frame:
-            row = max(0, min(len(self.frame.rows) - 1, row))
+            row = max(0, min(len(self.frame.text_rows) - 1, row))
         return row, col
 
     # ── selection ─────────────────────────────────────────────────────
@@ -821,9 +841,9 @@ class TerminalView(QWidget):
         self.update()
 
     def select_all(self) -> None:
-        if not self.frame or not self.frame.rows:
+        if not self.frame or not self.frame.text_rows:
             return
-        last = len(self.frame.rows) - 1
+        last = len(self.frame.text_rows) - 1
         self._sel_mode = "char"
         self._sel_anchor = (0, 0)
         self._sel_head = (last, max(0, self.cols - 1))
@@ -1140,7 +1160,7 @@ class TerminalView(QWidget):
             self._match_idx = -1
             return
         low = term.lower()
-        for r in range(len(self.frame.rows)):
+        for r in range(len(self.frame.text_rows)):
             line = self._row_text(r).lower()
             start = 0
             while True:
@@ -1313,6 +1333,9 @@ class _AsyncRunner(QObject):
         self._dirty = False               # output arrived but not yet rendered
         self._stopping = False            # shutting down: stop the render pump
         self._pump_handle = None          # asyncio TimerHandle for the pump
+        self._follow = True               # view stuck to the bottom?
+        self._view_top = 0                # absolute top row when not following
+        self._view_rows = winsize.rows if winsize else 24  # visible row count
         self.thread = QThread()
         self.moveToThread(self.thread)
         self.thread.started.connect(self._run_loop)
@@ -1398,22 +1421,50 @@ class _AsyncRunner(QObject):
             return
         try:
             t = s.terminal
-            cur_x, cur_y = t.absolute_cursor()
-            rows = t.styled_viewport()
             total = t.total_lines()
-            visible = total - t.history_size
+            hist = t.history_size
+            visible = total - hist
+            view_rows = self._view_rows if self._view_rows > 0 else 24
+            # Absolute top of what the view shows.
+            if self._follow:
+                top = max(0, total - view_rows)
+            else:
+                top = max(0, min(self._view_top, max(0, total - view_rows)))
+            # Serialize a window around the view (one screenful of margin each
+            # side) so small scrolls stay smooth without a round-trip — but
+            # never the whole scrollback. This is the O(window) win.
+            margin = view_rows
+            win_start = max(0, top - margin)
+            win_count = view_rows + 2 * margin
+            rows = t.styled_range(win_start, win_count)     # styled WINDOW only
+            text_rows = t.display()                          # full buffer, plain
+            cur_x, cur_y = t.absolute_cursor()
             title = t.title or ""
             if title != self._last_title:
                 self._last_title = title
                 self.title_changed.emit(title)
             self.data_ready.emit(Frame(
                 rows=rows, cursor_x=cur_x, cursor_y=cur_y, title=title,
-                history=t.history_size, total=total, visible=visible,
-                flags=flags_from_terminal(t), alive=s.is_alive))
+                history=hist, total=total, visible=visible,
+                flags=flags_from_terminal(t), alive=s.is_alive,
+                window_start=win_start, text_rows=text_rows))
             self._last_emit = time.monotonic()
             self._dirty = False
         except Exception as e:
             print(f"[render] frame skipped: {e!r}", file=sys.stderr)
+
+    def set_viewport(self, follow: bool, top: int, rows: int) -> None:
+        """Called from the GUI thread when the view scrolls or resizes.
+
+        Records which absolute window the next frame should serialize. Simple
+        attribute writes are atomic under the GIL; a slightly stale read on the
+        runner thread only costs one frame. Marking dirty makes the pump
+        re-render promptly so scrolling feels responsive.
+        """
+        self._follow = bool(follow)
+        self._view_top = max(0, int(top))
+        self._view_rows = max(1, int(rows))
+        self._dirty = True
 
     # ── GUI → bg thread actions ────────────────────────────────────────
 
@@ -1609,6 +1660,8 @@ class TerminalTab(QWidget):
             self.runner.schedule_write,
             Qt.ConnectionType.DirectConnection)
         self.view.grid_resized.connect(self._on_grid_resized)
+        self.view.viewport_changed.connect(
+            self.runner.set_viewport, Qt.ConnectionType.DirectConnection)
         self.view.zoom_requested.connect(self.zoom_requested.emit)
         self.runner.data_ready.connect(self._on_frame)
         self.runner.process_exited.connect(self._on_exit)

@@ -6,6 +6,20 @@
 
 use super::screen::{Char, Margins, Screen};
 
+/// Pack a cell into the Python tuple shape (text, fg, bg, attrs_bitmask).
+fn pack_cell(c: &Char) -> (String, String, String, u8) {
+    let mut a = 0u8;
+    if c.bold          { a |= 1 << 0; }
+    if c.dim           { a |= 1 << 1; }
+    if c.italics       { a |= 1 << 2; }
+    if c.underscore    { a |= 1 << 3; }
+    if c.blink         { a |= 1 << 4; }
+    if c.reverse       { a |= 1 << 5; }
+    if c.hidden        { a |= 1 << 6; }
+    if c.strikethrough { a |= 1 << 7; }
+    (c.data.clone(), c.fg.clone(), c.bg.clone(), a)
+}
+
 pub struct HistoryScreen {
     inner: Screen,
     history: Vec<Vec<Char>>,
@@ -63,22 +77,29 @@ impl HistoryScreen {
 
     /// History + visible buffer as styled cells: (text, fg, bg, attrs_bitmask).
     pub fn styled_viewport(&self) -> Vec<Vec<(String, String, String, u8)>> {
-        fn pack(c: &Char) -> (String, String, String, u8) {
-            let mut a = 0u8;
-            if c.bold          { a |= 1 << 0; }
-            if c.dim           { a |= 1 << 1; }
-            if c.italics       { a |= 1 << 2; }
-            if c.underscore    { a |= 1 << 3; }
-            if c.blink         { a |= 1 << 4; }
-            if c.reverse       { a |= 1 << 5; }
-            if c.hidden        { a |= 1 << 6; }
-            if c.strikethrough { a |= 1 << 7; }
-            (c.data.clone(), c.fg.clone(), c.bg.clone(), a)
-        }
         self.history.iter()
             .chain(self.inner.buffer.iter())
-            .map(|row| row.iter().map(pack).collect())
+            .map(|row| row.iter().map(pack_cell).collect())
             .collect()
+    }
+
+    /// Styled cells for absolute rows `[start, start + count)`, clamped to the
+    /// buffer. Rows below `history_len` come from scrollback; the rest from the
+    /// visible screen. Lets callers serialize only the window currently on
+    /// screen instead of the entire scrollback (O(window) instead of O(total)).
+    pub fn styled_range(&self, start: usize, count: usize)
+            -> Vec<Vec<(String, String, String, u8)>> {
+        let total = self.total_lines();
+        let end = start.saturating_add(count).min(total);
+        let hlen = self.history.len();
+        let mut out = Vec::with_capacity(end.saturating_sub(start));
+        let mut i = start;
+        while i < end {
+            let row = if i < hlen { &self.history[i] } else { &self.inner.buffer[i - hlen] };
+            out.push(row.iter().map(pack_cell).collect());
+            i += 1;
+        }
+        out
     }
 
     pub fn buffer(&self) -> &Vec<Vec<Char>> { &self.inner.buffer }
@@ -440,6 +461,33 @@ mod tests {
         let vis = hs.visible_display();
         assert_eq!(vis[0].trim_end(), "P0");
         assert_eq!(vis[3].trim_end(), "P3");
+    }
+
+    #[test]
+    fn test_styled_range_windows_buffer() {
+        let mut hs = make_history(10, 3, 100);
+        hs.feed(b"L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5"); // 6 lines; 3 scroll into history
+        let total = hs.total_lines();
+        assert_eq!(total, hs.history_size() + 3);
+        // Full range equals styled_viewport.
+        let full = hs.styled_range(0, total);
+        assert_eq!(full.len(), total);
+        assert_eq!(full.len(), hs.styled_viewport().len());
+        // A 2-row sub-window.
+        assert_eq!(hs.styled_range(1, 2).len(), 2);
+        // Start past the end clamps to empty.
+        assert_eq!(hs.styled_range(total + 5, 4).len(), 0);
+        // Count past the end clamps to what remains.
+        assert_eq!(hs.styled_range(total - 1, 10).len(), 1);
+    }
+
+    #[test]
+    fn test_styled_range_matches_viewport_rows() {
+        let mut hs = make_history(8, 2, 50);
+        hs.feed(b"\x1b[31mAB\x1b[0m\r\nCD\r\nEF"); // styled first row, then scroll
+        let vp = hs.styled_viewport();
+        let win = hs.styled_range(0, hs.total_lines());
+        assert_eq!(win, vp); // identical content and styling
     }
 
     #[test]

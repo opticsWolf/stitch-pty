@@ -132,6 +132,7 @@ Async. Opens a raw PTY pair without spawning a child.
 | `resize(lines, cols)` | Resize; shrink pushes top overflow into scrollback, grow pads at the bottom |
 | `reset()` | Reset terminal + clear history |
 | `styled_viewport()` | Full buffer as styled cells: `list[list[(text, fg, bg, attrs_bitmask)]]` |
+| `styled_range(start, count)` | Styled cells for absolute rows `[start, start+count)` (clamped) — window-only, O(window) not O(total) |
 | `total_lines()` | Total lines = history + visible |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
 
@@ -143,6 +144,26 @@ Async. Opens a raw PTY pair without spawning a child.
 | `history_size` | Current scrollback line count |
 | `scrollback_lines` | Scrollback capacity |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
+
+#### Efficient rendering (windowed frames)
+
+A front-end usually only paints the rows currently on screen, so serializing
+the whole buffer with `styled_viewport()` every frame is O(total scrollback)
+and gets expensive once history is deep. Instead, serialize just the visible
+window (plus a little margin for smooth scrolling) with `styled_range`:
+
+```python
+t      = session.terminal
+total  = t.total_lines()
+top    = total - view_rows           # bottom (following); or the scroll offset
+margin = view_rows
+start  = max(0, top - margin)
+window = t.styled_range(start, view_rows + 2 * margin)   # O(window)
+# paint absolute row r from window[r - start]; cursor at absolute_cursor()
+```
+
+For search/selection across the whole buffer use the cheap plain-text
+`display()` (a `list[str]`), not the styled cells.
 
 #### Live mode flags
 
