@@ -210,7 +210,39 @@ impl HistoryScreen {
     pub fn clear_margins(&mut self) { self.inner.clear_margins(); }
     pub fn alignment_display(&mut self) { self.inner.alignment_display(); }
     pub fn reset(&mut self) { self.inner.reset(); self.clear_history(); }
-    pub fn resize(&mut self, lines: usize, columns: usize) { self.inner.resize(lines, columns); }
+    pub fn resize(&mut self, lines: usize, columns: usize) {
+        // On the alternate screen there is no scrollback interaction: just
+        // reshape both the live alt buffer and the parked primary buffer.
+        if self.inner.alt_screen {
+            self.inner.resize(lines, columns);
+            return;
+        }
+        let old_lines = self.inner.lines;
+        if lines < old_lines {
+            // Shrinking: drop unused rows below the cursor first, then push the
+            // remaining overflow off the top into the scrollback history.
+            let excess = old_lines - lines;
+            let rows_below = old_lines.saturating_sub(self.inner.cursor.y + 1);
+            let from_bottom = excess.min(rows_below);
+            let from_top = excess - from_bottom;
+            for _ in 0..from_bottom {
+                self.inner.buffer.pop();
+            }
+            for _ in 0..from_top {
+                if !self.inner.buffer.is_empty() {
+                    let line = self.inner.buffer.remove(0);
+                    self.push_history(line);
+                }
+            }
+            self.inner.cursor.y = self.inner.cursor.y.saturating_sub(from_top);
+        }
+        // Growing pads at the bottom (handled by inner.resize). We deliberately
+        // do NOT pull lines back out of history: the shell redraws on SIGWINCH
+        // and would clear those rows, and a subsequent shrink would push the
+        // blanks back — repeated fast resizes would then drain real scrollback.
+        // Reshape columns and pad/truncate to exactly `lines` rows.
+        self.inner.resize(lines, columns);
+    }
     pub fn set_title(&mut self, title: &str) { self.inner.set_title(title); }
     pub fn set_icon_name(&mut self, name: &str) { self.inner.set_icon_name(name); }
     pub fn report_device_attributes(&mut self) { self.inner.report_device_attributes(); }
@@ -222,6 +254,7 @@ impl HistoryScreen {
     pub fn cursor_mut(&mut self) -> &mut super::screen::Cursor { &mut self.inner.cursor }
     pub fn cursor_style(&self) -> super::screen::CursorStyle { self.inner.cursor_style }
     pub fn cursor_blink(&self) -> bool { self.inner.cursor_blink }
+    pub fn alt_screen(&self) -> bool { self.inner.alt_screen }
 
     /// Cursor shape as a front-end-friendly name: "block", "underline", or "bar".
     pub fn cursor_shape(&self) -> &'static str {
@@ -247,9 +280,20 @@ impl HistoryScreen {
     pub fn feed(&mut self, data: &[u8]) {
         use super::parser::Performer;
         use super::ansi_parser::Parser as AnsiParser;
-        let mut performer = Performer::new(&mut self.inner);
-        let mut parser = AnsiParser::new();
-        parser.advance(&mut performer, data);
+        {
+            let mut performer = Performer::new(&mut self.inner);
+            let mut parser = AnsiParser::new();
+            parser.advance(&mut performer, data);
+        }
+        // Capture any lines that scrolled off the top during this feed into the
+        // scrollback history. (The parser drives the inner Screen directly, so
+        // its scroll-up evicts into Screen::scrolled_off for us to collect.)
+        if !self.inner.scrolled_off.is_empty() {
+            let lines = std::mem::take(&mut self.inner.scrolled_off);
+            for line in lines {
+                self.push_history(line);
+            }
+        }
     }
 }
 
@@ -314,6 +358,89 @@ mod tests {
     }
 
     // ── History Capacity ────────────────────────────────────────────────
+
+    #[test]
+    fn test_feed_scroll_populates_history() {
+        // The real feed path (parser -> inner Screen) must still capture lines
+        // that scroll off the top into the scrollback history.
+        let mut hs = make_history(10, 3, 100);
+        hs.feed(b"L0\r\nL1\r\nL2\r\nL3\r\nL4");
+        assert!(hs.history_size() >= 2, "history={}", hs.history_size());
+        assert_eq!(hs.history_display()[0].trim_end(), "L0");
+        // styled_viewport must expose history + visible, matching total_lines.
+        assert_eq!(hs.styled_viewport().len(), hs.total_lines());
+    }
+
+    #[test]
+    fn test_resize_shrink_pushes_top_to_history() {
+        let mut hs = make_history(10, 4, 100);
+        hs.feed(b"A\r\nB\r\nC\r\nD");      // fills 4 rows, cursor on the last
+        assert_eq!(hs.history_size(), 0);
+        hs.resize(2, 10);                  // shrink: top rows go to scrollback
+        assert!(hs.history_size() >= 2, "history={}", hs.history_size());
+        assert_eq!(hs.history_display()[0].trim_end(), "A");
+        assert_eq!(hs.visible_display().last().unwrap().trim_end(), "D");
+    }
+
+    #[test]
+    fn test_resize_grow_preserves_history() {
+        let mut hs = make_history(10, 2, 100);
+        hs.feed(b"A\r\nB\r\nC\r\nD");      // scrolls A,B into history; C,D visible
+        let before = hs.history_size();
+        assert!(before >= 2, "history={}", before);
+        hs.resize(4, 10);                  // grow: history is NOT drained
+        assert_eq!(hs.history_size(), before);
+        let vis = hs.visible_display();
+        assert_eq!(vis.len(), 4);
+        // Existing content stays at the top; new rows pad the bottom.
+        assert_eq!(vis[0].trim_end(), "C");
+        assert_eq!(vis[1].trim_end(), "D");
+        assert_eq!(vis[2].trim_end(), "");
+    }
+
+    // ── Alternate screen ────────────────────────────────────────────────
+
+    #[test]
+    fn test_alt_screen_swap_and_restore() {
+        let mut hs = make_history(10, 3, 100);
+        hs.feed(b"primary");
+        let saved_x = hs.cursor().x;
+        hs.feed(b"\x1b[?1049h");
+        assert!(hs.alt_screen());
+        assert_eq!(hs.visible_display()[0].trim_end(), ""); // fresh alt buffer
+        hs.feed(b"\x1b[H");                                 // home, then draw
+        hs.feed(b"ALT");
+        assert_eq!(hs.visible_display()[0].trim_end(), "ALT");
+        hs.feed(b"\x1b[?1049l");
+        assert!(!hs.alt_screen());
+        assert_eq!(hs.visible_display()[0].trim_end(), "primary"); // primary back
+        assert_eq!(hs.cursor().x, saved_x);                        // cursor restored
+    }
+
+    #[test]
+    fn test_alt_screen_no_scrollback() {
+        let mut hs = make_history(10, 3, 100);
+        hs.feed(b"\x1b[?1049h");
+        let before = hs.history_size();
+        hs.feed(b"a\r\nb\r\nc\r\nd\r\ne\r\nf");   // scroll a lot on the alt screen
+        assert_eq!(hs.history_size(), before, "alt screen must not feed scrollback");
+        hs.feed(b"\x1b[?1049l");
+    }
+
+    #[test]
+    fn test_alt_screen_resize_restores_primary() {
+        let mut hs = make_history(10, 4, 100);
+        hs.feed(b"P0\r\nP1\r\nP2\r\nP3");
+        hs.feed(b"\x1b[?1049h");
+        hs.resize(6, 10);                 // resize while on the alt screen
+        assert!(hs.alt_screen());
+        assert_eq!(hs.lines(), 6);
+        hs.feed(b"\x1b[?1049l");
+        assert_eq!(hs.lines(), 6);
+        let vis = hs.visible_display();
+        assert_eq!(vis[0].trim_end(), "P0");
+        assert_eq!(vis[3].trim_end(), "P3");
+    }
 
     #[test]
     fn test_scrollback_limit() {

@@ -121,6 +121,15 @@ pub struct Screen {
     pub cursor_blink: bool,
     pub keyboard_mode: u16,
     pub keyboard_mode_stack: Vec<u16>,
+    /// Lines that scrolled off the top of a full screen, awaiting capture into
+    /// the scrollback history by the owning `HistoryScreen` after each feed.
+    pub scrolled_off: Vec<Vec<Char>>,
+    /// Whether the alternate screen buffer is currently active.
+    pub alt_screen: bool,
+    /// Primary buffer, parked here while the alternate screen is active.
+    pub saved_buffer: Option<Vec<Vec<Char>>>,
+    /// Cursor saved on `?1049h` entry, restored on `?1049l`.
+    pub alt_saved_cursor: Option<Cursor>,
 }
 
 impl Screen {
@@ -138,6 +147,8 @@ impl Screen {
             write_process_input: Box::new(|_: &str| {}) as Box<dyn FnMut(&str) + Send + Sync + 'static>, cursor_style: CursorStyle::Default,
             cursor_blink: true,
             keyboard_mode: 0, keyboard_mode_stack: Vec::new(),
+            scrolled_off: Vec::new(),
+            alt_screen: false, saved_buffer: None, alt_saved_cursor: None,
         };
         screen.init_tabstops();
         screen
@@ -158,6 +169,8 @@ impl Screen {
         self.charset = CharsetRef::Ascii; self.charset_index = 0;
         self.icon_name.clear(); self.title.clear(); self.cursor_style = CursorStyle::Default; self.cursor_blink = true;
         self.keyboard_mode = 0; self.keyboard_mode_stack.clear(); self.init_tabstops();
+        self.scrolled_off.clear();
+        self.alt_screen = false; self.saved_buffer = None; self.alt_saved_cursor = None;
         self.dirty.clear();
         for line in &mut self.buffer { for ch in line { *ch = self.default_char.clone(); } }
     }
@@ -174,6 +187,10 @@ impl Screen {
         self.dirty.clear(); self.init_tabstops();
         self.cursor.x = self.cursor.x.min(self.columns.saturating_sub(1));
         self.cursor.y = self.cursor.y.min(self.lines.saturating_sub(1));
+        // Keep the parked primary buffer in sync so it restores cleanly on exit.
+        if let Some(saved) = self.saved_buffer.take() {
+            self.saved_buffer = Some(Self::conform_buffer(saved, lines, columns, &self.default_char));
+        }
     }
 
     // ── Mode Management ──────────────────────────────────────────
@@ -193,6 +210,8 @@ impl Screen {
             mo::DECSCNM => { self.mode.set_private(mode); self.default_char.reverse = true; self.apply_reverse_to_buffer(true); }
             mo::DECTCEM => { self.mode.set_private(mode); self.cursor.hidden = false; }
             mo::DECAWM => { self.mode.set_private(mode); }
+            mo::ALT_SCREEN_47 | mo::ALT_SCREEN_1047 => { self.enter_alt_screen(false); self.mode.set_private(mode); }
+            mo::ALT_SCREEN_1049 => { self.enter_alt_screen(true); self.mode.set_private(mode); }
             _ => { self.mode.set_private(mode); }
         }
     }
@@ -204,6 +223,8 @@ impl Screen {
             mo::DECSCNM => { self.mode.clear_private(mode); self.default_char.reverse = false; self.apply_reverse_to_buffer(false); }
             mo::DECTCEM => { self.mode.clear_private(mode); self.cursor.hidden = true; }
             mo::DECAWM => { self.mode.clear_private(mode); }
+            mo::ALT_SCREEN_47 | mo::ALT_SCREEN_1047 => { self.exit_alt_screen(false); self.mode.clear_private(mode); }
+            mo::ALT_SCREEN_1049 => { self.exit_alt_screen(true); self.mode.clear_private(mode); }
             _ => { self.mode.clear_private(mode); }
         }
     }
@@ -213,6 +234,55 @@ impl Screen {
         for line in &mut self.buffer { for ch in line { *ch = self.default_char.clone(); } }
         self.dirty.clear();
     }
+
+    // ── Alternate screen buffer ──────────────────────────────────
+    //
+    // The primary buffer is parked in `saved_buffer` and replaced with a fresh
+    // (cleared) buffer. On exit it is restored, conformed to the current size in
+    // case a resize happened meanwhile. `?1049` additionally saves/restores the
+    // cursor. Note: the alternate buffer is not preserved across switches (a
+    // fresh one is created each entry), which is the common case for `?47`.
+
+    pub fn enter_alt_screen(&mut self, save_cursor: bool) {
+        if self.alt_screen { return; }
+        if save_cursor { self.alt_saved_cursor = Some(self.cursor.clone()); }
+        let fresh = vec![vec![self.default_char.clone(); self.columns]; self.lines];
+        self.saved_buffer = Some(std::mem::replace(&mut self.buffer, fresh));
+        self.alt_screen = true;
+        self.mark_all_dirty();
+    }
+
+    pub fn exit_alt_screen(&mut self, restore_cursor: bool) {
+        if !self.alt_screen { return; }
+        if let Some(buf) = self.saved_buffer.take() {
+            self.buffer = Self::conform_buffer(buf, self.lines, self.columns, &self.default_char);
+        }
+        self.alt_screen = false;
+        if restore_cursor {
+            if let Some(c) = self.alt_saved_cursor.take() { self.cursor = c; }
+        } else {
+            self.alt_saved_cursor = None;
+        }
+        self.cursor.x = self.cursor.x.min(self.columns.saturating_sub(1));
+        self.cursor.y = self.cursor.y.min(self.lines.saturating_sub(1));
+        self.mark_all_dirty();
+    }
+
+    fn conform_buffer(buf: Vec<Vec<Char>>, lines: usize, columns: usize,
+                      default: &Char) -> Vec<Vec<Char>> {
+        let mut out: Vec<Vec<Char>> = buf.into_iter().map(|line| {
+            let mut row: Vec<Char> = line.into_iter().take(columns).collect();
+            while row.len() < columns { row.push(default.clone()); }
+            row
+        }).take(lines).collect();
+        while out.len() < lines { out.push(vec![default.clone(); columns]); }
+        out
+    }
+
+    fn mark_all_dirty(&mut self) {
+        for y in 0..self.lines { self.dirty.insert(y); }
+    }
+
     fn apply_reverse_to_buffer(&mut self, reverse: bool) {
         for line in &mut self.buffer { for ch in line { ch.reverse = reverse; } }
     }
@@ -404,7 +474,11 @@ impl Screen {
     pub fn scroll_up(&mut self, rows: usize) {
         let (top, bottom) = self.scroll_region(); let default_line = vec![self.default_char.clone(); self.columns];
         let rows = rows.min(bottom - top + 1);
+        // Only a full-screen scroll on the primary buffer feeds the scrollback;
+        // alt-screen scrolls and margin-region scrolls (pagers) must not.
+        let to_history = self.margins.is_none() && !self.alt_screen;
         for _ in 0..rows {
+            if to_history { self.scrolled_off.push(self.buffer[top].clone()); }
             for y in top..bottom { self.buffer[y] = std::mem::replace(&mut self.buffer[y + 1], default_line.clone()); }
             self.buffer[bottom] = default_line.clone(); self.dirty.insert(bottom);
         }

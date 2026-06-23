@@ -143,12 +143,10 @@ impl TerminalState {
         self.screen.mode().sgr_mouse()
     }
 
-    /// Whether an alternate-screen mode (?1049/?1047/?47) is active.
-    ///
-    /// Flag only — the buffer is not actually swapped (see `Modes::is_alt_screen`).
+    /// Whether the alternate screen buffer is currently active (?1049/?1047/?47).
     #[getter]
     pub fn alt_screen(&self) -> bool {
-        self.screen.mode().is_alt_screen()
+        self.screen.alt_screen()
     }
 
     /// Highest-precedence active mouse-tracking mode: 1003, 1002, 1000, or 0.
