@@ -1310,6 +1310,9 @@ class _AsyncRunner(QObject):
         self._last_title = ""
         self._last_emit = 0.0
         self._min_frame_dt = 1.0 / 60.0   # cap emit rate to ~60fps
+        self._dirty = False               # output arrived but not yet rendered
+        self._stopping = False            # shutting down: stop the render pump
+        self._pump_handle = None          # asyncio TimerHandle for the pump
         self.thread = QThread()
         self.moveToThread(self.thread)
         self.thread.started.connect(self._run_loop)
@@ -1337,6 +1340,7 @@ class _AsyncRunner(QObject):
         except Exception:
             pass
         asyncio.create_task(self._read_loop())
+        self._pump()                      # start the independent render pump
 
     # ── read loop ──────────────────────────────────────────────────────
 
@@ -1344,7 +1348,7 @@ class _AsyncRunner(QObject):
         assert self.session is not None
         while True:
             try:
-                data = await self.session.read_timeout(8192, 0.03)
+                data = await self.session.read_timeout(8192, 0.05)
             except asyncio.CancelledError:
                 return                   # shutdown requested — stop at once
             except PtyError:
@@ -1356,10 +1360,11 @@ class _AsyncRunner(QObject):
                 if self.bells.pending:
                     self.bells.pending = 0
                     self.bell.emit()
-                self._maybe_emit()
+                self._dirty = True       # the render pump will pick this up
             elif not self.session.is_alive:
                 break
-        self._emit_frame(force=True)
+        self._dirty = True
+        self._emit_frame(force=True)     # guarantee the final state is shown
         code = -1
         try:
             res = await self.session.wait()
@@ -1369,10 +1374,23 @@ class _AsyncRunner(QObject):
             pass
         self.process_exited.emit(code)
 
-    def _maybe_emit(self) -> None:
-        now = time.monotonic()
-        if now - self._last_emit >= self._min_frame_dt:
-            self._emit_frame()
+    def _pump(self) -> None:
+        """Render unrendered output on a fixed cadence.
+
+        Runs on the asyncio loop via ``call_later`` and reschedules itself, so
+        it fires every frame interval *independently of the read coroutine*.
+        This matters on Windows ConPTY, where an idle ``read_timeout`` may park
+        waiting for the next byte rather than timing out — if rendering were
+        driven from the read loop, the final frame after a command (the new
+        prompt) would not appear until the next keystroke produced data.
+        """
+        if self._stopping:
+            return
+        if self.session is not None and self._dirty:
+            self._emit_frame(force=True)
+        loop = self.loop
+        if loop is not None and not self._stopping:
+            self._pump_handle = loop.call_later(self._min_frame_dt, self._pump)
 
     def _emit_frame(self, force: bool = False) -> None:
         s = self.session
@@ -1393,6 +1411,7 @@ class _AsyncRunner(QObject):
                 history=t.history_size, total=total, visible=visible,
                 flags=flags_from_terminal(t), alive=s.is_alive))
             self._last_emit = time.monotonic()
+            self._dirty = False
         except Exception as e:
             print(f"[render] frame skipped: {e!r}", file=sys.stderr)
 
@@ -1480,6 +1499,12 @@ class _AsyncRunner(QObject):
         loop = self.loop
         if loop and loop.is_running():
             def _shutdown():
+                self._stopping = True
+                if self._pump_handle is not None:
+                    try:
+                        self._pump_handle.cancel()
+                    except Exception:
+                        pass
                 try:
                     if self.session:
                         self.session.kill()
@@ -1625,13 +1650,14 @@ class TerminalTab(QWidget):
         self.process_exited.emit(self, code)
 
     def _on_grid_resized(self, rows: int, cols: int) -> None:
+        # Debounce: record the target size and resize only once the drag
+        # settles. Resizing on every intermediate size during a fast drag
+        # thrashes the scrollback reflow and can corrupt history.
         self.winsize = Winsize(rows, cols, 0, 0)
-        self.runner.schedule_resize(rows, cols)   # live reflow where possible
-        self._resize_timer.start(60)              # guaranteed frame once settled
+        self._resize_timer.start(50)
 
     def _resize_settled(self) -> None:
-        # Re-apply the final size and force a repaint with the fresh frame, in
-        # case the post-resize frame was dropped during a modal resize loop.
+        # Apply the final size once and force a repaint with the fresh frame.
         self.runner.schedule_resize(self.winsize.rows, self.winsize.cols)
         self.view.update()
 
