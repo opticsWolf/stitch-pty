@@ -1,6 +1,6 @@
 [package]
 name = "stitch-pty"
-version = "0.5.0"
+version = "0.5.5"
 edition = "2024"
 authors = ["stitch-pty authors"]
 description = "Cross-platform async PTY with integrated terminal emulation for Python"

@@ -36,6 +36,7 @@ with scrollback history.
 - [Installation](#installation)
 - [API Reference](#api-reference)
   - [Core Functions](#core-functions)
+  - [ExitStatus](#exitstatus)
   - [PtySession](#ptysession)
   - [PtyMaster](#ptymaster)
   - [PtyChild](#ptychild)
@@ -145,7 +146,7 @@ print(output.decode())  # b"hello\n"
 
 #### `open_pty(winsize=None) → PtyMaster`
 
-Open a PTY pair without spawning a child process.
+Async. Opens a PTY pair without spawning a child process.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -163,6 +164,27 @@ await pty.write(b"hello\n")
 
 ---
 
+### ExitStatus
+
+Frozen dataclass returned by `await wait()` (or `None` if the child was already reaped).
+
+```python
+from stitch_pty import ExitStatus
+
+status = await session.wait()
+if status:
+    print(f"PID {status.pid} exited with code {status.exit_code}")
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pid` | `int` | PID of the process that exited |
+| `exit_code` | `int \| None` | Exit code, or `None` if killed by a signal |
+| `signal` | `int \| None` | Signal number, or `None` if exited normally |
+| `core_dumped` | `bool` | Whether a core dump was produced |
+
+---
+
 ### PtySession
 
 The primary interface for most use cases. Combines PTY I/O, child process management, and terminal emulation.
@@ -174,7 +196,7 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `write` | `await write(data) → int` | Write bytes to PTY, returns bytes written |
 | `write_all` | `await write_all(data) → None` | Write all bytes (handles partial writes) |
 | `resize` | `resize(rows, cols) → None` | Resize terminal (forwards to PTY backend) |
-| `wait` | `await wait() → dict \| None` | Wait for child exit; returns `{pid, exit_code, signal, core_dumped}` or `None` |
+| `wait` | `await wait() → ExitStatus \| None` | Wait for child exit; returns `ExitStatus` or `None` if already reaped |
 | `terminate` | `await terminate(grace_period=5.0) → None` | SIGTERM → wait → SIGKILL fallback |
 | `kill` | `kill() → None` | Force kill immediately |
 | `interrupt` | `interrupt() → None` | Send Ctrl+C (SIGINT on POSIX, `GenerateConsoleCtrlEvent` on Windows) |
@@ -230,7 +252,7 @@ Child process management.
 |-----------------|-----------|-------------|
 | `pid` | `property → int` | Child process PID |
 | `is_running` | `property → bool` | Process still running? |
-| `wait` | `await wait() → dict \| None` | Wait for exit; returns `{pid, exit_code, signal, core_dumped}` |
+| `wait` | `await wait() → ExitStatus \| None` | Wait for exit; returns `ExitStatus` or `None` if already reaped |
 | `terminate` | `await terminate(grace_period=5.0) → None` | SIGTERM → wait → SIGKILL |
 | `kill` | `kill() → None` | Force kill |
 | `interrupt` | `interrupt() → None` | Send Ctrl+C |
@@ -322,10 +344,10 @@ ws = Winsize(50, 120, 0, 0)
 │  │  │     Platform Abstraction Layer                   │   │    │
 │  │  │  ┌──────────────────┐  ┌──────────────────────┐  │   │    │
 │  │  │  │  POSIX Backend   │  │  Windows Backend     │  │   │    │
-│  │  │  │  ── openpty()   │  │  ── ConPTY (dyn load) │  │   │    │
-│  │  │  │  ── fork()      │  │  ── NamedPipe (async) │  │   │    │
-│  │  │  │  ── AsyncFd     │  │  ── CreateProcessW    │  │   │    │
-│  │  │  │  ── waitpid()   │  │  ── GetExitCodeProc   │  │   │    │
+│  │  │  │  ── openpty()    │  │  ── ConPTY (dyn load)│  │   │    │
+│  │  │  │  ── fork()       │  │  ── NamedPipe (async)│  │   │    │
+│  │  │  │  ── AsyncFd      │  │  ── CreateProcessW   │  │   │    │
+│  │  │  │  ── waitpid()    │  │  ── GetExitCodeProc  │  │   │    │
 │  │  │  └──────────────────┘  └──────────────────────┘  │   │    │
 │  │  └──────────────────────────────────────────────────┘   │    │
 │  └─────────────────────────────────────────────────────────┘    │

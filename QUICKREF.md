@@ -71,6 +71,17 @@ Async. Opens a raw PTY pair without spawning a child.
 | `xpixel` | `u16`  |
 | `ypixel` | `u16`  |
 
+### `ExitStatus` (returned by `await wait()`)
+
+Frozen dataclass. `await wait()` returns `None` instead if the child was already reaped.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pid` | `int` | PID of the process that exited |
+| `exit_code` | `int \| None` | Exit code, or `None` if killed by a signal |
+| `signal` | `int \| None` | Signal number, or `None` if exited normally |
+| `core_dumped` | `bool` | Whether a core dump was produced |
+
 ### `PtySession` — primary interface (combines PTY I/O + terminal emulation)
 
 | Method | Description |
@@ -84,7 +95,7 @@ Async. Opens a raw PTY pair without spawning a child.
 | `kill()` | Force kill |
 | `interrupt()` | Send Ctrl+C (SIGINT) |
 | `send_signal(num)` | Send signal number |
-| `await wait()` | Wait for exit, returns `dict | None` |
+| `await wait()` | Wait for exit, returns `ExitStatus \| None` |
 | `await interact(input_data=None, timeout=None)` | Write input, read until EOF |
 | `await expect(pattern, timeout=30.0)` | pexpect-style: read until pattern found |
 | `await read_all(timeout=1.0)` | Read all output until timeout |
@@ -114,7 +125,7 @@ Async. Opens a raw PTY pair without spawning a child.
 |-----------------|-------------|
 | `pid` | Child process PID |
 | `is_running` | Process still running? |
-| `await wait()` | Wait for exit, returns `(pid, exit_code, signal, core_dumped)` |
+| `await wait()` | Wait for exit, returns `ExitStatus \| None` |
 | `await terminate(grace_period)` | SIGTERM → wait → SIGKILL fallback |
 | `kill()` | Force kill |
 | `interrupt()` | Send Ctrl+C |
@@ -129,10 +140,9 @@ Async. Opens a raw PTY pair without spawning a child.
 | `visible_display()` | Visible screen only (`list[str]`) |
 | `history_display()` | Scrollback only (`list[str]`) |
 | `dirty()` | Modified row indices (`list[int]`) |
-| `resize(lines, cols)` | Resize; shrink pushes top overflow into scrollback, grow pads at the bottom |
+| `resize(lines, cols)` | Resize screen buffer |
 | `reset()` | Reset terminal + clear history |
 | `styled_viewport()` | Full buffer as styled cells: `list[list[(text, fg, bg, attrs_bitmask)]]` |
-| `styled_range(start, count)` | Styled cells for absolute rows `[start, start+count)` (clamped) — window-only, O(window) not O(total) |
 | `total_lines()` | Total lines = history + visible |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
 
@@ -145,43 +155,6 @@ Async. Opens a raw PTY pair without spawning a child.
 | `scrollback_lines` | Scrollback capacity |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
 
-#### Efficient rendering (windowed frames)
-
-A front-end usually only paints the rows currently on screen, so serializing
-the whole buffer with `styled_viewport()` every frame is O(total scrollback)
-and gets expensive once history is deep. Instead, serialize just the visible
-window (plus a little margin for smooth scrolling) with `styled_range`:
-
-```python
-t      = session.terminal
-total  = t.total_lines()
-top    = total - view_rows           # bottom (following); or the scroll offset
-margin = view_rows
-start  = max(0, top - margin)
-window = t.styled_range(start, view_rows + 2 * margin)   # O(window)
-# paint absolute row r from window[r - start]; cursor at absolute_cursor()
-```
-
-For search/selection across the whole buffer use the cheap plain-text
-`display()` (a `list[str]`), not the styled cells.
-
-#### Live mode flags
-
-Mode state recovered from the parsed stream, so front-ends don't have to
-re-scan raw bytes to drive cursor rendering, key encoding, mouse forwarding,
-or paste wrapping.
-
-| Property | Description |
-|----------|-------------|
-| `app_cursor` | DECCKM (`?1`) — application cursor keys active (`bool`) |
-| `cursor_visible` | DECTCEM (`?25`) — text cursor visible (`bool`) |
-| `cursor_shape` | DECSCUSR shape: `"block"`, `"underline"`, or `"bar"` (`str`) |
-| `cursor_blink` | DECSCUSR — cursor blinks vs. steady (`bool`) |
-| `mouse_proto` | Highest active mouse mode: `1003` / `1002` / `1000` / `0` (`int`) |
-| `sgr_mouse` | SGR mouse encoding (`?1006`) active (`bool`) |
-| `bracketed_paste` | Bracketed paste (`?2004`) active (`bool`) |
-| `alt_screen` | Alternate screen (`?1049`/`?1047`/`?47`) active — real buffer swap (`bool`) |
-
 ## Error Types
 
 | Exception | Inherits | On |
@@ -189,6 +162,11 @@ or paste wrapping.
 | `PtyError` | `Exception` | PTY open/operation failures |
 | `ProcessError` | `PtyError` | Spawn/kill failures |
 | `IOError` | `PtyError` | I/O errors, timeouts, winsize failures |
+
+These are the native exception classes registered by the Rust core and
+re-exported from `stitch_pty`, so `except stitch_pty.IOError` / `ProcessError`
+matches errors raised from native code. (Note: `stitch_pty.IOError` shadows the
+builtin `IOError`/`OSError` within this namespace.)
 
 ## Platform Differences
 
@@ -235,10 +213,8 @@ or paste wrapping.
 | `DECTCEM` | private | on | Text cursor visible |
 | `DECSCNM` | private | off | Reverse video |
 | `DECCKM` | private | off | Application keypad |
-| `BRACKETED_PASTE` | private | off | Bracketed paste mode (2004) |
+| `BRACKETED_PASTE` | private | off | Mouse paste mode |
 | Mouse modes | private | off | 1000/1002/1003/1004 |
-| `SGR_MOUSE` | private | off | SGR mouse encoding (1006) |
-| Alt screen | private | off | 1049/1047/47 — real buffer swap (1049 saves/restores cursor) |
 
 ### SGR Color Formats
 
