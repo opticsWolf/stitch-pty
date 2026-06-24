@@ -31,6 +31,7 @@ import os
 import signal
 import struct
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 # Unix-only imports (fcntl, termios) — stubbed on Windows
@@ -43,6 +44,8 @@ else:
 
 # Import the Rust extension module
 from stitch_pty._core import (
+    IOError,
+    ProcessError,
     PtyChild as _PtyChild,
     PtyError,
     PtyMaster as _PtyMaster,
@@ -53,13 +56,14 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.5.0"
 __all__ = [
     "PtySession",
     "PtyMaster",
     "PtyChild",
     "TerminalState",
     "Winsize",
+    "ExitStatus",
     "spawn",
     "open_pty",
     "PtyError",
@@ -69,8 +73,23 @@ __all__ = [
 
 # Re-export types for convenience
 TerminalState = _TerminalState
-ProcessError = type("ProcessError", (PtyError,), {})
-IOError = type("IOError", (PtyError,), {})
+
+
+@dataclass(frozen=True)
+class ExitStatus:
+    """Result of waiting on a child process.
+
+    Attributes:
+        pid: PID of the process that exited.
+        exit_code: Exit code if the process exited normally, else None.
+        signal: Signal number if the process was killed by a signal, else None.
+        core_dumped: Whether the process produced a core dump.
+    """
+
+    pid: int
+    exit_code: int | None
+    signal: int | None
+    core_dumped: bool
 
 
 class PtyMaster:
@@ -134,13 +153,14 @@ class PtyChild:
         """Whether the process is still running."""
         return self._inner.is_running
 
-    async def wait(self) -> dict[str, Any] | None:
+    async def wait(self) -> ExitStatus | None:
         """Wait for the process to exit.
 
-        Returns a dict with keys: pid, exit_code, signal, core_dumped.
-        Returns None if already reaped.
+        Returns an ExitStatus (pid, exit_code, signal, core_dumped),
+        or None if the process was already reaped.
         """
-        return await self._inner.wait()
+        result = await self._inner.wait()
+        return ExitStatus(*result) if result is not None else None
 
     async def terminate(self, grace_period: float = 5.0) -> None:
         """Send SIGTERM, wait for graceful exit, then SIGKILL if needed."""
@@ -213,9 +233,13 @@ class PtySession:
         """Get current window size."""
         return self._inner.get_winsize()
 
-    async def wait(self) -> dict[str, Any] | None:
-        """Wait for child to exit."""
-        return await self._inner.wait()
+    async def wait(self) -> ExitStatus | None:
+        """Wait for the child to exit.
+
+        Returns an ExitStatus, or None if the process was already reaped.
+        """
+        result = await self._inner.wait()
+        return ExitStatus(*result) if result is not None else None
 
     async def terminate(self, grace_period: float = 5.0) -> None:
         """Graceful termination with fallback to SIGKILL."""
@@ -347,12 +371,12 @@ class PtySession:
         await self.terminate(2.0)
 
 
-def open_pty(winsize: Winsize | None = None) -> PtyMaster:
+async def open_pty(winsize: Winsize | None = None) -> PtyMaster:
     """Open a new PTY pair and return the master handle.
 
     Use this for fine-grained control over the child process lifecycle.
     """
-    return PtyMaster(_open_pty(winsize))
+    return PtyMaster(await _open_pty(winsize))
 
 
 async def spawn(
