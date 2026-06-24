@@ -12,6 +12,7 @@ pub struct Winsize {
 #[pymethods]
 impl Winsize {
     #[new]
+    #[pyo3(signature = (rows, cols, xpixel = 0, ypixel = 0))]
     fn new(rows: u16, cols: u16, xpixel: u16, ypixel: u16) -> Self {
         Winsize { rows, cols, xpixel, ypixel }
     }

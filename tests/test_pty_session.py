@@ -7,7 +7,7 @@ spawning, and that read() output is parsed into the terminal.
 import asyncio
 
 import pytest
-from stitch_pty import spawn, PtySession, PtyError, Winsize
+from stitch_pty import spawn, PtySession, PtyError, Winsize, ExitStatus
 
 
 # ── spawning ──────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ async def test_spawn_with_env(shell):
 
 @pytest.mark.asyncio
 async def test_spawn_with_winsize():
-    session = await spawn("bash", ["-c", "echo hi"], winsize=Winsize(30, 100, 0, 0))
+    session = await spawn("bash", ["-c", "echo hi"], winsize=Winsize(30, 100))
     try:
         ws = session.get_winsize()
         assert ws.rows == 30
@@ -185,8 +185,7 @@ async def test_wait_returns_exit_info(shell):
     session = await spawn(prog, args)
     try:
         result = await asyncio.wait_for(session.wait(), timeout=5.0)
-        # wait() returns a tuple (pid, exit_code, ...) or similar structure
-        assert result is not None
+        assert isinstance(result, (ExitStatus, type(None)))
     finally:
         if session.is_alive:
             await session.terminate()

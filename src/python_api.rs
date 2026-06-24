@@ -111,14 +111,8 @@ impl PtyChild {
         let inner = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let exit = inner.wait().await;
-            match exit {
-                Some(exit) => {
-                    Ok((exit.pid, exit.exit_code, exit.signal, false))
-                }
-                None => {
-                    Ok((0u32, None::<i32>, None::<i32>, false))
-                }
-            }
+            // Already reaped → None; otherwise (pid, exit_code, signal, core_dumped).
+            Ok(exit.map(|exit| (exit.pid, exit.exit_code, exit.signal, false)))
         })
     }
 
