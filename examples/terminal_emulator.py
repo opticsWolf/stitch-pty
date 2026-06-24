@@ -20,7 +20,8 @@ Architecture:
     │  MainWindow  (Qt event loop — main thread)            │
     │  ┌──────────────────────────────────────────────────┐ │
     │  │  TerminalWidget (focusable, captures keystrokes)  │ │
-    │  │  Renders session.display (visible screen grid)    │ │
+    │  │  Renders styled_viewport (scrollback + visible),   │ │
+    │  │  full color via HTML spans                          │ │
     │  └──────────────────────────────────────────────────┘ │
     │  ┌──────────────────────────────────────────────────┐ │
     │  │  StatusBar: cursor │ title │ history │ size       │ │
@@ -34,7 +35,7 @@ Architecture:
     │  │  PtySession (Rust, lives ONLY in bg thread)     │  │
     │  │  ├── read_timeout() → feed → TerminalState      │  │
     │  │  ├── write() ← scheduled via call_soon_threadsafe│  │
-    │  │  └── terminal.display / cursor / title           │  │
+    │  │  └── terminal.styled_viewport / cursor / title   │  │
     │  └────────────────────────────────────────────────┘  │
     │  Emits data_ready(lines, cursor_x, cursor_y, ...)    │
     └──────────────────────────────────────────────────────┘
@@ -226,15 +227,11 @@ class TerminalWidget(QTextEdit):
         flush()
         return "".join(parts) or " "
 
-    def update_plain(self, lines: list[str]) -> None:
-        self.setPlainText("\n".join(lines))
-
     def show_welcome(self, program: str) -> None:
         """Colored splash shown at startup, before the child's first frame.
 
-        The renderer is monochrome (it draws session.display, which is plain
-        grid text), so the color comes from HTML spans here — not from the
-        terminal emulation. The first real frame from the shell replaces it.
+        Just a placeholder until the shell produces output; the first real
+        frame from `styled_viewport()` replaces it.
         """
         lines = [
             '<span style="color:#4ec9b0; font-weight:bold;">stitch-pty terminal</span>',
