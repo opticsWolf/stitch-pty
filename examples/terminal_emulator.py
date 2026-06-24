@@ -1,43 +1,52 @@
 # -*- coding: utf-8 -*-
-"""stitch-pty terminal emulator — PySide6 example.
+"""stitch-pty terminal emulator — PySide6 example (light, with scrollback).
 
-A minimal but functional terminal emulator demonstrating:
+A small but capable terminal emulator demonstrating:
 - Async PTY spawn with integrated terminal emulation
-- Real-time screen rendering via QPlainTextEdit (monospace)
-- Cursor position, title, and scrollback tracking
+- Windowed rendering via QTextEdit: only the visible slice of the buffer is
+  fetched each frame (terminal.styled_range), so a huge scrollback stays cheap
+- Real scrollback with an external scrollbar + wheel + Shift+PageUp/Down
+- Full SGR attributes: bold, dim, italic, underline, blink, reverse, hidden,
+  strikethrough
+- Cursor position, title, and history tracking
 - Keyboard input forwarding to the child process
 - Window resize forwarding (SIGWINCH equivalent)
 - asyncio + Qt event loop integration (background thread)
 
+This is the "light" sibling of the full emulator: it borrows the advanced
+viewport model (windowed frames + a follow/scroll handshake) but keeps a single
+QTextEdit renderer and skips the heavier machinery (render pump, tabs, find,
+selection model).
+
 Usage:
     pip install PySide6 stitch-pty
-    python terminal_emulator.py              # default shell
-    python terminal_emulator.py --cmd "whoami"   # one-shot command
-    python terminal_emulator.py --rows 30 --cols 100
+    python terminal_emulator_simple.py              # default shell
+    python terminal_emulator_simple.py --cmd "whoami"   # one-shot command
+    python terminal_emulator_simple.py --rows 30 --cols 100
 
 Architecture:
     ┌──────────────────────────────────────────────────────┐
     │  MainWindow  (Qt event loop — main thread)            │
+    │  ┌───────────────────────────────────┐ ┌───┐         │
+    │  │  TerminalWidget (captures keys)    │ │ s │ ← external
+    │  │  Renders one window of styled_range │ │ b │   scrollbar
+    │  │  (full color via HTML spans)        │ │ a │   = full
+    │  └───────────────────────────────────┘ │ r │   history
     │  ┌──────────────────────────────────────────────────┐ │
-    │  │  TerminalWidget (focusable, captures keystrokes)  │ │
-    │  │  Renders styled_viewport (scrollback + visible),   │ │
-    │  │  full color via HTML spans                          │ │
-    │  └──────────────────────────────────────────────────┘ │
-    │  ┌──────────────────────────────────────────────────┐ │
-    │  │  StatusBar: cursor │ title │ history │ size       │ │
+    │  │  StatusBar: cursor │ title │ history │ view │ size │ │
     │  └──────────────────────────────────────────────────┘ │
     └──────────────────────────────────────────────────────┘
          ▲  (Qt signals — carry plain Python data, thread-safe)
-         │
+         │  set_viewport(follow, top)  ▼  (handshake → bg thread)
     ┌────┴────────────────────────────────────────────────┐
     │  _AsyncRunner  (background QThread + asyncio loop)   │
     │  ┌────────────────────────────────────────────────┐  │
     │  │  PtySession (Rust, lives ONLY in bg thread)     │  │
     │  │  ├── read_timeout() → feed → TerminalState      │  │
     │  │  ├── write() ← scheduled via call_soon_threadsafe│  │
-    │  │  └── terminal.styled_viewport / cursor / title   │  │
+    │  │  └── terminal.styled_range(top, n) / cursor / …  │  │
     │  └────────────────────────────────────────────────┘  │
-    │  Emits data_ready(lines, cursor_x, cursor_y, ...)    │
+    │  Emits data_ready(Frame: window of styled cells)    │
     └──────────────────────────────────────────────────────┘
 """
 
@@ -51,14 +60,14 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 
-from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import Qt, QObject, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QHBoxLayout,
     QMainWindow,
+    QScrollBar,
     QTextEdit,
-    QStatusBar,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -100,6 +109,18 @@ def _resolve_color(color: str, default: str) -> str:
     return default
 
 
+def _dim_color(css: str) -> str:
+    """Darken a resolved #rrggbb color toward black (SGR 2 / dim)."""
+    if len(css) != 7 or not css.startswith("#"):
+        return css
+    try:
+        r, g, b = int(css[1:3], 16), int(css[3:5], 16), int(css[5:7], 16)
+    except ValueError:
+        return css
+    f = 0.55
+    return f"#{int(r * f):02x}{int(g * f):02x}{int(b * f):02x}"
+
+
 # Attribute bitmask layout (matches the packing in history.rs::styled_viewport)
 _A_BOLD, _A_DIM, _A_ITALIC, _A_UNDERLINE = 1 << 0, 1 << 1, 1 << 2, 1 << 3
 _A_BLINK, _A_REVERSE, _A_HIDDEN, _A_STRIKE = 1 << 4, 1 << 5, 1 << 6, 1 << 7
@@ -113,15 +134,21 @@ _A_BLINK, _A_REVERSE, _A_HIDDEN, _A_STRIKE = 1 << 4, 1 << 5, 1 << 6, 1 << 7
 class Frame:
     """One snapshot of terminal state, emitted by the bg thread.
 
-    `rows` is the full buffer (scrollback history + visible screen) as styled
-    cells: each cell is (text, fg, bg, attrs_bitmask). `cursor_y` is absolute
-    (indexed into `rows`, i.e. history_size + on-screen cursor row).
+    `rows` is only the WINDOW currently in view (not the whole buffer): a list
+    of styled rows, each a list of (text, fg, bg, attrs_bitmask) cells.
+    `window_start` is the absolute index of the first row in `rows`; add the
+    local row index to it to get the absolute row. `cursor_y` is absolute
+    (history_size + on-screen cursor row), so compare it against
+    `window_start + local_index`.
     """
-    rows:        list          # list[list[tuple[str, str, str, int]]]
-    cursor_x:    int
-    cursor_y:    int           # absolute row index into `rows`
-    title:       str
-    history:     int
+    rows:         list   # list[list[tuple[str, str, str, int]]]
+    cursor_x:     int
+    cursor_y:     int    # absolute row index into the full buffer
+    title:        str
+    history:      int
+    window_start: int    # absolute index of rows[0]
+    total:        int    # total_lines in the full buffer
+    view_rows:    int    # number of on-screen rows (== window height)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -129,19 +156,23 @@ class Frame:
 # ─────────────────────────────────────────────────────────────────────
 
 class TerminalWidget(QTextEdit):
-    """Focusable QTextEdit subclass: renders the screen and captures
-    ALL keyboard input for forwarding to the PTY.
+    """Focusable QTextEdit subclass: renders one window of the buffer and
+    captures ALL keyboard input for forwarding to the PTY.
 
-    Inherits QTextEdit so it gets focus naturally and receives
-    keyPressEvent directly — no proxy tricks needed."""
+    Scrolling is driven externally (MainWindow owns a QScrollBar that spans the
+    whole history); this widget only ever holds the visible window, so its own
+    vertical scrollbar is disabled.
+    """
 
-    key_pressed = Signal(bytes)   # <-- forward keystrokes via signal
+    key_pressed  = Signal(bytes)   # forward keystrokes via signal
+    scroll_lines = Signal(int)     # local scrollback request (+down / -up)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setReadOnly(True)
         self.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.setUndoRedoEnabled(False)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         font = QFont("Cascadia Code")
         if not font.exactMatch():
@@ -164,34 +195,61 @@ class TerminalWidget(QTextEdit):
             }}
         """)
 
+        # Blink: a single timer toggles a phase; we re-render the cached frame
+        # only when it actually contains blinking cells (cheap when it doesn't).
+        self._last_frame: Frame | None = None
+        self._blink_on = True
+        self._has_blink = False
+        self._blink_timer = QTimer(self)
+        self._blink_timer.setInterval(500)
+        self._blink_timer.timeout.connect(self._toggle_blink)
+        self._blink_timer.start()
+
     # ── rendering ───────────────────────────────────────────────
 
     def update_frame(self, frame: Frame) -> None:
-        """Render one Frame snapshot (called on main thread)."""
-        body = "\n".join(
-            self._render_row(row, ridx, frame.cursor_x, frame.cursor_y)
-            for ridx, row in enumerate(frame.rows)
-        )
+        """Cache and render one Frame snapshot (called on main thread)."""
+        self._last_frame = frame
+        self._render()
+
+    def _render(self) -> None:
+        frame = self._last_frame
+        if frame is None:
+            return
+        has_blink = False
+        out: list[str] = []
+        for i, row in enumerate(frame.rows):
+            line, row_blink = self._render_row(
+                row, frame.window_start + i,
+                frame.cursor_x, frame.cursor_y, self._blink_on)
+            has_blink = has_blink or row_blink
+            out.append(line)
+        self._has_blink = has_blink
         html = (
             f'<pre style="margin:0; color:{DEFAULT_FG}; '
-            f'background-color:{DEFAULT_BG};">{body}</pre>'
+            f'background-color:{DEFAULT_BG};">{chr(10).join(out)}</pre>'
         )
-
-        # Repainting the whole buffer resets the scrollbar, so remember where
-        # the user was: stick to the bottom when following live output, but
-        # keep their position if they've scrolled up into history.
-        sb = self.verticalScrollBar()
-        follow = sb.value() >= sb.maximum() - 4
-        prev = sb.value()
         self.setHtml(html)
-        sb.setValue(sb.maximum() if follow else min(prev, sb.maximum()))
+        # The widget holds exactly the window, so keep it pinned to the top;
+        # the external scrollbar is what actually moves through history.
+        self.verticalScrollBar().setValue(0)
+
+    def _toggle_blink(self) -> None:
+        self._blink_on = not self._blink_on
+        if self._has_blink and self._last_frame is not None:
+            self._render()
 
     @staticmethod
-    def _render_row(cells: list, ridx: int, cur_x: int, cur_y: int) -> str:
-        """Render one row of styled cells to HTML, coalescing equal styles."""
+    def _render_row(cells: list, abs_ridx: int, cur_x: int, cur_y: int,
+                    blink_on: bool) -> tuple[str, bool]:
+        """Render one row of styled cells to HTML, coalescing equal styles.
+
+        Returns (html, row_has_blink).
+        """
         parts: list[str] = []
         run: list[str] = []
         run_style: str | None = None
+        row_has_blink = False
 
         def flush() -> None:
             if run:
@@ -203,18 +261,33 @@ class TerminalWidget(QTextEdit):
             b = _resolve_color(bg, DEFAULT_BG)
             if attrs & _A_REVERSE:
                 f, b = b, f
-            is_cursor = (ridx == cur_y and cidx == cur_x)
+            if attrs & _A_DIM:
+                f = _dim_color(f)
+
+            hidden = bool(attrs & _A_HIDDEN)
+            if attrs & _A_BLINK:
+                row_has_blink = True
+                if not blink_on:        # blink "off" phase → make it vanish
+                    f = b
+
+            is_cursor = (abs_ridx == cur_y and cidx == cur_x)
             if is_cursor:
-                f, b = DEFAULT_FG, CURSOR_BG
+                f, b, hidden = DEFAULT_FG, CURSOR_BG, False
+
             style = f"color:{f};background-color:{b};"
             if attrs & _A_BOLD:
                 style += "font-weight:bold;"
             if attrs & _A_ITALIC:
                 style += "font-style:italic;"
+            deco = []
             if attrs & _A_UNDERLINE:
-                style += "text-decoration:underline;"
+                deco.append("underline")
+            if attrs & _A_STRIKE:
+                deco.append("line-through")
+            if deco:
+                style += f"text-decoration:{' '.join(deco)};"
 
-            ch = text if text else " "
+            ch = " " if hidden else (text if text else " ")
             if is_cursor:                       # cursor cell is always its own span
                 flush()
                 parts.append(f'<span style="{style}">{_esc(ch)}</span>')
@@ -225,13 +298,13 @@ class TerminalWidget(QTextEdit):
                     run_style = style
                 run.append(ch)
         flush()
-        return "".join(parts) or " "
+        return ("".join(parts) or " ", row_has_blink)
 
     def show_welcome(self, program: str) -> None:
         """Colored splash shown at startup, before the child's first frame.
 
         Just a placeholder until the shell produces output; the first real
-        frame from `styled_viewport()` replaces it.
+        frame replaces it.
         """
         lines = [
             '<span style="color:#4ec9b0; font-weight:bold;">stitch-pty terminal</span>',
@@ -247,6 +320,9 @@ class TerminalWidget(QTextEdit):
             '<span style="color:#c586c0;">Ctrl+Shift+K</span>'
             '<span style="color:#888888;"> kill process'
             '   ·   </span>'
+            '<span style="color:#c586c0;">Shift+PgUp/PgDn</span>'
+            '<span style="color:#888888;"> scrollback'
+            '   ·   </span>'
             '<span style="color:#c586c0;">Ctrl+= / Ctrl+-</span>'
             '<span style="color:#888888;"> font size</span>',
         ]
@@ -256,12 +332,34 @@ class TerminalWidget(QTextEdit):
 
     def keyPressEvent(self, event) -> None:
         """Intercept ALL key events BEFORE QTextEdit processes them."""
+        mods = event.modifiers()
+        key = event.key()
+
+        # Shift+PageUp / Shift+PageDown scroll the local scrollback instead of
+        # being sent to the child (matches common terminal UX).
+        if (mods & Qt.KeyboardModifier.ShiftModifier) and key in (
+                Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
+            step = self._page_lines()
+            self.scroll_lines.emit(-step if key == Qt.Key.Key_PageUp else step)
+            event.accept()
+            return
+
         keystroke = _key_to_bytes(event)
         if keystroke:
             self.key_pressed.emit(keystroke)
-        event.accept()  # eat it — don't let QTextEdit blink the cursor
+        event.accept()  # eat it — don't let QTextEdit blink its own cursor
 
-    # ── helpers (kept for resize/font API) ──────────────────────
+    def wheelEvent(self, event) -> None:
+        dy = event.angleDelta().y()
+        if dy:
+            self.scroll_lines.emit(-3 if dy > 0 else 3)
+        event.accept()
+
+    # ── helpers (kept for resize/font/scroll API) ───────────────
+
+    def _page_lines(self) -> int:
+        lh = max(1, self.fontMetrics().lineSpacing())
+        return max(1, self.contentsRect().height() // lh - 1)
 
     def get_char_size(self) -> tuple[int, int]:
         fm = self.fontMetrics()
@@ -331,8 +429,9 @@ def _key_to_bytes(event) -> bytes | None:
 class _AsyncRunner(QObject):
     """Runs asyncio + PtySession in a background QThread.
 
-    All PyO3 / Rust state lives HERE.  The main thread only sees
-    plain-Python Frame objects delivered via Qt signals.
+    All PyO3 / Rust state lives HERE. The main thread only sees plain-Python
+    Frame objects delivered via Qt signals, and pushes viewport changes back
+    via set_viewport().
     """
 
     data_ready     = Signal(object)   # Frame
@@ -346,6 +445,13 @@ class _AsyncRunner(QObject):
         self.winsize = winsize
         self.session: PtySession | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
+
+        # Viewport state (mutated only on the loop thread via set_viewport).
+        self._follow = True
+        self._view_top = 0
+        self.view_rows = winsize.rows
+        self._styled_range_ok: bool | None = None   # capability probe (once)
+
         self.thread = QThread()
         self.moveToThread(self.thread)
         self.thread.started.connect(self._run_loop)
@@ -357,7 +463,7 @@ class _AsyncRunner(QObject):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self.loop.run_until_complete(self._start())
-        # Keep alive so schedule_write() callbacks are processed
+        # Keep alive so schedule_write() / set_viewport() callbacks run.
         self.loop.run_forever()
 
     async def _start(self) -> None:
@@ -395,19 +501,56 @@ class _AsyncRunner(QObject):
         self.process_exited.emit()
 
     def _emit_frame(self) -> None:
-        """Snapshot terminal state and emit as a Frame (bg thread)."""
+        """Snapshot the visible WINDOW of terminal state and emit it."""
         s = self.session
         if not s:
             return
         t = s.terminal
+        total = t.total_lines()
+        view = self.view_rows
+
+        # Follow the live tail unless the user has scrolled up into history.
+        if self._follow:
+            top = max(0, total - view)
+        else:
+            top = max(0, min(self._view_top, max(0, total - view)))
+
+        # Probe styled_range once; fall back to slicing the full viewport if a
+        # build predates it (keeps the example working on older cores).
+        if self._styled_range_ok is None:
+            self._styled_range_ok = hasattr(t, "styled_range")
+            if not self._styled_range_ok:
+                print("[warn] TerminalState.styled_range not found — using full "
+                      "styled_viewport() (slower). Rebuild the extension to enable "
+                      "windowed rendering.", file=sys.stderr)
+
+        if self._styled_range_ok:
+            rows = t.styled_range(top, view)
+        else:
+            rows = t.styled_viewport()[top:top + view]
+
         cur_x, cur_y = t.absolute_cursor()        # (x, history + on-screen y)
         self.data_ready.emit(Frame(
-            rows     = t.styled_viewport(),        # history + visible, styled cells
-            cursor_x = cur_x,
-            cursor_y = cur_y,
-            title    = t.title,
-            history  = t.history_size,
+            rows         = rows,
+            cursor_x     = cur_x,
+            cursor_y     = cur_y,
+            title        = t.title,
+            history      = t.history_size,
+            window_start = top,
+            total        = total,
+            view_rows    = view,
         ))
+
+    # ── viewport handshake (called from main thread) ────────────
+
+    def set_viewport(self, follow: bool, top: int) -> None:
+        if self.loop:
+            self.loop.call_soon_threadsafe(self._apply_viewport, follow, top)
+
+    def _apply_viewport(self, follow: bool, top: int) -> None:
+        self._follow = follow
+        self._view_top = top
+        self._emit_frame()   # repaint immediately at the new position
 
     # ── write (scheduled from main thread) ──────────────────────
 
@@ -431,6 +574,7 @@ class _AsyncRunner(QObject):
         if self.session:
             self.session.resize(rows, cols)
             self.session.terminal.resize(rows, cols)
+            self.view_rows = rows
             self._emit_frame()  # refresh after resize
 
     # ── kill ────────────────────────────────────────────────────
@@ -478,8 +622,11 @@ class MainWindow(QMainWindow):
         self._last_resize_t = 0.0
         self._settle_timer = QTimer(self)
         self._settle_timer.setSingleShot(True)
-        self._settle_timer.setInterval(40)  # ms after the last drag tick — quick settle
+        self._settle_timer.setInterval(40)  # ms after the last drag tick
         self._settle_timer.timeout.connect(self._forward_resize)
+
+        # Guard so programmatic scrollbar updates don't echo back as user scrolls.
+        self._syncing_scrollbar = False
 
         self._setup_ui()
         self._setup_menu()
@@ -494,10 +641,23 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"stitch-pty: {self.program}")
 
         self.terminal = TerminalWidget()
-        self.terminal.key_pressed.connect(self.on_key)   # <-- connect signal
-        self.setCentralWidget(self.terminal)
+        self.terminal.key_pressed.connect(self.on_key)
+        self.terminal.scroll_lines.connect(self._scroll_by)
+
+        # External scrollbar spans the whole history; the widget shows a window.
+        self.vbar = QScrollBar(Qt.Orientation.Vertical)
+        self.vbar.valueChanged.connect(self._on_scroll)
+
+        container = QWidget()
+        lay = QHBoxLayout(container)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        lay.addWidget(self.terminal)
+        lay.addWidget(self.vbar)
+        self.setCentralWidget(container)
+
         self.terminal.setFocus()
-        self.terminal.show_welcome(self.program)         # colored startup splash
+        self.terminal.show_welcome(self.program)
 
         self.statusBar().setStyleSheet(f"""
             QStatusBar {{ background-color: {STATUS_BG}; color: {STATUS_FG}; }}
@@ -530,8 +690,18 @@ class MainWindow(QMainWindow):
     # ── signal handlers ─────────────────────────────────────────
 
     def _on_frame(self, frame: Frame) -> None:
-        """Render a Frame on the main thread."""
+        """Render a Frame on the main thread and sync the scrollbar to it."""
         self.terminal.update_frame(frame)
+
+        # Reflect the emitted window in the external scrollbar without echoing.
+        self._syncing_scrollbar = True
+        maxv = max(0, frame.total - frame.view_rows)
+        self.vbar.setRange(0, maxv)
+        self.vbar.setPageStep(max(1, frame.view_rows))
+        self.vbar.setSingleStep(1)
+        self.vbar.setValue(frame.window_start)
+        self._syncing_scrollbar = False
+
         if frame.title:
             self.setWindowTitle(f"{frame.title} — stitch-pty")
         self._status(frame)
@@ -540,12 +710,30 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Process exited", 3000)
 
     def _status(self, frame: Frame) -> None:
+        maxv = max(0, frame.total - frame.view_rows)
+        where = "live" if frame.window_start >= maxv else f"{frame.window_start}/{maxv}"
         self.statusBar().showMessage(
             f"Cursor: {frame.cursor_x},{frame.cursor_y}"
             f"  │  Title: {frame.title}"
             f"  │  History: {frame.history}"
+            f"  │  View: {where}"
             f"  │  Size: {self.winsize.cols}x{self.winsize.rows}"
         )
+
+    # ── scrollback ──────────────────────────────────────────────
+
+    def _on_scroll(self, value: int) -> None:
+        """User moved the scrollbar (drag, click, wheel, or PageUp/Down)."""
+        if self._syncing_scrollbar:
+            return
+        follow = value >= self.vbar.maximum()
+        self.runner.set_viewport(follow, value)
+
+    def _scroll_by(self, delta_lines: int) -> None:
+        """Wheel / Shift+PageUp-Down: nudge the scrollbar (drives _on_scroll)."""
+        new = self.vbar.value() + delta_lines
+        new = max(self.vbar.minimum(), min(new, self.vbar.maximum()))
+        self.vbar.setValue(new)
 
     # ── input ───────────────────────────────────────────────────
 
@@ -556,10 +744,8 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        # Throttle: a live resize at most once per _resize_throttle while dragging.
         if time.monotonic() - self._last_resize_t >= self._resize_throttle:
             self._forward_resize()
-        # Trailing: guarantees the final size lands ~40ms after motion stops.
         self._settle_timer.start()
 
     def _forward_resize(self) -> None:
