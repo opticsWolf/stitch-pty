@@ -13,7 +13,7 @@ use crate::platform::{ChildBackend, ChildKiller, ProcessExit, PtyBackend};
 use crate::winsize::Winsize;
 use libc::c_char;
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
-use std::os::fd::IntoRawFd;
+use std::os::fd::{BorrowedFd, IntoRawFd};
 use nix::pty::openpty;
 use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
@@ -328,9 +328,10 @@ impl PtyPair {
         let slave_fd = result.slave.into_raw_fd();
 
         // Set non-blocking on master
-        let flags = fcntl(master_fd, FcntlArg::F_GETFL)
+        let master_borrowed: BorrowedFd = unsafe { BorrowedFd::borrow_raw(master_fd) };
+        let flags = fcntl(master_borrowed, FcntlArg::F_GETFL)
             .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl GETFL: {}", e)))?;
-        fcntl(master_fd, FcntlArg::F_SETFL(OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK))
+        fcntl(master_borrowed, FcntlArg::F_SETFL(OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK))
             .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl SETFL: {}", e)))?;
 
         Ok(PtyPair { master_fd, slave_fd })
