@@ -1,11 +1,11 @@
 [package]
 name = "stitch-pty"
-version = "0.5.6"
+version = "0.5.7"
 edition = "2024"
 authors = ["stitch-pty authors"]
 description = "Cross-platform async PTY with integrated terminal emulation for Python"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/stitch-pty/stitch-pty"
+repository = "https://github.com/opticsWolf/stitch-pty"
 readme = "README.md"
 keywords = ["pty", "terminal", "async", "cross-platform"]
 categories = ["command-line-interface", "os", "asynchronous"]
