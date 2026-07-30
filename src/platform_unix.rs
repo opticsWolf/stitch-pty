@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
+use tokio::sync::Notify;
 
 
 // ============================================================================
@@ -185,6 +186,7 @@ impl Drop for UnixPtyMaster {
 #[derive(Clone)]
 pub struct UnixChildProcess {
     inner: Arc<Mutex<UnixChildState>>,
+    exited: Arc<Notify>,
 }
 
 #[derive(Debug)]
@@ -196,6 +198,7 @@ struct UnixChildState {
 
 impl UnixChildProcess {
     pub fn new(pid: Pid) -> Self {
+        let exited = Arc::new(Notify::new());
         let state = Arc::new(Mutex::new(UnixChildState {
             pid,
             running: true,
@@ -205,6 +208,7 @@ impl UnixChildProcess {
         // Use a weak reference so the background task exits when all
         // UnixChildProcess instances are dropped (e.g., in unit tests).
         let state_weak = Arc::downgrade(&state);
+        let exited_clone = Arc::clone(&exited);
 
         tokio::spawn(async move {
             loop {
@@ -236,6 +240,7 @@ impl UnixChildProcess {
                         let mut guard = state_strong.lock();
                         guard.running = false;
                         guard.exit_status = Some(exit);
+                        exited_clone.notify_one();
                         break;
                     }
                     Ok(Ok(WaitStatus::Signaled(pid, signal, _core_dumped))) => {
@@ -247,6 +252,7 @@ impl UnixChildProcess {
                         let mut guard = state_strong.lock();
                         guard.running = false;
                         guard.exit_status = Some(exit);
+                        exited_clone.notify_one();
                         break;
                     }
                     Ok(Ok(WaitStatus::StillAlive)) => {}
@@ -255,6 +261,7 @@ impl UnixChildProcess {
                     Ok(Err(_)) | Err(_) => {
                         let mut guard = state_strong.lock();
                         guard.running = false;
+                        exited_clone.notify_one();
                         break;
                     }
                 }
@@ -263,6 +270,7 @@ impl UnixChildProcess {
 
         UnixChildProcess {
             inner: state,
+            exited,
         }
     }
 }
@@ -278,15 +286,20 @@ impl ChildBackend for UnixChildProcess {
     }
 
     async fn wait(&self) -> Option<ProcessExit> {
-        loop {
-            {
-                let guard = self.inner.lock();
-                if !guard.running {
-                    return guard.exit_status.clone();
-                }
+        // First check if already exited (handles the case where child
+        // exits before wait() is called and the reaper already processed it)
+        {
+            let guard = self.inner.lock();
+            if !guard.running {
+                return guard.exit_status.clone();
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
         }
+        // Wait for the reaper to detect the exit. Notify doesn't have the
+        // race condition that watch::channel has because notified() doesn't
+        // care about the value at subscription time.
+        self.exited.notified().await;
+        // Re-check and return the exit status
+        self.inner.lock().exit_status.clone()
     }
 
     fn signal(&self, sig: i32) -> PtyResult<()> {
