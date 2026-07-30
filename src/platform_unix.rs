@@ -100,7 +100,13 @@ impl PtyBackend for UnixPtyMaster {
                 let fd = *inner.get_ref();
                 let ret = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len()) };
                 if ret < 0 {
-                    Err(std::io::Error::last_os_error())
+                    let err = std::io::Error::last_os_error();
+                    // Linux returns EIO when the PTY slave closes (child exited).
+                    // Treat it as EOF (0 bytes) so callers can detect the child is gone.
+                    if err.raw_os_error() == Some(libc::EIO) {
+                        return Ok(0);
+                    }
+                    Err(err)
                 } else {
                     Ok(ret as usize)
                 }
