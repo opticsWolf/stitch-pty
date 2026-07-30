@@ -212,8 +212,8 @@ class PtySession:
             data = await self._inner.read(size)
         except OSError as e:
             # Linux PTY returns EIO when the slave closes (child exited).
-            # Treat as EOF if the child is no longer alive.
-            if e.errno == errno.EIO and not self.is_alive:
+            # Check both errno and message (PyO3 may not set errno).
+            if e.errno == errno.EIO or "os error 5" in str(e):
                 return b""
             raise
         if data:
@@ -226,7 +226,7 @@ class PtySession:
         try:
             data = await self._inner.read_timeout(size, timeout)
         except OSError as e:
-            if e.errno == errno.EIO and not self.is_alive:
+            if e.errno == errno.EIO or "os error 5" in str(e):
                 return b""
             raise
         if data:
