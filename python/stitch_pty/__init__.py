@@ -261,13 +261,34 @@ class PtySession:
         """Wait for the child to exit.
 
         Returns an ExitStatus, or None if the process was already reaped.
+        Uses a polling loop with asyncio.wait_for to prevent event loop
+        starvation when the Rust-side polling loop blocks the Tokio runtime.
         """
-        result = await self._inner.wait()
-        return ExitStatus(*result) if result is not None else None
+        while True:
+            try:
+                # Poll the Rust wait() with a short timeout.
+                # This allows the Tokio runtime to do work (like reaping the child)
+                # and yields back to Python if it's not ready.
+                result = await asyncio.wait_for(self._inner.wait(), timeout=0.1)
+                return ExitStatus(*result) if result is not None else None
+            except asyncio.TimeoutError:
+                # If it times out, check if the process is alive. If not, we're done.
+                if not self._inner.is_alive:
+                    # Process is dead but wait() didn't return? Try one more time.
+                    try:
+                        result = await asyncio.wait_for(self._inner.wait(), timeout=0.1)
+                        return ExitStatus(*result) if result is not None else None
+                    except asyncio.TimeoutError:
+                        return None
+                continue
 
     async def terminate(self, grace_period: float = 5.0) -> None:
         """Graceful termination with fallback to SIGKILL."""
-        await self._inner.terminate(grace_period)
+        try:
+            await asyncio.wait_for(self._inner.terminate(grace_period), timeout=grace_period + 2.0)
+        except asyncio.TimeoutError:
+            # Force kill if terminate hangs
+            self.kill()
 
     def kill(self) -> None:
         """Force kill."""

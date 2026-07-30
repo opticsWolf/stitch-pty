@@ -468,35 +468,10 @@ pub fn spawn(
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_close_random_fds_does_not_panic() {
-        let skip: Vec<RawFd> = std::fs::read_dir("/dev/fd")
-            .ok()
-            .into_iter()
-            .flat_map(|dir| dir)
-            .filter_map(|entry| entry.ok())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .filter_map(|n| n.parse::<RawFd>().ok())
-            .filter(|n| *n > 2)
-            .collect();
-        close_random_fds(&skip);
-    }
-
-    #[test]
-    fn test_close_random_fds_idempotent() {
-        let skip: Vec<RawFd> = std::fs::read_dir("/dev/fd")
-            .ok()
-            .into_iter()
-            .flat_map(|dir| dir)
-            .filter_map(|entry| entry.ok())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .filter_map(|n| n.parse::<RawFd>().ok())
-            .filter(|n| *n > 2)
-            .collect();
-        close_random_fds(&skip);
-        close_random_fds(&skip);
-        close_random_fds(&skip);
-    }
+    // NOTE: close_random_fds tests have been removed because calling
+    // close_random_fds in the parent process is unsafe and can cause
+    // EBADF panics from the standard library. It is only safe to call
+    // in a forked child before exec.
 
     #[test]
     fn test_pty_pair_drop_closes_fds() {
