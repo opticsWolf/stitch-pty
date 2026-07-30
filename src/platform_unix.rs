@@ -202,15 +202,16 @@ impl UnixChildProcess {
             exit_status: None,
         }));
 
-        // Use a weak reference so the background task exits when all
+        // Use a weak reference so the background thread exits when all
         // UnixChildProcess instances are dropped (e.g., in unit tests).
         let state_weak = Arc::downgrade(&state);
 
-        tokio::spawn(async move {
+        // Spawn a dedicated OS thread for waitpid polling.
+        // This is robust against Tokio runtime starvation on macOS.
+        std::thread::spawn(move || {
             loop {
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                std::thread::sleep(Duration::from_millis(50));
 
-                // If all strong references are gone, exit the task
                 let state_strong = match state_weak.upgrade() {
                     Some(s) => s,
                     None => break,
@@ -221,7 +222,8 @@ impl UnixChildProcess {
                     if !guard.running { break; }
                     guard.pid
                 };
-                // WNOHANG is non-blocking, so we can call it directly
+
+                // WNOHANG is non-blocking
                 let result = waitpid(pid, Some(WaitPidFlag::WNOHANG));
 
                 match result {
@@ -285,45 +287,8 @@ impl ChildBackend for UnixChildProcess {
                     return guard.exit_status.clone();
                 }
             }
-
-            // Actively poll waitpid to guarantee we reap the child even if the
-            // background task is starved by the async runtime.
-            let pid = self.inner.lock().pid;
-            let result = waitpid(pid, Some(WaitPidFlag::WNOHANG));
-
-            match result {
-                Ok(WaitStatus::Exited(pid, code)) => {
-                    let exit = ProcessExit {
-                        pid: pid.as_raw() as u32,
-                        exit_code: Some(code),
-                        signal: None,
-                    };
-                    let mut guard = self.inner.lock();
-                    guard.running = false;
-                    guard.exit_status = Some(exit.clone());
-                    return Some(exit);
-                }
-                Ok(WaitStatus::Signaled(pid, signal, _core_dumped)) => {
-                    let exit = ProcessExit {
-                        pid: pid.as_raw() as u32,
-                        exit_code: None,
-                        signal: Some(signal as i32),
-                    };
-                    let mut guard = self.inner.lock();
-                    guard.running = false;
-                    guard.exit_status = Some(exit.clone());
-                    return Some(exit);
-                }
-                Ok(WaitStatus::StillAlive) | Ok(_) => {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                }
-                Err(nix::errno::Errno::EINTR) => continue,
-                Err(_) => {
-                    let mut guard = self.inner.lock();
-                    guard.running = false;
-                    return guard.exit_status.clone();
-                }
-            }
+            // Yield to the async runtime while waiting for the background thread
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 
@@ -356,6 +321,16 @@ impl Drop for UnixChildProcess {
     fn drop(&mut self) {
         if self.is_running() {
             let _ = self.kill();
+            let pid = self.inner.lock().pid;
+            // Reap the zombie to prevent leaks if the background thread already exited
+            loop {
+                match waitpid(pid, Some(WaitPidFlag::WNOHANG)) {
+                    Ok(WaitStatus::Exited(_, _)) | Ok(WaitStatus::Signaled(_, _, _)) => break,
+                    Ok(WaitStatus::StillAlive) => std::thread::sleep(Duration::from_millis(10)),
+                    Err(_) => break,
+                    _ => {}
+                }
+            }
         }
     }
 }
