@@ -26,7 +26,7 @@ use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
+
 
 // ============================================================================
 // close_random_fds (from portable-pty)
@@ -187,7 +187,6 @@ impl Drop for UnixPtyMaster {
 pub struct UnixChildProcess {
     inner: Arc<Mutex<UnixChildState>>,
     exit_tx: watch::Sender<Option<ProcessExit>>,
-    _wait_task: Arc<JoinHandle<()>>,
 }
 
 #[derive(Debug)]
@@ -260,10 +259,13 @@ impl UnixChildProcess {
             }
         });
 
+        // Detach the task so it doesn't block the tokio runtime from
+        // shutting down (e.g., in unit tests with fake PIDs).
+        wait_task.detach();
+
         UnixChildProcess {
             inner: state,
             exit_tx,
-            _wait_task: Arc::new(wait_task),
         }
     }
 }
