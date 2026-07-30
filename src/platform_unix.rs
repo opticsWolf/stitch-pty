@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
-use tokio::sync::Notify;
+use tokio::sync::watch;
 
 
 // ============================================================================
@@ -186,7 +186,7 @@ impl Drop for UnixPtyMaster {
 #[derive(Clone)]
 pub struct UnixChildProcess {
     inner: Arc<Mutex<UnixChildState>>,
-    exited: Arc<Notify>,
+    exit_tx: watch::Sender<Option<ProcessExit>>,
 }
 
 #[derive(Debug)]
@@ -198,17 +198,17 @@ struct UnixChildState {
 
 impl UnixChildProcess {
     pub fn new(pid: Pid) -> Self {
-        let exited = Arc::new(Notify::new());
+        let (exit_tx, _exit_rx) = watch::channel(None);
         let state = Arc::new(Mutex::new(UnixChildState {
             pid,
             running: true,
             exit_status: None,
         }));
 
+        let exit_tx_clone = exit_tx.clone();
         // Use a weak reference so the background task exits when all
         // UnixChildProcess instances are dropped (e.g., in unit tests).
         let state_weak = Arc::downgrade(&state);
-        let exited_clone = Arc::clone(&exited);
 
         tokio::spawn(async move {
             loop {
@@ -239,8 +239,8 @@ impl UnixChildProcess {
                         };
                         let mut guard = state_strong.lock();
                         guard.running = false;
-                        guard.exit_status = Some(exit);
-                        exited_clone.notify_one();
+                        guard.exit_status = Some(exit.clone());
+                        let _ = exit_tx_clone.send(Some(exit));
                         break;
                     }
                     Ok(Ok(WaitStatus::Signaled(pid, signal, _core_dumped))) => {
@@ -251,17 +251,19 @@ impl UnixChildProcess {
                         };
                         let mut guard = state_strong.lock();
                         guard.running = false;
-                        guard.exit_status = Some(exit);
-                        exited_clone.notify_one();
+                        guard.exit_status = Some(exit.clone());
+                        let _ = exit_tx_clone.send(Some(exit));
                         break;
                     }
                     Ok(Ok(WaitStatus::StillAlive)) => {}
                     // Stopped, Continued, PtraceEvent, PtraceSyscall — ignore and poll again
                     Ok(Ok(_)) => {}
+                    // EINTR is common on macOS; just ignore and retry on the next loop
+                    Ok(Err(nix::errno::Errno::EINTR)) => continue,
                     Ok(Err(_)) | Err(_) => {
                         let mut guard = state_strong.lock();
                         guard.running = false;
-                        exited_clone.notify_one();
+                        let _ = exit_tx_clone.send(None);
                         break;
                     }
                 }
@@ -270,7 +272,7 @@ impl UnixChildProcess {
 
         UnixChildProcess {
             inner: state,
-            exited,
+            exit_tx,
         }
     }
 }
@@ -286,20 +288,18 @@ impl ChildBackend for UnixChildProcess {
     }
 
     async fn wait(&self) -> Option<ProcessExit> {
-        // First check if already exited (handles the case where child
-        // exits before wait() is called and the reaper already processed it)
-        {
-            let guard = self.inner.lock();
-            if !guard.running {
-                return guard.exit_status.clone();
-            }
+        let mut rx = self.exit_tx.subscribe();
+
+        // Check if the process has already exited before we subscribed to changes.
+        // This handles the race where the child exits and the reaper processes it
+        // before wait() is even called — the watch already contains Some(exit_status).
+        if let Some(status) = rx.borrow().clone() {
+            return Some(status);
         }
-        // Wait for the reaper to detect the exit. Notify doesn't have the
-        // race condition that watch::channel has because notified() doesn't
-        // care about the value at subscription time.
-        self.exited.notified().await;
-        // Re-check and return the exit status
-        self.inner.lock().exit_status.clone()
+
+        // Wait for the background task to send the exit status
+        let _ = rx.changed().await;
+        rx.borrow().clone()
     }
 
     fn signal(&self, sig: i32) -> PtyResult<()> {
@@ -406,14 +406,14 @@ unsafe fn child_setup(slave_fd: RawFd, master_fd: RawFd, program: &str, args: &[
     let _ = close(master_fd);
 
     let c_program = CString::new(program).unwrap_or_else(|_| unsafe { libc::_exit(1) });
-    
+
     // FIX: Prepend the program name to the arguments vector as argv[0]
     let mut c_args: Vec<CString> = Vec::with_capacity(args.len() + 1);
     c_args.push(c_program.clone());
     for s in args {
         c_args.push(CString::new(s.as_str()).unwrap_or_else(|_| CString::new("").unwrap()));
     }
-    
+
     let mut argv: Vec<*const c_char> = c_args.iter().map(|s| s.as_ptr()).collect();
     argv.push(std::ptr::null());
 
@@ -481,10 +481,6 @@ mod tests {
 
     #[test]
     fn test_close_random_fds_does_not_panic() {
-        // close_random_fds should never panic; it silently ignores errors
-        // NOTE: we pass all open FDs in /dev/fd as "skip" to avoid closing
-        // runtime-owned FDs that would trigger IO Safety violations.
-        // The real usage is in forked child before exec, where this is safe.
         let skip: Vec<RawFd> = std::fs::read_dir("/dev/fd")
             .ok()
             .into_iter()
@@ -494,12 +490,11 @@ mod tests {
             .filter_map(|n| n.parse::<RawFd>().ok())
             .filter(|n| *n > 2)
             .collect();
-        close_random_fds(&skip); // should be a no-op with all FDs skipped
+        close_random_fds(&skip);
     }
 
     #[test]
     fn test_close_random_fds_idempotent() {
-        // Calling multiple times should be safe
         let skip: Vec<RawFd> = std::fs::read_dir("/dev/fd")
             .ok()
             .into_iter()
@@ -516,14 +511,9 @@ mod tests {
 
     #[test]
     fn test_pty_pair_drop_closes_fds() {
-        // PtyPair::drop should close both master and slave fds
-        // We can't easily test this without actually opening a PTY,
-        // but we verify the struct compiles and implements Drop.
         let pair = PtyPair::open(None);
-        // If we got here, the PTY opened successfully
         if pair.is_ok() {
             let p = pair.unwrap();
-            // The fds will be closed when p goes out of scope
             let _master = p.master_fd;
             let _slave = p.slave_fd;
         }
@@ -531,8 +521,6 @@ mod tests {
 
     #[test]
     fn test_unix_pty_master_new() {
-        // Verify UnixPtyMaster::new compiles and returns io::Result
-        // We can't test with a real fd here, but the type signature is verified.
         let _check: fn(RawFd) -> std::io::Result<UnixPtyMaster> = |_| UnixPtyMaster::new(0);
     }
 
