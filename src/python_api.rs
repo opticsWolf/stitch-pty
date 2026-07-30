@@ -209,7 +209,10 @@ pub fn spawn<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     let program = program.to_string();
     let args = args.unwrap_or_default();
-    let env: Vec<(String, String)> = env.unwrap_or_else(|| std::env::vars().collect());
+    let env: Vec<(String, String)> = env
+        .unwrap_or_else(|| std::env::vars().collect())
+        .into_iter()
+        .collect();
     let winsize = winsize;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let (pty_backend, child_backend) = spawn_platform(&program, &args, &env, winsize)
