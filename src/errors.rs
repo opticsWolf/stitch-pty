@@ -78,9 +78,11 @@ impl From<PtyErrorKind> for PyErr {
             }
             PtyErrorKind::InvalidHandle
             | PtyErrorKind::WinsizeFailed(_)
-            | PtyErrorKind::BufferOverflow { .. }
-            | PtyErrorKind::Timeout(_) => {
+            | PtyErrorKind::BufferOverflow { .. } => {
                 IOError::new_err(err.to_string())
+            }
+            PtyErrorKind::Timeout(_) => {
+                PtyError::new_err(err.to_string())
             }
             PtyErrorKind::SignalError(_)
             | PtyErrorKind::WindowsError(_) => {

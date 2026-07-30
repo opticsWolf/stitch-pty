@@ -211,7 +211,7 @@ async def test_pty_scrollback_after_multiline():
     if IS_WINDOWS:
         session = await spawn("cmd.exe", ["/c", "(echo line1 & echo line2 & echo line3 & echo line4 & echo line5 & echo line6 & echo line7 & echo line8 & echo line9 & echo line10 & echo line11 & echo line12 & echo line13 & echo line14 & echo line15 & echo line16 & echo line17 & echo line18 & echo line19 & echo line20)"])
     else:
-        session = await spawn("bash", ["-c", "for i in $(seq 1 20); do echo \"line$i\"; done"])
+        session = await spawn("bash", ["-c", "printf 'line%d\\n' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20"])
 
     try:
         _ = await session.read_all(timeout=3.0)
