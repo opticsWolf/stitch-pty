@@ -42,9 +42,11 @@ jobs:
       - name: Rust test
         run: cargo test
       - name: Python extension build and test
+        env:
+          PYTHONFAULTHANDLER: "1"
         run: |
-          pip install -e .[dev]
-          pytest tests/ -v
+          pip install -e .[dev] pytest-timeout
+          pytest tests/ -v --timeout=60 --timeout-method=thread
 
   # ── Build Wheels ─────────────────────────────────────────────────
 

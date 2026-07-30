@@ -173,19 +173,33 @@ async def test_kill_sets_not_alive(idle):
     try:
         assert session.is_alive
         session.kill()
-        await asyncio.sleep(0.1)
+        await asyncio.wait_for(session.wait(), timeout=5.0)
         assert session.is_alive is False
     finally:
-        pass
+        if session.is_alive:
+            session.kill()
+            await asyncio.wait_for(session.wait(), timeout=5.0)
 
 
 @pytest.mark.asyncio
 async def test_wait_returns_exit_info(shell):
     prog, args = shell("echo done")
     session = await spawn(prog, args)
+
+    async def drain():
+        try:
+            while True:
+                chunk = await session.read(4096)
+                if not chunk:
+                    break
+        except PtyError:
+            pass
+
     try:
+        drain_task = asyncio.create_task(drain())
         result = await asyncio.wait_for(session.wait(), timeout=5.0)
         assert isinstance(result, (ExitStatus, type(None)))
+        await asyncio.wait_for(drain_task, timeout=5.0)
     finally:
         if session.is_alive:
             await session.terminate()

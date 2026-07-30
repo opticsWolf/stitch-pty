@@ -1,10 +1,11 @@
 //! Unix PTY implementation using POSIX APIs
 //!
-//! Uses: openpty(3), fork(2), setsid(2), TIOCSCTTY, dup2, execvpe
+//! Uses: openpty(3), fork(2), setsid(2), TIOCSCTTY, dup2, execve/execvpe
 //! Async I/O: tokio::io::AsyncFd over raw FDs
 //!
 //! Improvements from portable-pty:
-//! - `close_random_fds()` for macOS Big Sur / Linux FD leak prevention
+//! - Async-signal-safe fork child (all allocations before fork)
+//! - `close_random_fds_async_signal_safe()` for macOS Big Sur / Linux FD leak prevention
 //! - Proper signal disposition reset before exec
 //! - ChildKiller trait implementation
 
@@ -28,47 +29,21 @@ use tokio::io::Interest;
 
 
 // ============================================================================
-// close_random_fds (from portable-pty)
+// close_random_fds (async-signal-safe version)
 // ============================================================================
 
-/// On Big Sur, Cocoa leaks various file descriptors to child processes,
-/// so we need to make a pass through the open descriptors beyond just the
-/// stdio descriptors and close them all out.
+/// Close leaked file descriptors in the fork child.
 ///
-/// This is approximately equivalent to the darwin `posix_spawnattr_setflags`
-/// option POSIX_SPAWN_CLOEXEC_DEFAULT which is used as a bit of a cheat
-/// on macOS.
-///
-/// On Linux, gnome/mutter leak shell extension fds to wezterm too, so we
-/// also need to make an effort to clean up the mess.
-///
-/// The implementation of this function relies on `/dev/fd` being available
-/// to provide the list of open fds. Any errors in enumerating or closing
-/// the fds are silently ignored.
-pub fn close_random_fds(skip: &[RawFd]) {
-    // FreeBSD, macOS and presumably other BSDish systems have /dev/fd as
-    // a directory listing the current fd numbers for the process.
-    //
-    // On Linux, /dev/fd is a symlink to /proc/self/fd
-    //
-    // `skip` lists FDs that must NOT be closed (e.g., the PTY master/slave
-    // or FDs owned by the Rust runtime).
-    if let Ok(dir) = std::fs::read_dir("/dev/fd") {
-        let mut fds = vec![];
-        for entry in dir {
-            if let Some(num) = entry
-                .ok()
-                .map(|e| e.file_name())
-                .and_then(|s| s.into_string().ok())
-                .and_then(|n| n.parse::<libc::c_int>().ok())
-            {
-                if num > 2 && !skip.contains(&(num as RawFd)) {
-                    fds.push(num);
-                }
-            }
-        }
-        for fd in fds {
-            unsafe {
+/// This version is async-signal-safe: it uses only libc::sysconf and
+/// libc::close, with no allocation or std::fs calls. Safe to call after
+/// fork() in a multithreaded process.
+pub fn close_random_fds_async_signal_safe(skip: &[RawFd]) {
+    unsafe {
+        let max = libc::sysconf(libc::_SC_OPEN_MAX);
+        let max = if max > 0 { max as RawFd } else { 4096 };
+
+        for fd in 3..max {
+            if !skip.contains(&fd) {
                 libc::close(fd);
             }
         }
@@ -76,17 +51,110 @@ pub fn close_random_fds(skip: &[RawFd]) {
 }
 
 // ============================================================================
+// PreparedCommand — all allocations done in the parent before fork
+// ============================================================================
+
+/// Pre-computed command arguments and environment, ready for execve/execvpe.
+///
+/// All CString allocations and Vec construction happen in `new()`, which is
+/// called in the parent process before fork(). The child only reads raw
+/// pointers, making it async-signal-safe.
+struct PreparedCommand {
+    program: CString,
+    argv: Vec<CString>,
+    env: Vec<CString>,
+    argv_ptrs: Vec<*const c_char>,
+    envp_ptrs: Vec<*const c_char>,
+}
+
+impl PreparedCommand {
+    fn new(
+        program: &str,
+        args: &[String],
+        env: &[(String, String)],
+    ) -> PtyResult<Self> {
+        let program_cstr = CString::new(program)
+            .map_err(|_| PtyErrorKind::ForkFailed("program contains NUL byte".into()))?;
+
+        let mut argv = Vec::with_capacity(args.len() + 1);
+        argv.push(program_cstr.clone());
+        for arg in args {
+            argv.push(
+                CString::new(arg.as_str())
+                    .map_err(|_| PtyErrorKind::ForkFailed("argument contains NUL byte".into()))?,
+            );
+        }
+
+        let mut envp = Vec::with_capacity(env.len());
+        for (k, v) in env {
+            let s = format!("{}={}", k, v);
+            envp.push(
+                CString::new(s)
+                    .map_err(|_| PtyErrorKind::ForkFailed("environment contains NUL byte".into()))?,
+            );
+        }
+
+        let mut argv_ptrs: Vec<*const c_char> = argv.iter().map(|s| s.as_ptr()).collect();
+        argv_ptrs.push(std::ptr::null());
+
+        let mut envp_ptrs: Vec<*const c_char> = envp.iter().map(|s| s.as_ptr()).collect();
+        envp_ptrs.push(std::ptr::null());
+
+        Ok(Self {
+            program: program_cstr,
+            argv,
+            env: envp,
+            argv_ptrs,
+            envp_ptrs,
+        })
+    }
+}
+
+// Resolve `program` against PATH (called in the parent before fork).
+// Returns an absolute path string suitable for execve.
+fn resolve_executable(program: &str) -> String {
+    // Try as absolute or relative path first
+    if let Ok(metadata) = std::fs::metadata(program) {
+        if metadata.is_file() {
+            if let Ok(abs) = std::fs::canonicalize(program) {
+                return abs.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    // Search PATH
+    let path_dirs = std::env::var_os("PATH").unwrap_or_default();
+    for dir in std::env::split_paths(&path_dirs) {
+        let candidate = dir.join(program);
+        if let Ok(m) = std::fs::metadata(&candidate) {
+            if m.is_file() {
+                if let Ok(abs) = std::fs::canonicalize(&candidate) {
+                    return abs.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
+    // Fallback: return original program name (execve will try it)
+    program.to_string()
+}
+
+// ============================================================================
 // Unix PtyMaster
 // ============================================================================
 
 pub struct UnixPtyMaster {
-    async_fd: AsyncFd<RawFd>,
+    async_fd: Option<AsyncFd<RawFd>>,
 }
 
 impl UnixPtyMaster {
     pub fn new(fd: RawFd) -> std::io::Result<Self> {
         let async_fd = AsyncFd::with_interest(fd, Interest::READABLE | Interest::WRITABLE)?;
-        Ok(UnixPtyMaster { async_fd })
+        Ok(UnixPtyMaster { async_fd: Some(async_fd) })
+    }
+
+    fn fd(&self) -> RawFd {
+        *self.async_fd.as_ref().unwrap().get_ref()
     }
 }
 
@@ -94,43 +162,77 @@ impl UnixPtyMaster {
 impl PtyBackend for UnixPtyMaster {
     async fn read(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         loop {
-            let mut guard = self.async_fd.readable().await?;
+            let mut guard = self.async_fd.as_ref().unwrap().readable().await?;
+
             match guard.try_io(|inner| {
                 let fd = *inner.get_ref();
-                let ret = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len()) };
+                let ret = unsafe {
+                    libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len())
+                };
+
                 if ret < 0 {
-                    Err(std::io::Error::last_os_error())
+                    let err = std::io::Error::last_os_error();
+
+                    // On macOS/Linux, EIO usually means the PTY slave closed.
+                    // Treat it as EOF.
+                    if err.raw_os_error() == Some(libc::EIO) {
+                        return Ok(0);
+                    }
+
+                    Err(err)
                 } else {
                     Ok(ret as usize)
                 }
             }) {
                 Ok(result) => return result,
-                Err(_would_block) => continue,
+
+                // Only retry if the operation would block.
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+
+                // Real errors must be propagated.
+                Err(e) => return Err(e),
             }
         }
     }
 
     async fn write(&self, buf: &[u8]) -> std::io::Result<usize> {
         loop {
-            let mut guard = self.async_fd.writable().await?;
+            let mut guard = self.async_fd.as_ref().unwrap().writable().await?;
+
             match guard.try_io(|inner| {
                 let fd = *inner.get_ref();
-                let ret = unsafe { libc::write(fd, buf.as_ptr() as *const _, buf.len()) };
+                let ret = unsafe {
+                    libc::write(fd, buf.as_ptr() as *const _, buf.len())
+                };
+
                 if ret < 0 {
-                    Err(std::io::Error::last_os_error())
+                    let err = std::io::Error::last_os_error();
+
+                    // EIO on write means PTY slave closed → BrokenPipe
+                    if err.raw_os_error() == Some(libc::EIO) {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::BrokenPipe,
+                            "PTY slave closed",
+                        ));
+                    }
+
+                    Err(err)
                 } else {
                     Ok(ret as usize)
                 }
             }) {
                 Ok(result) => return result,
-                Err(_would_block) => continue,
+
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+
+                Err(e) => return Err(e),
             }
         }
     }
 
     fn set_winsize(&self, winsize: Winsize) -> PtyResult<()> {
         let ws: nix::pty::Winsize = winsize.into();
-        let fd = *self.async_fd.get_ref();
+        let fd = self.fd();
         unsafe {
             let ret = libc::ioctl(fd, libc::TIOCSWINSZ, &ws as *const _);
             if ret < 0 {
@@ -149,7 +251,7 @@ impl PtyBackend for UnixPtyMaster {
 
     fn get_winsize(&self) -> PtyResult<Winsize> {
         let mut ws: nix::pty::Winsize = unsafe { std::mem::zeroed() };
-        let fd = *self.async_fd.get_ref();
+        let fd = self.fd();
         unsafe {
             let ret = libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws as *mut _);
             if ret < 0 {
@@ -162,19 +264,24 @@ impl PtyBackend for UnixPtyMaster {
     }
 
     fn raw_handle(&self) -> RawFd {
-        *self.async_fd.get_ref()
+        self.fd()
     }
 
     fn is_open(&self) -> bool {
-        let fd = *self.async_fd.get_ref();
+        let fd = self.fd();
         unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
     }
 }
 
 impl Drop for UnixPtyMaster {
     fn drop(&mut self) {
-        let fd = *self.async_fd.get_ref();
-        let _ = close(fd);
+        if let Some(async_fd) = self.async_fd.take() {
+            // Deregister from the event loop before closing the FD.
+            // This avoids closing the FD out from under Tokio's kqueue/epoll.
+            if let Ok(fd) = async_fd.into_inner() {
+                let _ = close(fd);
+            }
+        }
     }
 }
 
@@ -202,24 +309,20 @@ impl UnixChildProcess {
             exit_status: None,
         }));
 
-        // Use a weak reference so the background thread exits when all
-        // UnixChildProcess instances are dropped (e.g., in unit tests).
-        let state_weak = Arc::downgrade(&state);
+        // The background thread holds a strong reference so it stays alive
+        // until the child is reaped, even if all UnixChildProcess handles
+        // are dropped.
+        let task_state = state.clone();
 
-        // Spawn a dedicated OS thread for waitpid polling.
-        // This is robust against Tokio runtime starvation on macOS.
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_millis(50));
 
-                let state_strong = match state_weak.upgrade() {
-                    Some(s) => s,
-                    None => break,
-                };
-
                 let pid = {
-                    let guard = state_strong.lock();
-                    if !guard.running { break; }
+                    let guard = task_state.lock();
+                    if !guard.running {
+                        break;
+                    }
                     guard.pid
                 };
 
@@ -228,25 +331,23 @@ impl UnixChildProcess {
 
                 match result {
                     Ok(WaitStatus::Exited(pid, code)) => {
-                        let exit = ProcessExit {
+                        let mut guard = task_state.lock();
+                        guard.running = false;
+                        guard.exit_status = Some(ProcessExit {
                             pid: pid.as_raw() as u32,
                             exit_code: Some(code),
                             signal: None,
-                        };
-                        let mut guard = state_strong.lock();
-                        guard.running = false;
-                        guard.exit_status = Some(exit);
+                        });
                         break;
                     }
                     Ok(WaitStatus::Signaled(pid, signal, _core_dumped)) => {
-                        let exit = ProcessExit {
+                        let mut guard = task_state.lock();
+                        guard.running = false;
+                        guard.exit_status = Some(ProcessExit {
                             pid: pid.as_raw() as u32,
                             exit_code: None,
                             signal: Some(signal as i32),
-                        };
-                        let mut guard = state_strong.lock();
-                        guard.running = false;
-                        guard.exit_status = Some(exit);
+                        });
                         break;
                     }
                     Ok(WaitStatus::StillAlive) => {}
@@ -255,7 +356,7 @@ impl UnixChildProcess {
                     // EINTR is common on macOS; just ignore and retry on the next loop
                     Err(nix::errno::Errno::EINTR) => continue,
                     Err(_) => {
-                        let mut guard = state_strong.lock();
+                        let mut guard = task_state.lock();
                         guard.running = false;
                         break;
                     }
@@ -300,8 +401,10 @@ impl ChildBackend for UnixChildProcess {
         match kill(pgid, signal) {
             Ok(_) => Ok(()),
             // macOS returns EPERM when sending signals to a zombie process group.
-            // We ignore this error because the process is already dead.
+            // ESRCH means the process/group no longer exists.
+            // Both are no-ops for an already-dead process.
             Err(nix::errno::Errno::EPERM) => Ok(()),
+            Err(nix::errno::Errno::ESRCH) => Ok(()),
             Err(e) => Err(PtyErrorKind::SignalError(e.to_string())),
         }
     }
@@ -372,9 +475,14 @@ impl Drop for PtyPair {
     }
 }
 
-unsafe fn child_setup(slave_fd: RawFd, master_fd: RawFd, program: &str, args: &[String], env: &[(String, String)]) -> ! {
-    // Clean up a few things before we exec the program
-    // Clear out any potentially problematic signal dispositions that we might have inherited
+/// Async-signal-safe child setup. Only uses raw pointers and libc calls.
+/// All CString/Vec allocations are done in the parent via PreparedCommand.
+unsafe fn child_setup(
+    slave_fd: RawFd,
+    master_fd: RawFd,
+    cmd: &PreparedCommand,
+) -> ! {
+    // Reset signal dispositions to defaults.
     for signo in &[
         libc::SIGCHLD,
         libc::SIGHUP,
@@ -383,65 +491,73 @@ unsafe fn child_setup(slave_fd: RawFd, master_fd: RawFd, program: &str, args: &[
         libc::SIGTERM,
         libc::SIGALRM,
     ] {
-        unsafe { libc::signal(*signo, libc::SIG_DFL); }
+        libc::signal(*signo, libc::SIG_DFL);
     }
 
-    let empty_set: libc::sigset_t = unsafe { std::mem::zeroed() };
-    unsafe { libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut()); }
+    // Unblock all signals.
+    let mut empty_set: libc::sigset_t = std::mem::zeroed();
+    libc::sigemptyset(&mut empty_set);
+    libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut());
 
+    // Create new session.
     if setsid().is_err() {
-        unsafe { libc::_exit(1); }
+        libc::_exit(1);
     }
-    let ret = unsafe { libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
+
+    // Set controlling terminal.
+    let ret = libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0);
     if ret < 0 {
-        unsafe { libc::_exit(1); }
+        libc::_exit(1);
     }
 
-    // Close random FDs (from portable-pty) - critical for macOS Big Sur
-    // Preserve master/slave FDs so Rust runtime doesn't crash
-    close_random_fds(&[slave_fd, master_fd]);
+    // Close random FDs (async-signal-safe version — no allocation).
+    close_random_fds_async_signal_safe(&[slave_fd, master_fd]);
 
-    // dup2 to stdin/stdout/stderr — use raw libc for simplicity in fork child
-    if unsafe { libc::dup2(slave_fd, libc::STDIN_FILENO) } < 0
-        || unsafe { libc::dup2(slave_fd, libc::STDOUT_FILENO) } < 0
-        || unsafe { libc::dup2(slave_fd, libc::STDERR_FILENO) } < 0
+    // dup2 to stdin/stdout/stderr.
+    if libc::dup2(slave_fd, libc::STDIN_FILENO) < 0
+        || libc::dup2(slave_fd, libc::STDOUT_FILENO) < 0
+        || libc::dup2(slave_fd, libc::STDERR_FILENO) < 0
     {
-        unsafe { libc::_exit(1); }
-    }
-    let _ = close(slave_fd);
-    let _ = close(master_fd);
-
-    let c_program = CString::new(program).unwrap_or_else(|_| unsafe { libc::_exit(1) });
-
-    // FIX: Prepend the program name to the arguments vector as argv[0]
-    let mut c_args: Vec<CString> = Vec::with_capacity(args.len() + 1);
-    c_args.push(c_program.clone());
-    for s in args {
-        c_args.push(CString::new(s.as_str()).unwrap_or_else(|_| CString::new("").unwrap()));
+        libc::_exit(1);
     }
 
-    let mut argv: Vec<*const c_char> = c_args.iter().map(|s| s.as_ptr()).collect();
-    argv.push(std::ptr::null());
+    libc::close(slave_fd);
+    libc::close(master_fd);
 
-    let c_env: Vec<CString> = env.iter()
-        .map(|(k, v)| CString::new(format!("{}={}", k, v)).unwrap())
-        .collect();
-    let mut envp: Vec<*const c_char> = c_env.iter().map(|s| s.as_ptr()).collect();
-    envp.push(std::ptr::null());
-
+    // exec with prepared argv and envp (raw pointers, no allocation).
     #[cfg(target_os = "linux")]
-    unsafe { libc::execvpe(c_program.as_ptr(), argv.as_ptr(), envp.as_ptr()); }
+    libc::execvpe(
+        cmd.program.as_ptr(),
+        cmd.argv_ptrs.as_ptr(),
+        cmd.envp_ptrs.as_ptr(),
+    );
+
     #[cfg(not(target_os = "linux"))]
-    unsafe { libc::execvp(c_program.as_ptr(), argv.as_ptr()); }
+    libc::execve(
+        cmd.program.as_ptr(),
+        cmd.argv_ptrs.as_ptr(),
+        cmd.envp_ptrs.as_ptr(),
+    );
+
     // exec only returns on failure
-    eprintln!("exec failed (errno: {})", std::io::Error::last_os_error());
-    unsafe { libc::_exit(126); }
+    libc::_exit(126);
 }
 
-fn fork_pty(pty: &PtyPair, program: &str, args: &[String], env: &[(String, String)]) -> PtyResult<Pid> {
+fn fork_pty(
+    pty: &PtyPair,
+    program: &str,
+    args: &[String],
+    env: &[(String, String)],
+) -> PtyResult<Pid> {
+    // Prepare all allocations in the parent process before fork().
+    // This is critical for fork-safety on macOS where malloc locks
+    // held by other threads would cause deadlocks in the child.
+    let resolved = resolve_executable(program);
+    let cmd = PreparedCommand::new(&resolved, args, env)?;
+
     match unsafe { fork() } {
         Ok(ForkResult::Child) => {
-            unsafe { child_setup(pty.slave_fd, pty.master_fd, program, args, env); }
+            unsafe { child_setup(pty.slave_fd, pty.master_fd, &cmd); }
         }
         Ok(ForkResult::Parent { child }) => {
             let _ = close(pty.slave_fd);
@@ -457,8 +573,18 @@ fn fork_pty(pty: &PtyPair, program: &str, args: &[String], env: &[(String, Strin
 
 pub fn open_pty(winsize: Option<Winsize>) -> PtyResult<UnixPtyMaster> {
     let pair = PtyPair::open(winsize)?;
+
     let master_fd = pair.master_fd;
+    let slave_fd = pair.slave_fd;
+
+    // Forget the pair so we own the raw FDs individually.
     std::mem::forget(pair);
+
+    // Close the slave FD — caller only gets the master.
+    unsafe {
+        libc::close(slave_fd);
+    }
+
     UnixPtyMaster::new(master_fd)
         .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))
 }
