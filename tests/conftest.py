@@ -24,7 +24,8 @@ def idle():
     """Return (prog, args) for a long-running idle process."""
     def _idle():
         if IS_WINDOWS:
-            return "cmd.exe", ["/c", "timeout /t 30"]
+            # ping -n 31 waits ~30s; > nul suppresses all output
+            return "cmd.exe", ["/c", "ping -n 31 127.0.0.1 > nul"]
         else:
             return "bash", ["-c", "sleep 30"]
     return _idle

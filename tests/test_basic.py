@@ -155,7 +155,8 @@ async def test_async_iterator():
 async def test_read_timeout():
     """Test read_timeout raises IOError on timeout."""
     if IS_WINDOWS:
-        session = await spawn("cmd.exe", ["/c", "timeout /t 10"])
+        # ping -n 11 waits ~10s; > nul suppresses all output
+        session = await spawn("cmd.exe", ["/c", "ping -n 11 127.0.0.1 > nul"])
     else:
         session = await spawn("bash", ["-c", "sleep 10"])
 
