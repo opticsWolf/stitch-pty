@@ -395,9 +395,14 @@ unsafe fn child_setup(slave_fd: RawFd, master_fd: RawFd, program: &str, args: &[
     let _ = close(master_fd);
 
     let c_program = CString::new(program).unwrap_or_else(|_| unsafe { libc::_exit(1) });
-    let c_args: Vec<CString> = args.iter()
-        .map(|s| CString::new(s.as_str()).unwrap_or_else(|_| CString::new("").unwrap()))
-        .collect();
+    
+    // FIX: Prepend the program name to the arguments vector as argv[0]
+    let mut c_args: Vec<CString> = Vec::with_capacity(args.len() + 1);
+    c_args.push(c_program.clone());
+    for s in args {
+        c_args.push(CString::new(s.as_str()).unwrap_or_else(|_| CString::new("").unwrap()));
+    }
+    
     let mut argv: Vec<*const c_char> = c_args.iter().map(|s| s.as_ptr()).collect();
     argv.push(std::ptr::null());
 

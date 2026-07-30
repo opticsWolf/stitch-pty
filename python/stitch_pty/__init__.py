@@ -222,9 +222,16 @@ class PtySession:
         return data
 
     async def read_timeout(self, size: int, timeout: float) -> bytes:
-        """Read with timeout and feed data through the terminal emulator."""
+        """Read with timeout and feed data through the terminal emulator.
+
+        Raises PtyError on timeout.
+        """
         try:
-            data = await self._inner.read_timeout(size, timeout)
+            # Use asyncio.wait_for to guarantee PtyError on timeout
+            try:
+                data = await asyncio.wait_for(self._inner.read(size), timeout=timeout)
+            except asyncio.TimeoutError:
+                raise PtyError("Read timed out") from None
         except OSError as e:
             if e.errno == errno.EIO or "os error 5" in str(e):
                 return b""
