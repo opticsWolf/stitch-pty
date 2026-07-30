@@ -103,7 +103,8 @@ pub struct ProcessExit {
 1. `openpty()` → create master/slave pair, set `O_NONBLOCK` on master
 2. `fork()` → child calls `setsid()`, `TIOCSCTTY`, `dup2()` ×3, `execvpe()`
 3. Parent wraps master FD in `tokio::io::AsyncFd` for async I/O
-4. Background task polls `waitpid(WNOHANG)` every 50ms via `tokio::spawn`
+4. Background `std::thread` polls `waitpid(WNOHANG)` every 50ms (immune to Tokio starvation)
+5. `wait()` polls shared state and yields via `spawn_blocking(std::thread::sleep)`
 
 **Async I/O:** Uses `tokio::io::AsyncFd` with `try_io` pattern:
 ```rust
@@ -390,9 +391,9 @@ Python exception (PtyError / ProcessError / IOError / PyOSError / PyIOError)
 **Error Mapping:**
 | PtyErrorKind | Python Exception |
 |--------------|------------------|
-| `OpenFailed`, `OperationFailed`, `Closed`, `PlatformNotSupported` | `PtyError` |
+| `OpenFailed`, `OperationFailed`, `Closed`, `PlatformNotSupported`, `Timeout` | `PtyError` |
 | `ForkFailed`, `ProcessNotRunning` | `ProcessError` |
-| `InvalidHandle`, `WinsizeFailed`, `BufferOverflow`, `Timeout` | `IOError` |
+| `InvalidHandle`, `WinsizeFailed`, `BufferOverflow` | `IOError` |
 | `SignalError`, `WindowsError` | `PyOSError` |
 | `AsyncIo` | `PyIOError` |
 
@@ -503,9 +504,7 @@ Developer push
     │
     ▼
 GitHub Actions
-    ├── test-linux (Python 3.10-3.13, x86_64)
-    ├── test-macos (Python 3.10-3.13, x86_64 + ARM64)
-    ├── test-windows (Python 3.10-3.13, x86_64)
+    ├── test (matrix: ubuntu-latest / macos-latest / windows-latest, Python 3.12+)
     │
     └── build-wheels
         ├── Linux x86_64 (manylinux_2_28)
@@ -521,7 +520,10 @@ GitHub Actions
         dist/*.whl
             │
             ▼
-        PyPI publish (trusted publishing)
+        PyPI publish (OIDC trusted publishing)
+            │
+            ▼
+        crates.io publish (CARGO_REGISTRY_TOKEN)
 ```
 
 ## Known Limitations

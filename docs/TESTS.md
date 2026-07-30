@@ -73,3 +73,18 @@ In `src/platform_unix.rs`.
 | Test | Condition | Reason |
 |------|-----------|--------|
 | `test_interrupt` | Windows + `CI=true` | Ctrl+C unreliable on Windows CI runners; works locally |
+
+---
+
+## Known Issues & Mitigations
+
+### macOS Tokio Timer Starvation (v0.5.6+)
+
+On macOS (especially Python 3.13), `tokio::time::sleep` can fail to fire when bridged through PyO3's `future_into_py` into Python's asyncio event loop. This caused `wait()` and `terminate()` to hang indefinitely.
+
+**Fix applied in v0.5.6:**
+- Rust: `wait()` uses `spawn_blocking(|| std::thread::sleep(20ms))` instead of `tokio::time::sleep`
+- Rust: `terminate()` uses `std::time::Instant` deadline polling instead of `tokio::time::timeout`
+- Python: `wait()` and `terminate()` wrap Rust calls with `asyncio.wait_for(..., timeout=0.1)` polling loops
+
+**If this reappears:** Consider replacing the polling model with a `Condvar`-based notification from the reaper thread (Option D).

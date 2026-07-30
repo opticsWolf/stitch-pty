@@ -154,18 +154,54 @@ class PtyChild:
         """Whether the process is still running."""
         return self._inner.is_running
 
-    async def wait(self) -> ExitStatus | None:
+    async def wait(self, timeout: float | None = None) -> ExitStatus | None:
         """Wait for the process to exit.
+
+        Uses a polling loop with asyncio.wait_for to prevent Tokio runtime
+        starvation on macOS when bridged via PyO3.
+
+        Args:
+            timeout: Maximum seconds to wait. None = wait forever.
 
         Returns an ExitStatus (pid, exit_code, signal, core_dumped),
         or None if the process was already reaped.
+        Raises TimeoutError if the child does not exit within `timeout` seconds.
         """
-        result = await self._inner.wait()
-        return ExitStatus(*result) if result is not None else None
+        deadline = (
+            None if timeout is None
+            else asyncio.get_running_loop().time() + timeout
+        )
+        while True:
+            try:
+                result = await asyncio.wait_for(
+                    self._inner.wait(), timeout=0.1
+                )
+                return ExitStatus(*result) if result is not None else None
+            except asyncio.TimeoutError:
+                if deadline is not None and asyncio.get_running_loop().time() >= deadline:
+                    raise TimeoutError("wait() timed out")
+                continue
 
     async def terminate(self, grace_period: float = 5.0) -> None:
-        """Send SIGTERM, wait for graceful exit, then SIGKILL if needed."""
-        await self._inner.terminate(grace_period)
+        """Send SIGTERM, wait for graceful exit, then SIGKILL if needed.
+
+        Uses a polling loop with asyncio.wait_for to prevent Tokio runtime
+        starvation on macOS when bridged via PyO3.
+        """
+        deadline = asyncio.get_running_loop().time() + grace_period + 2.0
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                self.kill()
+                return
+            try:
+                await asyncio.wait_for(
+                    self._inner.terminate(grace_period),
+                    timeout=min(remaining, 0.1),
+                )
+                return
+            except asyncio.TimeoutError:
+                continue
 
     def kill(self) -> None:
         """Force kill the process immediately (SIGKILL)."""
@@ -257,17 +293,53 @@ class PtySession:
         """Get current window size."""
         return self._inner.get_winsize()
 
-    async def wait(self) -> ExitStatus | None:
+    async def wait(self, timeout: float | None = None) -> ExitStatus | None:
         """Wait for the child to exit.
 
+        Uses a polling loop with asyncio.wait_for to prevent Tokio runtime
+        starvation on macOS when bridged via PyO3.
+
+        Args:
+            timeout: Maximum seconds to wait. None = wait forever.
+
         Returns an ExitStatus, or None if the process was already reaped.
+        Raises TimeoutError if the child does not exit within `timeout` seconds.
         """
-        result = await self._inner.wait()
-        return ExitStatus(*result) if result is not None else None
+        deadline = (
+            None if timeout is None
+            else asyncio.get_running_loop().time() + timeout
+        )
+        while True:
+            try:
+                result = await asyncio.wait_for(
+                    self._inner.wait(), timeout=0.1
+                )
+                return ExitStatus(*result) if result is not None else None
+            except asyncio.TimeoutError:
+                if deadline is not None and asyncio.get_running_loop().time() >= deadline:
+                    raise TimeoutError("wait() timed out")
+                continue
 
     async def terminate(self, grace_period: float = 5.0) -> None:
-        """Graceful termination with fallback to SIGKILL."""
-        await self._inner.terminate(grace_period)
+        """Graceful termination with fallback to SIGKILL.
+
+        Uses a polling loop with asyncio.wait_for to prevent Tokio runtime
+        starvation on macOS when bridged via PyO3.
+        """
+        deadline = asyncio.get_running_loop().time() + grace_period + 2.0
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                self.kill()
+                return
+            try:
+                await asyncio.wait_for(
+                    self._inner.terminate(grace_period),
+                    timeout=min(remaining, 0.1),
+                )
+                return
+            except asyncio.TimeoutError:
+                continue
 
     def kill(self) -> None:
         """Force kill."""

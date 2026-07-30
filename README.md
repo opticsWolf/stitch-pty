@@ -2,8 +2,9 @@
 
 > Cross-platform async PTY with integrated terminal emulation for Python.
 
-[![CI](https://github.com/stitch-pty/stitch-pty/actions/workflows/CI.yml/badge.svg)](https://github.com/stitch-pty/stitch-pty/actions)
+[![CI](https://github.com/opticsWolf/stitch-pty/actions/workflows/CI.yml/badge.svg)](https://github.com/opticsWolf/stitch-pty/actions)
 [![PyPI](https://img.shields.io/pypi/v/stitch-pty.svg)](https://pypi.org/project/stitch-pty/)
+[![crates.io](https://img.shields.io/crates/v/stitch-pty.svg)](https://crates.io/crates/stitch-pty)
 [![Python](https://img.shields.io/pypi/pyversions/stitch-pty.svg)](https://pypi.org/project/stitch-pty/)
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/pypi/l/stitch-pty.svg)](https://pypi.org/project/stitch-pty/)

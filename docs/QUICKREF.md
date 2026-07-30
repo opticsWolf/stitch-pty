@@ -72,9 +72,9 @@ Async. Opens a raw PTY pair without spawning a child.
 | `xpixel` | `u16`  |
 | `ypixel` | `u16`  |
 
-### `ExitStatus` (returned by `await wait()`)
+### `ExitStatus` (returned by `await wait(timeout=None)`)
 
-Frozen dataclass. `await wait()` returns `None` instead if the child was already reaped.
+Frozen dataclass. `await wait()` returns `None` if the child was already reaped, or raises `TimeoutError` if the child does not exit within `timeout` seconds.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -96,7 +96,7 @@ Frozen dataclass. `await wait()` returns `None` instead if the child was already
 | `kill()` | Force kill |
 | `interrupt()` | Send Ctrl+C (SIGINT) |
 | `send_signal(num)` | Send signal number |
-| `await wait()` | Wait for exit, returns `ExitStatus \| None` |
+| `await wait(timeout=None)` | Wait for exit, returns `ExitStatus \| None`. Raises `TimeoutError` on timeout. |
 | `await interact(input_data=None, timeout=None)` | Write input, read until EOF |
 | `await expect(pattern, timeout=30.0)` | pexpect-style: read until pattern found |
 | `await read_all(timeout=1.0)` | Read all output until timeout |
@@ -131,6 +131,7 @@ Frozen dataclass. `await wait()` returns `None` instead if the child was already
 | `kill()` | Force kill |
 | `interrupt()` | Send Ctrl+C |
 | `send_signal(num)` | Send signal number |
+| `await wait(timeout=None)` | Wait for exit, returns `ExitStatus \| None`. Raises `TimeoutError` on timeout. |
 
 ### `TerminalState` — terminal emulation state
 

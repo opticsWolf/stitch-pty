@@ -378,8 +378,13 @@ impl ChildBackend for UnixChildProcess {
                     return guard.exit_status.clone();
                 }
             }
-            // Yield to the async runtime while waiting for the background thread
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            // Use std::thread::sleep via spawn_blocking instead of tokio::time::sleep.
+            // Tokio timers (kqueue on macOS) can fail to fire through the PyO3 bridge,
+            // causing wait() to hang indefinitely. OS threads are independent of kqueue.
+            let _ = tokio::task::spawn_blocking(|| {
+                std::thread::sleep(Duration::from_millis(20));
+            })
+            .await;
         }
     }
 

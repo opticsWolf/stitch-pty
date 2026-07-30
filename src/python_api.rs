@@ -120,17 +120,40 @@ impl PtyChild {
         let grace = Duration::from_secs_f64(grace_period_secs);
         let inner = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let _ = inner.signal(15);
-            let timeout_result = tokio::time::timeout(grace, async {
-                inner.wait().await
-            }).await;
-            match timeout_result {
-                Ok(Some(_)) | Ok(None) => Ok(()),
-                Err(_) => {
-                    let _ = inner.kill();
-                    let _ = inner.wait().await;
-                    Ok(())
+            let _ = inner.signal(15); // SIGTERM
+
+            // Poll with std::time::Instant deadline instead of tokio::time::timeout.
+            // Tokio timers can fail to fire through the PyO3 bridge on macOS.
+            let deadline = std::time::Instant::now() + grace;
+            loop {
+                if !inner.is_running() {
+                    return Ok(());
                 }
+                if std::time::Instant::now() >= deadline {
+                    break;
+                }
+                let _ = tokio::task::spawn_blocking(|| {
+                    std::thread::sleep(Duration::from_millis(20));
+                })
+                .await;
+            }
+
+            // Grace period expired — SIGKILL
+            let _ = inner.kill();
+
+            // Bounded wait for the process to be reaped (2s hard limit)
+            let kill_deadline = std::time::Instant::now() + Duration::from_secs(2);
+            loop {
+                if !inner.is_running() {
+                    return Ok(());
+                }
+                if std::time::Instant::now() >= kill_deadline {
+                    return Ok(());
+                }
+                let _ = tokio::task::spawn_blocking(|| {
+                    std::thread::sleep(Duration::from_millis(20));
+                })
+                .await;
             }
         })
     }
