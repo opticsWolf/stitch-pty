@@ -214,11 +214,13 @@ async def test_send_signal():
         await asyncio.sleep(0.1)
 
 
-@pytest.mark.skipif(IS_WINDOWS, reason="interrupt (Ctrl+C) unreliable on Windows")
 @pytest.mark.asyncio
 async def test_interrupt():
     """Test interrupt (SIGINT)."""
-    session = await spawn("bash", ["-c", "sleep 10"])
+    if IS_WINDOWS:
+        session = await spawn("cmd.exe", ["/c", "ping -n 11 127.0.0.1 > nul"])
+    else:
+        session = await spawn("bash", ["-c", "sleep 10"])
 
     try:
         assert session.is_alive
