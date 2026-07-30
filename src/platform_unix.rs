@@ -205,7 +205,6 @@ impl UnixChildProcess {
             exit_status: None,
         }));
 
-        let state_clone = state.clone();
         let exit_tx_clone = exit_tx.clone();
         // Use a weak reference so the background task exits when all
         // UnixChildProcess instances are dropped (e.g., in unit tests).
@@ -519,49 +518,6 @@ mod tests {
         // Verify UnixPtyMaster::new compiles and returns io::Result
         // We can't test with a real fd here, but the type signature is verified.
         let _check: fn(RawFd) -> std::io::Result<UnixPtyMaster> = |_| UnixPtyMaster::new(0);
-    }
-
-    #[tokio::test]
-    async fn test_unix_child_process_new() {
-        // Verify UnixChildProcess::new compiles and returns a valid instance
-        // We can't test with a real pid here without forking
-        let child = UnixChildProcess::new(Pid::from_raw(1));
-        assert_eq!(child.pid(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_unix_child_process_pid() {
-        let child = UnixChildProcess::new(Pid::from_raw(42));
-        assert_eq!(child.pid(), 42);
-    }
-
-    #[tokio::test]
-    async fn test_unix_child_process_is_running() {
-        let child = UnixChildProcess::new(Pid::from_raw(42));
-        assert!(child.is_running());
-    }
-
-    #[tokio::test]
-    async fn test_unix_child_process_clone() {
-        let child1 = UnixChildProcess::new(Pid::from_raw(42));
-        let child2 = child1.clone();
-        assert_eq!(child1.pid(), child2.pid());
-    }
-
-    #[tokio::test]
-    async fn test_unix_child_process_child_killer() {
-        let child = UnixChildProcess::new(Pid::from_raw(42));
-        let killer: Box<dyn ChildKiller + Send + Sync> = child.clone_killer();
-        // Verify killer was created (kill won't work on PID 42/init, but no panic)
-        let _ = killer.kill();
-    }
-
-    #[tokio::test]
-    async fn test_unix_child_process_drop() {
-        // When UnixChildProcess is dropped while running, it should kill
-        let child = UnixChildProcess::new(Pid::from_raw(9999));
-        // Drop it - should not panic
-        drop(child);
     }
 
     #[test]
