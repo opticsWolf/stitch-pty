@@ -78,7 +78,7 @@ async def test_context_manager():
 async def test_is_alive():
     """Test is_alive property."""
     if IS_WINDOWS:
-        session = await spawn("cmd.exe", ["/c", "timeout /t 5"])
+        session = await spawn("cmd.exe", ["/c", "ping -n 6 127.0.0.1 > nul"])
     else:
         session = await spawn("bash", ["-c", "sleep 5"])
 
@@ -87,7 +87,11 @@ async def test_is_alive():
         session.kill()
         await asyncio.sleep(0.1)
     finally:
-        pass
+        try:
+            session.kill()
+        except Exception:
+            pass
+        await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
@@ -108,7 +112,7 @@ async def test_resize():
 async def test_kill():
     """Test killing a process."""
     if IS_WINDOWS:
-        session = await spawn("cmd.exe", ["/c", "timeout /t 10"])
+        session = await spawn("cmd.exe", ["/c", "ping -n 11 127.0.0.1 > nul"])
     else:
         session = await spawn("bash", ["-c", "sleep 10"])
 
@@ -117,7 +121,11 @@ async def test_kill():
         session.kill()
         await asyncio.sleep(0.1)
     finally:
-        pass
+        try:
+            session.kill()
+        except Exception:
+            pass
+        await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
@@ -190,7 +198,7 @@ async def test_write_read_back():
 async def test_send_signal():
     """Test sending custom signals."""
     if IS_WINDOWS:
-        session = await spawn("cmd.exe", ["/c", "timeout /t 10"])
+        session = await spawn("cmd.exe", ["/c", "ping -n 11 127.0.0.1 > nul"])
     else:
         session = await spawn("bash", ["-c", "sleep 10"])
 
@@ -199,14 +207,18 @@ async def test_send_signal():
         session.send_signal(9)
         await asyncio.sleep(0.1)
     finally:
-        pass
+        try:
+            session.kill()
+        except Exception:
+            pass
+        await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
 async def test_interrupt():
     """Test interrupt (SIGINT)."""
     if IS_WINDOWS:
-        session = await spawn("cmd.exe", ["/c", "timeout /t 10"])
+        session = await spawn("cmd.exe", ["/c", "ping -n 11 127.0.0.1 > nul"])
     else:
         session = await spawn("bash", ["-c", "sleep 10"])
 
@@ -215,7 +227,11 @@ async def test_interrupt():
         session.interrupt()
         await asyncio.sleep(0.1)
     finally:
-        pass
+        try:
+            session.kill()
+        except Exception:
+            pass
+        await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
