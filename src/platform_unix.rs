@@ -207,12 +207,22 @@ impl UnixChildProcess {
 
         let state_clone = state.clone();
         let exit_tx_clone = exit_tx.clone();
+        // Use a weak reference so the background task exits when all
+        // UnixChildProcess instances are dropped (e.g., in unit tests).
+        let state_weak = Arc::downgrade(&state);
 
-        let wait_task = tokio::spawn(async move {
+        tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(50)).await;
+
+                // If all strong references are gone, exit the task
+                let state_strong = match state_weak.upgrade() {
+                    Some(s) => s,
+                    None => break,
+                };
+
                 let pid = {
-                    let guard = state_clone.lock();
+                    let guard = state_strong.lock();
                     if !guard.running { break; }
                     guard.pid
                 };
@@ -228,7 +238,7 @@ impl UnixChildProcess {
                             exit_code: Some(code),
                             signal: None,
                         };
-                        let mut guard = state_clone.lock();
+                        let mut guard = state_strong.lock();
                         guard.running = false;
                         guard.exit_status = Some(exit.clone());
                         let _ = exit_tx_clone.send(Some(exit));
@@ -240,7 +250,7 @@ impl UnixChildProcess {
                             exit_code: None,
                             signal: Some(signal as i32),
                         };
-                        let mut guard = state_clone.lock();
+                        let mut guard = state_strong.lock();
                         guard.running = false;
                         guard.exit_status = Some(exit.clone());
                         let _ = exit_tx_clone.send(Some(exit));
@@ -250,7 +260,7 @@ impl UnixChildProcess {
                     // Stopped, Continued, PtraceEvent, PtraceSyscall — ignore and poll again
                     Ok(Ok(_)) => {}
                     Ok(Err(_)) | Err(_) => {
-                        let mut guard = state_clone.lock();
+                        let mut guard = state_strong.lock();
                         guard.running = false;
                         let _ = exit_tx_clone.send(None);
                         break;
@@ -258,10 +268,6 @@ impl UnixChildProcess {
                 }
             }
         });
-
-        // Detach the task so it doesn't block the tokio runtime from
-        // shutting down (e.g., in unit tests with fake PIDs).
-        wait_task.detach();
 
         UnixChildProcess {
             inner: state,
