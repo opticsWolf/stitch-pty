@@ -25,7 +25,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
-use tokio::sync::watch;
 
 
 // ============================================================================
@@ -186,7 +185,6 @@ impl Drop for UnixPtyMaster {
 #[derive(Clone)]
 pub struct UnixChildProcess {
     inner: Arc<Mutex<UnixChildState>>,
-    exit_tx: watch::Sender<Option<ProcessExit>>,
 }
 
 #[derive(Debug)]
@@ -198,14 +196,12 @@ struct UnixChildState {
 
 impl UnixChildProcess {
     pub fn new(pid: Pid) -> Self {
-        let (exit_tx, _exit_rx) = watch::channel(None);
         let state = Arc::new(Mutex::new(UnixChildState {
             pid,
             running: true,
             exit_status: None,
         }));
 
-        let exit_tx_clone = exit_tx.clone();
         // Use a weak reference so the background task exits when all
         // UnixChildProcess instances are dropped (e.g., in unit tests).
         let state_weak = Arc::downgrade(&state);
@@ -239,8 +235,7 @@ impl UnixChildProcess {
                         };
                         let mut guard = state_strong.lock();
                         guard.running = false;
-                        guard.exit_status = Some(exit.clone());
-                        let _ = exit_tx_clone.send(Some(exit));
+                        guard.exit_status = Some(exit);
                         break;
                     }
                     Ok(Ok(WaitStatus::Signaled(pid, signal, _core_dumped))) => {
@@ -251,8 +246,7 @@ impl UnixChildProcess {
                         };
                         let mut guard = state_strong.lock();
                         guard.running = false;
-                        guard.exit_status = Some(exit.clone());
-                        let _ = exit_tx_clone.send(Some(exit));
+                        guard.exit_status = Some(exit);
                         break;
                     }
                     Ok(Ok(WaitStatus::StillAlive)) => {}
@@ -263,7 +257,6 @@ impl UnixChildProcess {
                     Ok(Err(_)) | Err(_) => {
                         let mut guard = state_strong.lock();
                         guard.running = false;
-                        let _ = exit_tx_clone.send(None);
                         break;
                     }
                 }
@@ -272,7 +265,6 @@ impl UnixChildProcess {
 
         UnixChildProcess {
             inner: state,
-            exit_tx,
         }
     }
 }
@@ -288,18 +280,15 @@ impl ChildBackend for UnixChildProcess {
     }
 
     async fn wait(&self) -> Option<ProcessExit> {
-        let mut rx = self.exit_tx.subscribe();
-
-        // Check if the process has already exited before we subscribed to changes.
-        // This handles the race where the child exits and the reaper processes it
-        // before wait() is even called — the watch already contains Some(exit_status).
-        if let Some(status) = rx.borrow().clone() {
-            return Some(status);
+        loop {
+            {
+                let guard = self.inner.lock();
+                if !guard.running {
+                    return guard.exit_status.clone();
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
-
-        // Wait for the background task to send the exit status
-        let _ = rx.changed().await;
-        rx.borrow().clone()
     }
 
     fn signal(&self, sig: i32) -> PtyResult<()> {
