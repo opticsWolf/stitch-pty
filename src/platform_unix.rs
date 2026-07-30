@@ -221,13 +221,11 @@ impl UnixChildProcess {
                     if !guard.running { break; }
                     guard.pid
                 };
-                // Drop guard before await so the future is Send
-                let result = tokio::task::spawn_blocking(move || {
-                    waitpid(pid, Some(WaitPidFlag::WNOHANG))
-                }).await;
+                // WNOHANG is non-blocking, so we can call it directly
+                let result = waitpid(pid, Some(WaitPidFlag::WNOHANG));
 
                 match result {
-                    Ok(Ok(WaitStatus::Exited(pid, code))) => {
+                    Ok(WaitStatus::Exited(pid, code)) => {
                         let exit = ProcessExit {
                             pid: pid.as_raw() as u32,
                             exit_code: Some(code),
@@ -238,7 +236,7 @@ impl UnixChildProcess {
                         guard.exit_status = Some(exit);
                         break;
                     }
-                    Ok(Ok(WaitStatus::Signaled(pid, signal, _core_dumped))) => {
+                    Ok(WaitStatus::Signaled(pid, signal, _core_dumped)) => {
                         let exit = ProcessExit {
                             pid: pid.as_raw() as u32,
                             exit_code: None,
@@ -249,12 +247,12 @@ impl UnixChildProcess {
                         guard.exit_status = Some(exit);
                         break;
                     }
-                    Ok(Ok(WaitStatus::StillAlive)) => {}
+                    Ok(WaitStatus::StillAlive) => {}
                     // Stopped, Continued, PtraceEvent, PtraceSyscall — ignore and poll again
-                    Ok(Ok(_)) => {}
+                    Ok(_) => {}
                     // EINTR is common on macOS; just ignore and retry on the next loop
-                    Ok(Err(nix::errno::Errno::EINTR)) => continue,
-                    Ok(Err(_)) | Err(_) => {
+                    Err(nix::errno::Errno::EINTR) => continue,
+                    Err(_) => {
                         let mut guard = state_strong.lock();
                         guard.running = false;
                         break;
@@ -291,12 +289,10 @@ impl ChildBackend for UnixChildProcess {
             // Actively poll waitpid to guarantee we reap the child even if the
             // background task is starved by the async runtime.
             let pid = self.inner.lock().pid;
-            let result = tokio::task::spawn_blocking(move || {
-                waitpid(pid, Some(WaitPidFlag::WNOHANG))
-            }).await;
+            let result = waitpid(pid, Some(WaitPidFlag::WNOHANG));
 
             match result {
-                Ok(Ok(WaitStatus::Exited(pid, code))) => {
+                Ok(WaitStatus::Exited(pid, code)) => {
                     let exit = ProcessExit {
                         pid: pid.as_raw() as u32,
                         exit_code: Some(code),
@@ -307,7 +303,7 @@ impl ChildBackend for UnixChildProcess {
                     guard.exit_status = Some(exit.clone());
                     return Some(exit);
                 }
-                Ok(Ok(WaitStatus::Signaled(pid, signal, _core_dumped))) => {
+                Ok(WaitStatus::Signaled(pid, signal, _core_dumped)) => {
                     let exit = ProcessExit {
                         pid: pid.as_raw() as u32,
                         exit_code: None,
@@ -318,11 +314,11 @@ impl ChildBackend for UnixChildProcess {
                     guard.exit_status = Some(exit.clone());
                     return Some(exit);
                 }
-                Ok(Ok(WaitStatus::StillAlive)) | Ok(Ok(_)) => {
+                Ok(WaitStatus::StillAlive) | Ok(_) => {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
-                Ok(Err(nix::errno::Errno::EINTR)) => continue,
-                Ok(Err(_)) | Err(_) => {
+                Err(nix::errno::Errno::EINTR) => continue,
+                Err(_) => {
                     let mut guard = self.inner.lock();
                     guard.running = false;
                     return guard.exit_status.clone();
