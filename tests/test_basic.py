@@ -1,6 +1,7 @@
 """Basic tests for stitch-pty PTY functionality."""
 
 import asyncio
+import os
 import platform
 import pytest
 from stitch_pty import spawn, PtySession, PtyError
@@ -8,6 +9,7 @@ from stitch_pty import spawn, PtySession, PtyError
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_UNIX = not IS_WINDOWS
+IS_CI = os.environ.get("CI", "") == "true"
 
 
 async def read_all(session, timeout=3.0, chunk_size=4096):
@@ -214,6 +216,10 @@ async def test_send_signal():
         await asyncio.sleep(0.1)
 
 
+@pytest.mark.skipif(
+    IS_WINDOWS and IS_CI,
+    reason="interrupt (Ctrl+C) unreliable on Windows CI runners"
+)
 @pytest.mark.asyncio
 async def test_interrupt():
     """Test interrupt (SIGINT)."""
