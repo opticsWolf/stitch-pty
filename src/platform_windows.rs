@@ -191,6 +191,10 @@ impl Drop for WinChildProcess {
 }
 
 impl ChildKiller for WinChildProcess {
+    fn pid(&self) -> u32 {
+        self.pid
+    }
+
     fn kill(&self) -> PtyResult<()> {
         self.do_kill()
     }

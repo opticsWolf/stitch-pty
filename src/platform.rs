@@ -99,6 +99,9 @@ impl ProcessExit {
 /// may be blocked in `.wait`. This prevents deadlocks.
 #[async_trait::async_trait]
 pub trait ChildKiller: Send + Sync {
+    /// Get the child process PID.
+    fn pid(&self) -> u32;
+
     /// Terminate the child process.
     fn kill(&self) -> PtyResult<()>;
 

@@ -9,14 +9,14 @@
 //! - ChildKiller trait implementation
 
 use crate::errors::{PtyErrorKind, PtyResult};
-use crate::platform::{ChildBackend, ChildKiller, ExitStatus, ProcessExit, PtyBackend};
+use crate::platform::{ChildBackend, ChildKiller, ProcessExit, PtyBackend};
 use crate::winsize::Winsize;
-use libc::{c_char, c_int};
-use nix::fcntl::{fcntl, FdFlag, OFlag};
-use nix::pty::{openpty, OpenptyResult};
+use libc::c_char;
+use nix::fcntl::{fcntl, FcntlArg, OFlag};
+use nix::pty::openpty;
 use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{close, dup2, fork, setsid, ForkResult, Pid};
+use nix::unistd::{close, fork, setsid, ForkResult, Pid};
 use parking_lot::Mutex;
 use std::ffi::CString;
 use std::os::fd::RawFd;
@@ -179,6 +179,7 @@ impl Drop for UnixPtyMaster {
 // Unix ChildProcess + ChildKiller
 // ============================================================================
 
+#[derive(Clone)]
 pub struct UnixChildProcess {
     inner: Arc<Mutex<UnixChildState>>,
     exit_tx: watch::Sender<Option<ProcessExit>>,
@@ -239,6 +240,8 @@ impl UnixChildProcess {
                         break;
                     }
                     Ok(Ok(WaitStatus::StillAlive)) => {}
+                    // Stopped, Continued, PtraceEvent, PtraceSyscall — ignore and poll again
+                    Ok(Ok(_)) => {}
                     Ok(Err(_)) | Err(_) => {
                         guard.running = false;
                         let _ = exit_tx_clone.send(None);
@@ -279,13 +282,17 @@ impl ChildBackend for UnixChildProcess {
         let pgid = Pid::from_raw(-pid.as_raw());
         kill(pgid, signal).map_err(|e| PtyErrorKind::SignalError(e.to_string()))
     }
+}
+
+impl ChildKiller for UnixChildProcess {
+    fn pid(&self) -> u32 {
+        self.inner.lock().pid.as_raw() as u32
+    }
 
     fn kill(&self) -> PtyResult<()> {
         self.signal(9) // SIGKILL
     }
-}
 
-impl ChildKiller for UnixChildProcess {
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
         Box::new(self.clone())
     }
@@ -314,13 +321,17 @@ impl PtyPair {
         let result = openpty(nix_winsize.as_ref(), None)
             .map_err(|e| PtyErrorKind::OpenFailed(format!("openpty failed: {}", e)))?;
 
-        // Set non-blocking
-        let flags = fcntl(result.master, FdFlag::F_GETFL)
+        // Convert OwnedFd to RawFd
+        let master_fd = result.master.into_raw();
+        let slave_fd = result.slave.into_raw();
+
+        // Set non-blocking on master
+        let flags = fcntl(master_fd, FcntlArg::F_GETFL)
             .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl GETFL: {}", e)))?;
-        fcntl(result.master, FdFlag::F_SETFL(OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK))
+        fcntl(master_fd, FcntlArg::F_SETFL(OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK))
             .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl SETFL: {}", e)))?;
 
-        Ok(PtyPair { master_fd: result.master, slave_fd: result.slave })
+        Ok(PtyPair { master_fd, slave_fd })
     }
 }
 
@@ -348,7 +359,7 @@ unsafe fn child_setup(slave_fd: RawFd, master_fd: RawFd, program: &str, args: &[
     let empty_set: libc::sigset_t = std::mem::zeroed();
     unsafe { libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut()); }
 
-    if setsid() < 0 {
+    if setsid().is_err() {
         libc::_exit(1);
     }
     let ret = libc::ioctl(slave_fd, libc::TIOCSCTTY, 0);
@@ -359,9 +370,10 @@ unsafe fn child_setup(slave_fd: RawFd, master_fd: RawFd, program: &str, args: &[
     // Close random FDs (from portable-pty) - critical for macOS Big Sur
     close_random_fds();
 
-    if dup2(slave_fd, libc::STDIN_FILENO) < 0
-        || dup2(slave_fd, libc::STDOUT_FILENO) < 0
-        || dup2(slave_fd, libc::STDERR_FILENO) < 0
+    // dup2 to stdin/stdout/stderr — use raw libc for simplicity in fork child
+    if unsafe { libc::dup2(slave_fd, libc::STDIN_FILENO) } < 0
+        || unsafe { libc::dup2(slave_fd, libc::STDOUT_FILENO) } < 0
+        || unsafe { libc::dup2(slave_fd, libc::STDERR_FILENO) } < 0
     {
         libc::_exit(1);
     }
@@ -417,7 +429,7 @@ pub fn spawn(
     env: &[(String, String)],
     winsize: Option<Winsize>,
 ) -> PtyResult<(UnixPtyMaster, UnixChildProcess)> {
-    let mut pair = PtyPair::open(winsize)?;
+    let pair = PtyPair::open(winsize)?;
     let pid = fork_pty(&pair, program, args, env)?;
     let master_fd = pair.master_fd;
     std::mem::forget(pair);
