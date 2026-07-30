@@ -1,5 +1,7 @@
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
 #[pyclass(from_py_object)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Winsize {
@@ -9,12 +11,28 @@ pub struct Winsize {
     #[pyo3(get, set)] pub ypixel: u16,
 }
 
+#[cfg(not(feature = "python"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Winsize {
+    pub rows: u16,
+    pub cols: u16,
+    pub xpixel: u16,
+    pub ypixel: u16,
+}
+
+impl Winsize {
+    pub fn new(rows: u16, cols: u16, xpixel: u16, ypixel: u16) -> Self {
+        Winsize { rows, cols, xpixel, ypixel }
+    }
+}
+
+#[cfg(feature = "python")]
 #[pymethods]
 impl Winsize {
     #[new]
     #[pyo3(signature = (rows, cols, xpixel = 0, ypixel = 0))]
-    fn new(rows: u16, cols: u16, xpixel: u16, ypixel: u16) -> Self {
-        Winsize { rows, cols, xpixel, ypixel }
+    fn py_new(rows: u16, cols: u16, xpixel: u16, ypixel: u16) -> Self {
+        Winsize::new(rows, cols, xpixel, ypixel)
     }
 
     fn __repr__(&self) -> String {
@@ -107,6 +125,7 @@ mod tests {
         assert_ne!(ws1, ws2);
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn test_winsize_repr() {
         let ws = Winsize::new(24, 80, 100, 200);
@@ -117,6 +136,7 @@ mod tests {
         assert!(repr.contains("ypixel=200"));
     }
 
+    #[cfg(feature = "python")]
     #[test]
     fn test_winsize_repr_default() {
         let ws = Winsize::default();

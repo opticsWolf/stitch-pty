@@ -1,13 +1,19 @@
 //! Error types and Python exception mapping (cross-platform)
 
+#[cfg(feature = "python")]
 use pyo3::create_exception;
+#[cfg(feature = "python")]
 use pyo3::exceptions::{PyException, PyIOError, PyOSError};
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
 // ── Python Exception Types ───────────────────────────────────────
 
+#[cfg(feature = "python")]
 create_exception!(stitch_pty, PtyError, PyException);
+#[cfg(feature = "python")]
 create_exception!(stitch_pty, ProcessError, PtyError);
+#[cfg(feature = "python")]
 create_exception!(stitch_pty, IOError, PtyError);
 
 // ── Rust Error Types ───────────────────────────────────────────
@@ -56,6 +62,7 @@ pub enum PtyErrorKind {
 
 // ── IntoPy<PyErr> Implementation ──────────────────────────────
 
+#[cfg(feature = "python")]
 impl From<PtyErrorKind> for PyErr {
     fn from(err: PtyErrorKind) -> PyErr {
         match &err {

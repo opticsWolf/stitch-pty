@@ -42,6 +42,7 @@ asyncio.run(main())
 │  PtySession │ PtyMaster │ PtyChild │ PtyError               │
 ├─────────────────────────────────────────────────────────────┤
 │  PyO3 bindings (python_api.rs + terminal_api.rs)            │
+│  (gated by `python` feature flag)                           │
 │  PtyMaster │ PtyChild │ PtySession │ TerminalState          │
 ├─────────────────────────────────────────────────────────────┤
 │  Terminal emulation (terminal/ — embedded pyte_rs)          │
@@ -280,9 +281,11 @@ builtin `IOError`/`OSError` within this namespace.)
 ## Build
 
 ```bash
-maturin develop          # dev build
-maturin build --release  # release (LTO fat, strip)
-pytest -v                # run tests
+cargo build              # pure Rust build
+cargo test               # pure Rust tests
+maturin develop          # Python extension dev build
+maturin build --release  # Python extension release
+uv run --extra dev pytest # run Python tests
 ```
 
 ## Dependencies

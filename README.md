@@ -597,6 +597,8 @@ python examples/terminal_emulator.py --rows 30 --cols 100
 
 ## Building from Source
 
+`stitch-pty` is designed to be used both as a standalone Rust crate and as a Python extension. The Python bindings are decoupled and gated behind the `python` feature flag.
+
 ### Prerequisites
 
 | Requirement | Version |
@@ -613,7 +615,25 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 pip install maturin
 ```
 
-### Development Workflow
+### Building as a Rust Crate
+
+To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python bindings are disabled by default, allowing for a pure Rust build without PyO3 overhead.
+
+```toml
+[dependencies]
+stitch-pty = "0.5.5"
+```
+
+To build and test the pure Rust code locally:
+
+```bash
+cargo build
+cargo test
+```
+
+### Building as a Python Extension
+
+The Python extension is built using `maturin`. The `pyproject.toml` is configured to automatically enable the `python` feature when building wheels.
 
 ```bash
 # Clone
@@ -623,7 +643,10 @@ cd stitch-pty
 # Development build (fast, unoptimized)
 maturin develop
 
-# Run tests (platform-specific tests auto-skip)
+# Alternatively, using uv to test:
+uv run --extra dev pytest
+
+# Run Python tests (platform-specific tests auto-skip)
 pytest tests/ -v
 
 # Type check

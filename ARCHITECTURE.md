@@ -3,21 +3,22 @@
 ## Design Goals
 
 1. **Cross-platform**: Single codebase supporting Linux, macOS, Windows 10+
-2. **Zero GIL contention**: All blocking operations release the Python GIL
-3. **No zombie processes**: Platform-specific reaping strategies
-4. **True PTY compliance**: POSIX `openpty` + Windows ConPTY with named pipes
-5. **Terminal emulation**: Built-in VT100/VT220/xterm-compatible screen with scrollback
-6. **Type safety**: Full mypy support, Rust memory safety
+2. **Dual-purpose**: Can be compiled as a standalone Rust crate or a Python extension via the `python` feature flag
+3. **Zero GIL contention**: All blocking operations release the Python GIL (when built as an extension)
+4. **No zombie processes**: Platform-specific reaping strategies
+5. **True PTY compliance**: POSIX `openpty` + Windows ConPTY with named pipes
+6. **Terminal emulation**: Built-in VT100/VT220/xterm-compatible screen with scrollback
+7. **Type safety**: Full mypy support, Rust memory safety
 
 ## Module Structure
 
 ```
 src/
-├── lib.rs                    # Module init, PyO3 pymodule registration
-├── python_api.rs             # PyO3 bindings: PtyMaster, PtyChild, PtySession
-├── terminal_api.rs           # PyO3 bindings: TerminalState
-├── winsize.rs                # Winsize struct (POSIX + Windows COORD conversion)
-├── errors.rs                 # PtyErrorKind enum + Python exception mapping
+├── lib.rs                    # Module init, PyO3 registration (Python API gated by `python` feature)
+├── python_api.rs             # PyO3 bindings: PtyMaster, PtyChild, PtySession (gated)
+├── terminal_api.rs           # PyO3 bindings: TerminalState (gated)
+├── winsize.rs                # Winsize struct (PyO3 traits gated)
+├── errors.rs                 # PtyErrorKind enum + Python exception mapping (gated)
 ├── async_io.rs               # read_timeout() helper (tokio AsyncFd / named pipes)
 ├── platform.rs               # Platform abstraction traits + dispatch
 │   ├── PtyBackend, ChildBackend, ChildKiller traits
@@ -397,6 +398,8 @@ Python exception (PtyError / ProcessError / IOError / PyOSError / PyIOError)
 
 ## Python API (`python_api.rs`)
 
+> **Note:** The Python bindings are gated behind the `python` feature flag in `Cargo.toml`. When used as a pure Rust crate, these APIs are excluded.
+> 
 > **Two layers.** The tables below document the low-level `_core` bindings
 > produced by `python_api.rs`. The user-facing `stitch_pty` package
 > (`__init__.py`) wraps them with Pythonic conveniences — see QUICKREF.md for

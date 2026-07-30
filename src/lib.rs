@@ -10,7 +10,7 @@
 //! - Acquire GIL only for: (1) converting buffers to PyBytes, (2) raising exceptions
 
 // PTY layer
-mod platform;
+pub mod platform;
 #[cfg(unix)]
 mod platform_unix;
 #[cfg(windows)]
@@ -21,16 +21,21 @@ pub mod terminal;
 pub use terminal::{Char, Cursor, HistoryScreen, Parser, Screen};
 
 // Cross-platform modules
-mod async_io;
-mod errors;
+pub mod async_io;
+pub mod errors;
+#[cfg(feature = "python")]
 mod python_api;
+#[cfg(feature = "python")]
 mod terminal_api;
-mod winsize;
+pub mod winsize;
 
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
+#[cfg(feature = "python")]
 use pyo3::PyTypeInfo;
 
 /// Initialize the Python module
+#[cfg(feature = "python")]
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register Python-facing PTY types
