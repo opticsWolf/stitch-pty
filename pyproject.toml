@@ -11,11 +11,6 @@ license = { text = "MIT OR Apache-2.0" }
 authors = [
     { name = "stitch-pty authors" }
 ]
-
-[project.urls]
-Homepage = "https://github.com/opticsWolf/stitch-pty"
-Repository = "https://github.com/opticsWolf/stitch-pty"
-Changelog = "https://github.com/opticsWolf/stitch-pty/releases"
 requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -31,6 +26,11 @@ classifiers = [
     "Topic :: Terminals",
 ]
 keywords = ["pty", "terminal", "async", "rust", "posix"]
+
+[project.urls]
+Homepage = "https://github.com/opticsWolf/stitch-pty"
+Repository = "https://github.com/opticsWolf/stitch-pty"
+Changelog = "https://github.com/opticsWolf/stitch-pty/releases"
 
 [project.optional-dependencies]
 dev = [
