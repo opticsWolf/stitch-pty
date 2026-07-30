@@ -287,7 +287,47 @@ impl ChildBackend for UnixChildProcess {
                     return guard.exit_status.clone();
                 }
             }
-            tokio::time::sleep(Duration::from_millis(20)).await;
+
+            // Actively poll waitpid to guarantee we reap the child even if the
+            // background task is starved by the async runtime.
+            let pid = self.inner.lock().pid;
+            let result = tokio::task::spawn_blocking(move || {
+                waitpid(pid, Some(WaitPidFlag::WNOHANG))
+            }).await;
+
+            match result {
+                Ok(Ok(WaitStatus::Exited(pid, code))) => {
+                    let exit = ProcessExit {
+                        pid: pid.as_raw() as u32,
+                        exit_code: Some(code),
+                        signal: None,
+                    };
+                    let mut guard = self.inner.lock();
+                    guard.running = false;
+                    guard.exit_status = Some(exit.clone());
+                    return Some(exit);
+                }
+                Ok(Ok(WaitStatus::Signaled(pid, signal, _core_dumped))) => {
+                    let exit = ProcessExit {
+                        pid: pid.as_raw() as u32,
+                        exit_code: None,
+                        signal: Some(signal as i32),
+                    };
+                    let mut guard = self.inner.lock();
+                    guard.running = false;
+                    guard.exit_status = Some(exit.clone());
+                    return Some(exit);
+                }
+                Ok(Ok(WaitStatus::StillAlive)) | Ok(Ok(_)) => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Ok(Err(nix::errno::Errno::EINTR)) => continue,
+                Ok(Err(_)) | Err(_) => {
+                    let mut guard = self.inner.lock();
+                    guard.running = false;
+                    return guard.exit_status.clone();
+                }
+            }
         }
     }
 
@@ -296,7 +336,13 @@ impl ChildBackend for UnixChildProcess {
             .map_err(|_| PtyErrorKind::SignalError(format!("Invalid signal: {}", sig)))?;
         let pid = self.inner.lock().pid;
         let pgid = Pid::from_raw(-pid.as_raw());
-        kill(pgid, signal).map_err(|e| PtyErrorKind::SignalError(e.to_string()))
+        match kill(pgid, signal) {
+            Ok(_) => Ok(()),
+            // macOS returns EPERM when sending signals to a zombie process group.
+            // We ignore this error because the process is already dead.
+            Err(nix::errno::Errno::EPERM) => Ok(()),
+            Err(e) => Err(PtyErrorKind::SignalError(e.to_string())),
+        }
     }
 }
 
