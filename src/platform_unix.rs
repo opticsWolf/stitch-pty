@@ -164,6 +164,8 @@ impl PtyBackend for UnixPtyMaster {
         loop {
             let mut guard = self.async_fd.as_ref().unwrap().readable().await?;
 
+            // try_io returns Result<io::Result<R>, TryIoError>.
+            // Err(TryIoError) = WouldBlock (retry). Ok(Err(e)) = real error.
             match guard.try_io(|inner| {
                 let fd = *inner.get_ref();
                 let ret = unsafe {
@@ -172,28 +174,18 @@ impl PtyBackend for UnixPtyMaster {
 
                 if ret < 0 {
                     let err = std::io::Error::last_os_error();
-
-                    // On macOS/Linux, EIO usually means the PTY slave closed.
-                    // Treat it as EOF.
+                    // EIO on PTY master = slave closed → EOF
                     if err.raw_os_error() == Some(libc::EIO) {
                         return Ok(0);
                     }
-
                     Err(err)
                 } else {
                     Ok(ret as usize)
                 }
             }) {
-                Ok(result) => return result,
-
-                // TryIoError wraps the inner error; extract it to check WouldBlock.
-                Err(e) => {
-                    let inner = e.into_inner();
-                    if inner.kind() == std::io::ErrorKind::WouldBlock {
-                        continue;
-                    }
-                    return Err(inner);
-                }
+                Ok(Ok(n)) => return Ok(n),
+                Ok(Err(e)) => return Err(e),
+                Err(_would_block) => continue,
             }
         }
     }
@@ -210,29 +202,21 @@ impl PtyBackend for UnixPtyMaster {
 
                 if ret < 0 {
                     let err = std::io::Error::last_os_error();
-
-                    // EIO on write means PTY slave closed → BrokenPipe
+                    // EIO on PTY master write = slave closed → BrokenPipe
                     if err.raw_os_error() == Some(libc::EIO) {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::BrokenPipe,
                             "PTY slave closed",
                         ));
                     }
-
                     Err(err)
                 } else {
                     Ok(ret as usize)
                 }
             }) {
-                Ok(result) => return result,
-
-                Err(e) => {
-                    let inner = e.into_inner();
-                    if inner.kind() == std::io::ErrorKind::WouldBlock {
-                        continue;
-                    }
-                    return Err(inner);
-                }
+                Ok(Ok(n)) => return Ok(n),
+                Ok(Err(e)) => return Err(e),
+                Err(_would_block) => continue,
             }
         }
     }

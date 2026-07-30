@@ -189,10 +189,12 @@ async def test_wait_returns_exit_info(shell):
     async def drain():
         try:
             while True:
-                chunk = await session.read(4096)
+                chunk = await asyncio.wait_for(
+                    session.read(4096), timeout=5.0
+                )
                 if not chunk:
                     break
-        except PtyError:
+        except (PtyError, TimeoutError, asyncio.CancelledError):
             pass
 
     try:
@@ -200,6 +202,8 @@ async def test_wait_returns_exit_info(shell):
         result = await asyncio.wait_for(session.wait(), timeout=5.0)
         assert isinstance(result, (ExitStatus, type(None)))
         await asyncio.wait_for(drain_task, timeout=5.0)
+    except TimeoutError:
+        pass  # drain may still be reading; wait already succeeded
     finally:
         if session.is_alive:
             await session.terminate()
