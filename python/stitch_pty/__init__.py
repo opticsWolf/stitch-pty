@@ -27,6 +27,7 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import errno
 import os
 import signal
 import struct
@@ -202,8 +203,19 @@ class PtySession:
         return self._inner.is_alive
 
     async def read(self, size: int = 4096) -> bytes:
-        """Read from the PTY and feed data through the terminal emulator."""
-        data = await self._inner.read(size)
+        """Read from the PTY and feed data through the terminal emulator.
+
+        Returns empty bytes on EOF (child process exited).
+        On Linux, EIO on the PTY master means the slave closed (child exited).
+        """
+        try:
+            data = await self._inner.read(size)
+        except OSError as e:
+            # Linux PTY returns EIO when the slave closes (child exited).
+            # Treat as EOF if the child is no longer alive.
+            if e.errno == errno.EIO and not self.is_alive:
+                return b""
+            raise
         if data:
             self._terminal.feed(data)
             self._raw_output.append(data)
@@ -211,7 +223,12 @@ class PtySession:
 
     async def read_timeout(self, size: int, timeout: float) -> bytes:
         """Read with timeout and feed data through the terminal emulator."""
-        data = await self._inner.read_timeout(size, timeout)
+        try:
+            data = await self._inner.read_timeout(size, timeout)
+        except OSError as e:
+            if e.errno == errno.EIO and not self.is_alive:
+                return b""
+            raise
         if data:
             self._terminal.feed(data)
             self._raw_output.append(data)
