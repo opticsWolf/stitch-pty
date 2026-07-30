@@ -13,6 +13,7 @@ use crate::platform::{ChildBackend, ChildKiller, ProcessExit, PtyBackend};
 use crate::winsize::Winsize;
 use libc::c_char;
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
+use std::os::fd::IntoRawFd;
 use nix::pty::openpty;
 use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
@@ -363,7 +364,7 @@ unsafe fn child_setup(slave_fd: RawFd, master_fd: RawFd, program: &str, args: &[
     if setsid().is_err() {
         unsafe { libc::_exit(1); }
     }
-    let ret = unsafe { libc::ioctl(slave_fd, libc::TIOCSCTTY, 0) };
+    let ret = unsafe { libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
     if ret < 0 {
         unsafe { libc::_exit(1); }
     }
@@ -394,9 +395,12 @@ unsafe fn child_setup(slave_fd: RawFd, master_fd: RawFd, program: &str, args: &[
     let mut envp: Vec<*const c_char> = c_env.iter().map(|s| s.as_ptr()).collect();
     envp.push(std::ptr::null());
 
+    #[cfg(target_os = "linux")]
     unsafe { libc::execvpe(c_program.as_ptr(), argv.as_ptr(), envp.as_ptr()); }
-    // execvpe only returns on failure
-    eprintln!("execvpe failed (errno: {})", std::io::Error::last_os_error());
+    #[cfg(not(target_os = "linux"))]
+    unsafe { libc::execvp(c_program.as_ptr(), argv.as_ptr()); }
+    // exec only returns on failure
+    eprintln!("exec failed (errno: {})", std::io::Error::last_os_error());
     unsafe { libc::_exit(126); }
 }
 
