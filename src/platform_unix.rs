@@ -186,11 +186,14 @@ impl PtyBackend for UnixPtyMaster {
             }) {
                 Ok(result) => return result,
 
-                // Only retry if the operation would block.
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-
-                // Real errors must be propagated.
-                Err(e) => return Err(e),
+                // TryIoError wraps the inner error; extract it to check WouldBlock.
+                Err(e) => {
+                    let inner = e.into_inner();
+                    if inner.kind() == std::io::ErrorKind::WouldBlock {
+                        continue;
+                    }
+                    return Err(inner);
+                }
             }
         }
     }
@@ -223,9 +226,13 @@ impl PtyBackend for UnixPtyMaster {
             }) {
                 Ok(result) => return result,
 
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-
-                Err(e) => return Err(e),
+                Err(e) => {
+                    let inner = e.into_inner();
+                    if inner.kind() == std::io::ErrorKind::WouldBlock {
+                        continue;
+                    }
+                    return Err(inner);
+                }
             }
         }
     }
@@ -278,9 +285,8 @@ impl Drop for UnixPtyMaster {
         if let Some(async_fd) = self.async_fd.take() {
             // Deregister from the event loop before closing the FD.
             // This avoids closing the FD out from under Tokio's kqueue/epoll.
-            if let Ok(fd) = async_fd.into_inner() {
-                let _ = close(fd);
-            }
+            let fd = async_fd.into_inner();
+            let _ = close(fd);
         }
     }
 }
@@ -491,56 +497,60 @@ unsafe fn child_setup(
         libc::SIGTERM,
         libc::SIGALRM,
     ] {
-        libc::signal(*signo, libc::SIG_DFL);
+        unsafe { libc::signal(*signo, libc::SIG_DFL); }
     }
 
     // Unblock all signals.
-    let mut empty_set: libc::sigset_t = std::mem::zeroed();
-    libc::sigemptyset(&mut empty_set);
-    libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut());
+    let mut empty_set: libc::sigset_t = unsafe { std::mem::zeroed() };
+    unsafe { libc::sigemptyset(&mut empty_set); }
+    unsafe { libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut()); }
 
     // Create new session.
     if setsid().is_err() {
-        libc::_exit(1);
+        unsafe { libc::_exit(1); }
     }
 
     // Set controlling terminal.
-    let ret = libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0);
+    let ret = unsafe { libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
     if ret < 0 {
-        libc::_exit(1);
+        unsafe { libc::_exit(1); }
     }
 
     // Close random FDs (async-signal-safe version — no allocation).
     close_random_fds_async_signal_safe(&[slave_fd, master_fd]);
 
     // dup2 to stdin/stdout/stderr.
-    if libc::dup2(slave_fd, libc::STDIN_FILENO) < 0
-        || libc::dup2(slave_fd, libc::STDOUT_FILENO) < 0
-        || libc::dup2(slave_fd, libc::STDERR_FILENO) < 0
+    if unsafe { libc::dup2(slave_fd, libc::STDIN_FILENO) } < 0
+        || unsafe { libc::dup2(slave_fd, libc::STDOUT_FILENO) } < 0
+        || unsafe { libc::dup2(slave_fd, libc::STDERR_FILENO) } < 0
     {
-        libc::_exit(1);
+        unsafe { libc::_exit(1); }
     }
 
-    libc::close(slave_fd);
-    libc::close(master_fd);
+    unsafe { libc::close(slave_fd); }
+    unsafe { libc::close(master_fd); }
 
     // exec with prepared argv and envp (raw pointers, no allocation).
     #[cfg(target_os = "linux")]
-    libc::execvpe(
-        cmd.program.as_ptr(),
-        cmd.argv_ptrs.as_ptr(),
-        cmd.envp_ptrs.as_ptr(),
-    );
+    unsafe {
+        libc::execvpe(
+            cmd.program.as_ptr(),
+            cmd.argv_ptrs.as_ptr(),
+            cmd.envp_ptrs.as_ptr(),
+        );
+    }
 
     #[cfg(not(target_os = "linux"))]
-    libc::execve(
-        cmd.program.as_ptr(),
-        cmd.argv_ptrs.as_ptr(),
-        cmd.envp_ptrs.as_ptr(),
-    );
+    unsafe {
+        libc::execve(
+            cmd.program.as_ptr(),
+            cmd.argv_ptrs.as_ptr(),
+            cmd.envp_ptrs.as_ptr(),
+        );
+    }
 
     // exec only returns on failure
-    libc::_exit(126);
+    unsafe { libc::_exit(126); }
 }
 
 fn fork_pty(
