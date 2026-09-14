@@ -14,6 +14,14 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `PtyError`** (not `IOError`) across README/QUICKREF/ARCHITECTURE and the
   `PtyMaster.read_timeout` docstring; EOF contract documented; duplicate
   `PtyChild.wait` row removed from QUICKREF.
+- Examples updated to the current API: the advanced emulator's hand-rolled
+  `BellCounter` (raw-stream BEL counting with OSC-stripping regexes) is
+  replaced by the edge-triggered `session.take_bell()`; fixed the exit-code
+  toast, which always showed "unknown" because it tested `wait()`'s
+  `ExitStatus` result with `isinstance(res, dict)`; corrected both usage
+  docstrings (wrong script names) and the basic example's stale timeout-
+  mapping comment; `examples/requirements.txt` floor raised to
+  `stitch-pty>=0.5.7` (the version that introduced `take_bell`).
 
 ## [0.7.5] — Post-plan review fixes
 

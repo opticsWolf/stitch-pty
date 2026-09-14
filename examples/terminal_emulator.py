@@ -20,9 +20,9 @@ selection model).
 
 Usage:
     pip install PySide6 stitch-pty
-    python terminal_emulator_simple.py              # default shell
-    python terminal_emulator_simple.py --cmd "whoami"   # one-shot command
-    python terminal_emulator_simple.py --rows 30 --cols 100
+    python terminal_emulator.py              # default shell
+    python terminal_emulator.py --cmd "whoami"   # one-shot command
+    python terminal_emulator.py --rows 30 --cols 100
 
 Architecture:
     ┌──────────────────────────────────────────────────────┐
@@ -483,7 +483,7 @@ class _AsyncRunner(QObject):
             except PtyError:
                 # A 0.05s read timeout is the NORMAL idle case for an
                 # interactive shell sitting at a prompt — NOT a failure.
-                # (Timeout maps to stitch_pty.IOError, a PtyError subclass.)
+                # (Timeout maps to plain stitch_pty.PtyError.)
                 data = None
             except Exception:
                 # A genuine I/O error (pipe gone) maps to builtin OSError,

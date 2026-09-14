@@ -46,9 +46,9 @@ Window & sessions
 
 Usage
     pip install PySide6 stitch-pty
-    python terminal_emulator.py                 # default shell
-    python terminal_emulator.py --cmd "htop"    # run a command
-    python terminal_emulator.py --rows 40 --cols 120
+    python terminal_emulator_advanced.py                 # default shell
+    python terminal_emulator_advanced.py --cmd "htop"    # run a command
+    python terminal_emulator_advanced.py --rows 40 --cols 120
 
 Threading model
     Each tab owns a background QThread running an asyncio loop and a Rust
@@ -86,7 +86,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-from stitch_pty import PtyError, PtySession, Winsize, spawn
+from stitch_pty import ExitStatus, PtyError, PtySession, Winsize, spawn
 
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -203,42 +203,6 @@ class TermFlags:
     cursor_visible: bool = True     # DECTCEM (?25)
     cursor_shape: str = "block"     # block / underline / bar
     cursor_blink: bool = True       # from DECSCUSR
-
-
-class BellCounter:
-    """Counts terminal bells (BEL) in the raw output stream.
-
-    Mode flags now come directly from the Rust ``TerminalState`` getters, so the
-    GUI no longer scans the stream to recover them.  The bell, however, is not a
-    mode — it has to be counted from the bytes.  OSC strings are terminated by
-    BEL (e.g. title sequences), so completed OSCs are stripped before counting.
-    A trailing, still-open OSC is deferred to the next chunk so its terminating
-    BEL is never miscounted as a real bell.
-    """
-
-    _OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
-
-    def __init__(self) -> None:
-        self._buf = ""
-        self.pending = 0
-
-    def feed(self, data: bytes) -> None:
-        text = self._buf + data.decode("latin-1", errors="replace")
-        carry = 0
-        idx = text.rfind("\x1b]")
-        if idx != -1 and "\x07" not in text[idx:] and "\x1b\\" not in text[idx + 2:]:
-            carry = len(text) - idx          # open OSC — defer from its introducer
-        elif text.endswith("\x1b"):
-            carry = 1                        # lone ESC could begin an OSC
-        if carry > 2048:                     # runaway/unterminated OSC — give up
-            carry = 0
-        head = text if carry == 0 else text[:-carry]
-        self.pending += self._OSC_RE.sub("", head).count("\x07")
-        self._buf = "" if carry == 0 else text[-carry:]
-
-    def reset(self) -> None:
-        self._buf = ""
-        self.pending = 0
 
 
 def flags_from_terminal(t) -> TermFlags:
@@ -1308,8 +1272,9 @@ class TerminalView(QWidget):
 class _AsyncRunner(QObject):
     """Owns the asyncio loop and the Rust PtySession in a background QThread.
 
-    Reads PTY output, feeds the integrated terminal, scans the stream for mode
-    flags / bells, and emits plain-Python Frame snapshots to the GUI thread.
+    Reads PTY output into the integrated terminal and emits plain-Python
+    Frame snapshots to the GUI thread.  Mode flags come from the Rust
+    TerminalState getters and the bell from its edge-triggered take_bell().
     """
 
     data_ready = Signal(object)       # Frame
@@ -1326,7 +1291,6 @@ class _AsyncRunner(QObject):
         self.scrollback = scrollback
         self.session: PtySession | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
-        self.bells = BellCounter()
         self._last_title = ""
         self._last_emit = 0.0
         self._min_frame_dt = 1.0 / 60.0   # cap emit rate to ~60fps
@@ -1379,9 +1343,10 @@ class _AsyncRunner(QObject):
             except Exception:
                 break                    # real I/O error: pipe gone
             if data:
-                self.bells.feed(data)
-                if self.bells.pending:
-                    self.bells.pending = 0
+                # Edge-triggered bell from the emulator itself: the parser
+                # rings only on a lone BEL (OSC terminators excluded), so no
+                # raw-stream scanning is needed here.
+                if self.session.take_bell():
                     self.bell.emit()
                 self._dirty = True       # the render pump will pick this up
             elif not self.session.is_alive:
@@ -1391,8 +1356,10 @@ class _AsyncRunner(QObject):
         code = -1
         try:
             res = await self.session.wait()
-            if isinstance(res, dict):
-                code = int(res.get("exit_code", -1) or -1)
+            # wait() returns an ExitStatus dataclass (None if already
+            # reaped) — never a dict.
+            if res is not None and res.exit_code is not None:
+                code = int(res.exit_code)
         except Exception:
             pass
         self.process_exited.emit(code)
@@ -1498,7 +1465,6 @@ class _AsyncRunner(QObject):
             if self.session:
                 try:
                     self.session.terminal.reset()
-                    self.bells.reset()
                     self._emit_frame(force=True)
                 except Exception:
                     pass
@@ -1533,7 +1499,6 @@ class _AsyncRunner(QObject):
                 self.session = await spawn(self.program, self.args,
                                            winsize=self.winsize)
                 self.session.terminal.set_scrollback_lines(self.scrollback)
-                self.bells.reset()
                 asyncio.create_task(self._read_loop())
                 self._emit_frame(force=True)
             except Exception:
