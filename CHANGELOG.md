@@ -6,6 +6,18 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.7.4] — Concurrency contracts
+
+### Added
+- `tests/test_concurrency.py` pins three contracts: C1 concurrent reads
+  conserve bytes (safe but partitioned — coherent streams need one reader),
+  C2 cancelling a blocked `read()` mid-`terminate()` resolves promptly with
+  the session not-alive, C3 drains between reads stay coherent (valid row
+  indices, full line coverage, stably empty re-drains).
+- `docs/ARCHITECTURE.md` gains a Concurrency Contract section recording the
+  verified locking landscape (Windows pipe Mutex, kernel-serialized Unix
+  reads, synchronous chunk handoffs — hence deliberately no Python lock).
+
 ## [0.7.3] — CI lint gates
 
 ### Fixed

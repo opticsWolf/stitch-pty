@@ -348,6 +348,32 @@ This works identically for both POSIX (`AsyncFd`) and Windows (`NamedPipeServer`
 3. Tokio I/O awaits (GIL released)
 4. On completion, GIL reacquired to convert Rust value → Python object
 
+## Concurrency Contract
+
+Single event loop, no Python-level read lock — deliberately. Each
+`read()`/`read_timeout()` awaits exactly once; everything after the await
+(terminal feed, raw capture, dirty/event accumulation) is synchronous, so a
+chunk is never torn between tasks and there is nothing a lock would protect.
+(An `asyncio.Lock` would additionally be loop-bound — a cross-loop hazard
+for zero benefit.)
+
+- **Backend serialization:** Windows pipe reads hold a `tokio::sync::Mutex`
+  (`WinPtyBackend.output_async`); Unix master reads are kernel-serialized
+  `read(2)` syscalls behind `AsyncFd` readiness guards.
+- **Multi-reader semantics:** concurrent `session.read()` calls are
+  memory-safe and byte-conserving (no loss, duplication, or panics) but the
+  stream is *partitioned* arbitrarily between readers. A coherent stream
+  needs a single reader — front-ends should funnel through one poll task.
+  (`PtyMaster` has no terminal state, so partitioning is its whole story.)
+- **Shutdown:** cancelling a blocked `read()` mid-await while `terminate()`
+  runs resolves promptly; the session reports not-alive afterwards.
+- **Drains:** `take_dirty_rows()`/`poll_events()` between reads never panic,
+  always index valid visible rows, and partition the pending set — a drain
+  with no intervening feed is stably empty.
+
+Pinned by `tests/test_concurrency.py` (C1/C2/C3); failures there read as
+contract decisions, not flakes.
+
 ## Memory Safety
 
 ### FD/Handle Ownership
