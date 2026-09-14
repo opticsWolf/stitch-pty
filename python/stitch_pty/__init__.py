@@ -60,7 +60,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.7.6"
+__version__ = "0.8.0"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -608,6 +608,16 @@ class PtySession:
     def display(self) -> list[str]:
         """Get the visible screen as a list of strings (one per row)."""
         return list(self._terminal.visible_display())
+
+    @property
+    def visible_lines(self) -> int:
+        """Visible height in rows — O(1). Prefer over `len(self.display)`."""
+        return int(self._terminal.visible_lines)
+
+    @property
+    def visible_columns(self) -> int:
+        """Visible width in columns — O(1)."""
+        return int(self._terminal.visible_columns)
 
     @property
     def scrollback(self) -> list[str]:

@@ -240,6 +240,9 @@ for *what happened* — one FFI crossing per frame instead of one per signal.
 
 - Events are a **log, not a set**: ordering is the contract (`TitleChanged`
   before `Bell` before `AltScreen` within one feed stays in that order).
+- The log is **capped at 1024 entries, drop-oldest** (`MAX_EVENTS`): a
+  per-frame drainer never holds more than a handful, while a consumer that
+  never drains leaks at most ~1 MiB instead of growing forever.
 - `ScrollbackGrew(n)` is the exception: a per-drain summary appended trailing
   by `HistoryScreen::take_events`, since scrollback arrivals are collected
   after each feed rather than during parsing.
@@ -534,7 +537,8 @@ returning `ExitStatus | None`.
 | `take_dirty_rows()` | Drain dirty rows (sorted, empty afterwards) |
 | `take_bell()` | Edge-triggered BEL check (resets the flag) |
 | `cwd()` | Shell cwd from OSC 7 / OSC 9;9, if reported yet |
-| `poll_events()` | Drain ordered events → `list[(tag, payload)]`; tags: `bell`, `title`, `icon`, `cwd`, `altscreen`, `scrollback_grew` |
+| `visible_lines` / `visible_columns` | Visible grid geometry, O(1) (prefer over `len(visible_display())`) |
+| `poll_events()` | Drain ordered events → `list[(tag, payload)]`; tags: `bell`, `title`, `icon`, `cwd`, `altscreen`, `scrollback_grew` (log capped at 1024, drop-oldest) |
 | `resize(lines, cols)` | Resize buffer (zero rows/columns clamp to 1) |
 | `reset()` | Reset terminal + clear history |
 | `cursor_x` / `cursor_y` | Cursor position (0-indexed, visible area) |

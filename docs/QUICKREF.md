@@ -106,7 +106,8 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `await interact(input_data=None, timeout=None)` | Write input, read until EOF |
 | `await expect(patterns, timeout=30.0)` | pexpect-style: `bytes`/`str`/`re.Pattern`/list → `ExpectResult(index, match, buffer)`; timeouts carry `.buffer` |
 | `await read_all(timeout=1.0)` | Read all output until timeout |
-| `poll_events()` | Drain ordered events → `list[(tag, payload)]` (`bell`, `title`, `icon`, `cwd`, `altscreen`, `scrollback_grew`) |
+| `poll_events()` | Drain ordered events → `list[(tag, payload)]` (log capped at 1024 entries, drop-oldest) |
+| `visible_lines` / `visible_columns` | Visible grid geometry, O(1) — prefer over `len(display)` |
 | `take_bell()` | Edge-triggered BEL check (resets the flag) |
 | `take_dirty_rows()` | Drain dirty row indices (sorted, empty afterwards) |
 | `is_alive` | Process still running? |

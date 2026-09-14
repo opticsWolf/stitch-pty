@@ -441,8 +441,7 @@ impl Screen {
         let fresh = vec![vec![self.default_char.clone(); self.columns]; self.lines];
         self.saved_buffer = Some(std::mem::replace(&mut self.buffer, fresh));
         self.alt_screen = true;
-        self.events
-            .push(super::events::TermEvent::AltScreen { entered: true });
+        self.push_event(super::events::TermEvent::AltScreen { entered: true });
         self.mark_all_dirty();
     }
 
@@ -463,8 +462,7 @@ impl Screen {
         }
         self.cursor.x = self.cursor.x.min(self.columns.saturating_sub(1));
         self.cursor.y = self.cursor.y.min(self.lines.saturating_sub(1));
-        self.events
-            .push(super::events::TermEvent::AltScreen { entered: false });
+        self.push_event(super::events::TermEvent::AltScreen { entered: false });
         self.mark_all_dirty();
     }
 
@@ -1027,9 +1025,21 @@ impl Screen {
     }
 
     // ── Title / Icon ─────────────────────────────────────────────
+    /// Push one event, enforcing the [`MAX_EVENTS`](super::events::MAX_EVENTS)
+    /// bound with drop-oldest semantics. All event sites go through here so
+    /// a consumer that never drains cannot grow the log without bound.
+    fn push_event(&mut self, event: super::events::TermEvent) {
+        if self.events.len() >= super::events::MAX_EVENTS {
+            // Saturated: discard the oldest. `remove(0)` is O(n), but n ≤ 1024
+            // and saturation only happens when nobody drains — a VecDeque
+            // would buy nothing measurable here.
+            self.events.remove(0);
+        }
+        self.events.push(event);
+    }
     pub fn set_icon_name(&mut self, name: &str) {
         self.icon_name = name.to_string();
-        self.events.push(super::events::TermEvent::IconChanged(
+        self.push_event(super::events::TermEvent::IconChanged(
             self.icon_name.clone(),
         ));
     }
@@ -1038,7 +1048,7 @@ impl Screen {
     /// overflow-argue for no benefit.
     pub fn ring_bell(&mut self) {
         self.bell_pending = true;
-        self.events.push(super::events::TermEvent::Bell);
+        self.push_event(super::events::TermEvent::Bell);
     }
 
     /// Edge-triggered read: returns whether a BEL arrived, resetting the flag.
@@ -1076,14 +1086,13 @@ impl Screen {
 
     pub fn set_title(&mut self, title: &str) {
         self.title = title.to_string();
-        self.events
-            .push(super::events::TermEvent::TitleChanged(self.title.clone()));
+        self.push_event(super::events::TermEvent::TitleChanged(self.title.clone()));
     }
 
     /// Record the shell working directory (OSC 7 / OSC 9;9).
     pub fn set_cwd(&mut self, cwd: String) {
         self.cwd = Some(cwd.clone());
-        self.events.push(super::events::TermEvent::CwdChanged(cwd));
+        self.push_event(super::events::TermEvent::CwdChanged(cwd));
     }
 
     /// Shell working directory, if the shell has reported one yet.
@@ -1667,6 +1676,46 @@ mod tests {
         s.draw("bo");
         s.resize(2, 1);
         assert_eq!(s.display(), vec!["b", " "]);
+    }
+
+    // ── Event log bound ───────────────────────────────────────────────
+
+    #[test]
+    fn test_event_log_bounded_drop_oldest() {
+        // A consumer that never drains must not grow the log without bound
+        // (regression: v0.8.0 integration finding — one TitleChanged per
+        // shell prompt, forever). Only the oldest prefix is discarded;
+        // retained order stays parser order with the newest event last.
+        use super::super::events::{MAX_EVENTS, TermEvent};
+        let mut s = make_screen(10, 10);
+        for i in 0..(MAX_EVENTS + 500) {
+            s.set_title(&format!("t{i}"));
+        }
+        let drained = s.take_events();
+        assert_eq!(drained.len(), MAX_EVENTS);
+        assert_eq!(
+            drained.first(),
+            Some(&TermEvent::TitleChanged("t500".to_string()))
+        );
+        assert_eq!(
+            drained.last(),
+            Some(&TermEvent::TitleChanged(format!("t{}", MAX_EVENTS + 499)))
+        );
+        assert!(s.take_events().is_empty());
+    }
+
+    #[test]
+    fn test_bell_survives_saturated_log() {
+        // At saturation the bell still registers: the drop-oldest eviction
+        // only removes the oldest entry, and take_bell stays in agreement.
+        use super::super::events::MAX_EVENTS;
+        let mut s = make_screen(10, 10);
+        for i in 0..MAX_EVENTS {
+            s.set_title(&format!("t{i}"));
+        }
+        s.ring_bell();
+        assert!(s.take_bell());
+        assert!(!s.take_bell());
     }
 
     #[test]

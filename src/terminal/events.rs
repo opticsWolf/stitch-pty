@@ -15,6 +15,16 @@
 /// `ScrollbackGrew` is the exception: it is a per-drain summary appended
 /// trailing by `HistoryScreen::take_events`, since scrollback arrivals are
 /// collected after each feed rather than during parsing.
+///
+/// **Bounded log.** The event vec is capped at [`MAX_EVENTS`] entries with
+/// drop-oldest semantics (enforced by `Screen::push_event`). A consumer that
+/// drains per frame never holds more than a handful of events — even a 64 KiB
+/// feed of max-size OSC titles yields only dozens — while a consumer that
+/// never drains (e.g. one that only calls `styled_range`) leaks at most ~1 MiB
+/// instead of growing without bound, one `TitleChanged` per shell prompt.
+/// Ordering among retained events is always parser order; only the oldest
+/// prefix is ever discarded.
+pub const MAX_EVENTS: usize = 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TermEvent {
     /// A lone BEL (0x07). OSC BEL terminators never produce this.

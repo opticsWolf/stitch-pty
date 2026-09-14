@@ -235,6 +235,8 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `scrollback` | `list[str]` | Scrollback history |
 | `full_display` | `list[str]` | History + visible screen |
 | `cwd` | `str \| None` | Shell cwd from OSC 7 / OSC 9;9, `None` until reported |
+| `visible_lines` | `int` | Visible height in rows, O(1) (prefer over `len(display)`) |
+| `visible_columns` | `int` | Visible width in columns, O(1) |
 | `raw_output` | `bytes` | Last `raw_output_cap` raw bytes read (unparsed; sliding window, default 1 MiB) |
 
 **Context Manager:**
@@ -303,6 +305,8 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `cursor_x` | `int` | Cursor column (0-indexed, visible area) |
 | `cursor_y` | `int` | Cursor row (0-indexed, visible area) |
 | `title` | `str` | Window title (from OSC sequences) |
+| `visible_lines` | `int` | Visible height in rows, O(1) (prefer over `len(display)`) |
+| `visible_columns` | `int` | Visible width in columns, O(1) |
 | `history_size` | `int` | Current scrollback line count |
 | `scrollback_lines` | `int` | Scrollback capacity |
 | `set_scrollback_lines` | `set_scrollback_lines(n) → None` | Set capacity (trims excess) |

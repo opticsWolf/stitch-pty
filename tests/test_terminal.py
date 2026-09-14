@@ -275,3 +275,51 @@ async def test_terminal_dirty_rows():
             assert isinstance(row, int)
     finally:
         await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_visible_geometry_cheap(idle):
+    """visible_lines/visible_columns are O(1) and track resizes.
+
+    v0.8.0 integration finding: without these, the only way to measure the
+    visible grid from Python was len(visible_display()), which builds the
+    whole screen as Python strings just to count rows.
+    """
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        t = session.terminal
+        assert t.visible_lines == len(t.visible_display())
+        assert t.visible_columns == 80
+        assert session.visible_lines == t.visible_lines
+        assert session.visible_columns == t.visible_columns
+        t.resize(10, 40)
+        assert (t.visible_lines, t.visible_columns) == (10, 40)
+        assert (session.visible_lines, session.visible_columns) == (10, 40)
+        assert t.visible_lines == len(t.visible_display())
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_event_log_bounded(idle):
+    """The event log caps at 1024 entries, drop-oldest, newest retained.
+
+    v0.8.0 integration finding: a consumer that only calls styled_range
+    (never drains) leaked one TitleChanged per shell prompt, forever.
+    """
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        t = session.terminal
+        # OSC 2 (title only): one event per feed. (OSC 0 would emit an
+        # additional icon event per feed — also capped, tested in Rust.)
+        for i in range(1100):
+            t.feed(f"\x1b]2;t{i}\x07".encode())
+        events = session.poll_events()
+        assert len(events) == 1024
+        assert events[0] == ("title", "t76")
+        assert events[-1] == ("title", "t1099")
+        assert session.poll_events() == []
+    finally:
+        await session.terminate()

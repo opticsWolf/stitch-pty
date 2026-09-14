@@ -177,6 +177,20 @@ impl TerminalState {
         self.screen.total_lines()
     }
 
+    /// Visible height in rows — O(1). Use this instead of
+    /// `len(visible_display())`, which builds the whole visible screen as
+    /// Python strings just to measure it.
+    #[getter]
+    pub fn visible_lines(&self) -> usize {
+        self.screen.lines()
+    }
+
+    /// Visible width in columns — O(1), sibling of [`Self::visible_lines`].
+    #[getter]
+    pub fn visible_columns(&self) -> usize {
+        self.screen.columns()
+    }
+
     /// Absolute cursor position: (x, history_len + on-screen_y).
     pub fn absolute_cursor(&self) -> (usize, usize) {
         self.screen.absolute_cursor()

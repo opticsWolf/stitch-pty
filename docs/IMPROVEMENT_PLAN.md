@@ -499,11 +499,8 @@ violations into explicit decisions:
   rows against current implementation reality before the 1.0 marketing push.
 - **1.0.0** — API freeze review: settle the `expect()` return type, event tag
   vocabulary, and error taxonomy; semver promises start there.
-- **Cap the `Screen.events` log** — events accumulate unboundedly between
-  drains (same leak class v0.5.8 fixed for raw bytes). Low urgency: the
-  intended consumers drain per frame, but the library shouldn't grow without
-  bound for consumers that never do. Options: length cap (drop oldest) or
-  coalescing consecutive same-tag events.
+- **Cap the `Screen.events` log** — ☑ done in 0.8.0 (1024-entry cap,
+  drop-oldest, enforced by `Screen::push_event`).
 - **ConEmu-style quoted OSC 9;9 paths** (`9;9;"C:\path"`) are not unquoted;
   fine for ConPTY, wrong for ConEmu-originated streams.
 - **`expect()` blanket `except PtyError`** — safe today (read_timeout only
@@ -531,6 +528,21 @@ all fixed in one patch version:
 Governance note: all four are bug fixes / CI changes → single `+0.0.1`
 patch version, one commit.
 
+## 9. Post-plan: integration findings (v0.7.6, v0.8.0)
+
+Downstream integration (Kilim surfaces) passed two items back upstream:
+
+- **v0.7.6 (patch)** — first CI run on `main` failed the lint gate on
+  Linux/macOS: 8 clippy errors in `platform_unix.rs`, invisible to the
+  Windows toolchain that all local gates used. Fixed; cross-target clippy
+  (`x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`) joined the
+  pre-push checklist.
+- **v0.8.0 (minor)** — (1) cheap visible-geometry getters
+  (`TerminalState.visible_lines`/`visible_columns` + `PtySession`
+  delegates): the only way to measure the grid from Python was
+  `len(visible_display())`, which builds the whole screen as strings just
+  to count rows. (2) the §6 events-log cap above. New public API → minor.
+
 ---
 
 ## 7. Execution order & current status
@@ -551,7 +563,10 @@ patch version, one commit.
 | 12 | 0.7.3 | ☑ landed (`5ea0546`) |
 | 13 | 0.7.4 | ☑ landed (`9d22084`) |
 | 14 | 0.7.5 | ☑ landed — post-plan review fixes (§8) |
+| 15 | 0.7.6 | ☑ landed — Unix-only clippy lints, CI repair (§9) |
+| 16 | 0.8.0 | ☑ landed — geometry getters + bounded event log (§9) |
 
 All rows landed, one commit per version, all pushed to `dev`.
-Final tally at v0.7.5: **370 Rust tests, 189 Python tests**, all green;
-`fmt --check`, `clippy -D warnings`, `ruff check`, `mypy --strict` all clean.
+Final tally at v0.8.0: **369 Rust tests, 191 Python tests**, all green;
+`fmt --check`, `clippy -D warnings` (Windows + Linux + macOS targets),
+`ruff check`, `mypy --strict` all clean.

@@ -6,6 +6,22 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.8.0] — Cheap geometry getters, bounded event log
+
+### Added
+- `TerminalState.visible_lines` / `visible_columns` (and `PtySession`
+  delegates): O(1) visible-grid geometry. Previously the only way to
+  measure the grid from Python was `len(visible_display())`, which builds
+  the whole screen as strings just to count rows.
+
+### Fixed
+- The event log is capped at 1024 entries with drop-oldest semantics
+  (`Screen::push_event` funnels all six event sites). A consumer that
+  never drains (e.g. one calling only `styled_range`) leaked one
+  `TitleChanged` per shell prompt, forever; retained order stays parser
+  order with the newest event last, and `take_bell()` agreement is
+  unaffected.
+
 ## [0.7.6] — Unix-only clippy lints (CI repair)
 
 ### Fixed
