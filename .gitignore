@@ -2,6 +2,10 @@
 target/
 *.pdb
 
+# Compiled Python extensions (built by maturin, never committed)
+*.pyd
+*.so
+
 # Python
 __pycache__/
 *.py[cod]
