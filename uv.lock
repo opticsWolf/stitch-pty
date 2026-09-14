@@ -294,7 +294,7 @@ wheels = [
 
 [[package]]
 name = "stitch-pty"
-version = "0.5.5"
+version = "0.5.7"
 source = { editable = "." }
 
 [package.optional-dependencies]
@@ -306,6 +306,12 @@ dev = [
     { name = "ruff" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "maturin", marker = "extra == 'dev'", specifier = ">=1.8" },
@@ -315,6 +321,12 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
 ]
 provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+]
 
 [[package]]
 name = "typing-extensions"

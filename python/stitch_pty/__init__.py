@@ -457,6 +457,15 @@ class PtySession:
         """Get all raw bytes read from the PTY (unparsed)."""
         return b"".join(self._raw_output)
 
+    def take_bell(self) -> bool:
+        """Whether a BEL (0x07) arrived since the last call, then reset it.
+
+        Edge-triggered: a second call right after returns False. Coalescing:
+        multiple BELs between calls collapse to a single True. OSC sequences
+        terminated by BEL (e.g. window titles) do NOT ring — only lone BELs.
+        """
+        return self._terminal.take_bell()
+
     def __repr__(self) -> str:
         return f"PtySession(...)"
 

@@ -82,6 +82,13 @@ impl TerminalState {
         self.screen.title().to_string()
     }
 
+    /// Whether a BEL (0x07) arrived since the last call, then resets it.
+    /// Edge-triggered: two calls in a row return ``True`` then ``False``.
+    /// OSC sequences terminated by BEL (e.g. window titles) do NOT ring.
+    pub fn take_bell(&mut self) -> bool {
+        self.screen.take_bell()
+    }
+
     /// Get the number of lines in the scrollback history.
     #[getter]
     pub fn history_size(&self) -> usize {
