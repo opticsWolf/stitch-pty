@@ -5,10 +5,11 @@ the raw_output buffer, wait() exit codes, env passing, concurrent and repeated
 spawning, and that read() output is parsed into the terminal.
 """
 import asyncio
+import re
 import sys
 
 import pytest
-from stitch_pty import spawn, PtySession, PtyError, Winsize, ExitStatus
+from stitch_pty import spawn, PtySession, PtyError, Winsize, ExitStatus, ExpectResult
 
 
 # ── spawning ──────────────────────────────────────────────────────
@@ -216,6 +217,125 @@ async def test_spawn_with_cwd(tmp_path, read_all):
 async def test_spawn_with_missing_cwd_raises():
     with pytest.raises(PtyError):
         await spawn(sys.executable, ["-c", "pass"], cwd="Z:/definitely/missing")
+
+
+# ── expect() ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_expect_literal_legacy_shape(shell):
+    prog, args = shell("echo expect_literal_xyz")
+    session = await spawn(prog, args)
+    try:
+        res = await session.expect(b"expect_literal_xyz", timeout=5.0)
+        assert isinstance(res, ExpectResult)
+        assert res.index == 0
+        assert res.match is None
+        assert b"expect_literal_xyz" in res.buffer
+        # Legacy bytes-compat shims.
+        assert b"expect_literal_xyz" in res
+        assert res == res.buffer
+        assert bytes(res) == res.buffer
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_expect_str_pattern(shell):
+    prog, args = shell("echo expect_str_abc")
+    session = await spawn(prog, args)
+    try:
+        res = await session.expect("expect_str_abc", timeout=5.0)
+        assert res.index == 0
+        assert res.match is None
+        assert b"expect_str_abc" in res
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_expect_regex(shell):
+    prog, args = shell("echo expect_regex_42")
+    session = await spawn(prog, args)
+    try:
+        res = await session.expect(re.compile(rb"expect_[a-z]+_\d+"), timeout=5.0)
+        assert res.index == 0
+        assert res.match is not None
+        assert res.match.group(0) == b"expect_regex_42"
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_expect_multi_pattern_list_order(shell):
+    prog, args = shell("echo second_1")
+    session = await spawn(prog, args)
+    try:
+        res = await session.expect(
+            [b"nomatch_xyz", re.compile(rb"second_\d+"), "also_nomatch"],
+            timeout=5.0,
+        )
+        assert res.index == 1
+        assert res.match is not None
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_expect_split_across_chunks():
+    prog = sys.executable
+    args = ["-c", (
+        "import sys, time; sys.stdout.write('SPLIT_'); sys.stdout.flush();"
+        " time.sleep(0.5); sys.stdout.write('PATTERN'); sys.stdout.flush()"
+    )]
+    session = await spawn(prog, args)
+    try:
+        res = await session.expect(b"SPLIT_PATTERN", timeout=5.0)
+        assert res.buffer.endswith(b"SPLIT_PATTERN")
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_expect_eof_carries_buffer(shell):
+    prog, args = shell("echo tiny")
+    session = await spawn(prog, args)
+    try:
+        with pytest.raises(TimeoutError) as exc_info:
+            await session.expect(b"never_appears_xyz", timeout=5.0)
+        assert isinstance(exc_info.value.buffer, bytes)
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_expect_timeout_carries_buffer(idle):
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        with pytest.raises(TimeoutError) as exc_info:
+            await session.expect(b"never_appears_xyz", timeout=0.5)
+        # Content is platform-dependent (ConPTY emits init sequences),
+        # but the attribute is always present and always bytes.
+        assert isinstance(exc_info.value.buffer, bytes)
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_expect_rejects_bad_patterns(shell):
+    prog, args = shell("echo hi")
+    session = await spawn(prog, args)
+    try:
+        with pytest.raises(ValueError):
+            await session.expect([], timeout=1.0)
+        with pytest.raises(TypeError):
+            await session.expect(re.compile("str_pattern"), timeout=1.0)
+        with pytest.raises(TypeError):
+            await session.expect(123, timeout=1.0)  # type: ignore[arg-type]
+    finally:
+        await session.terminate()
 
 
 @pytest.mark.asyncio

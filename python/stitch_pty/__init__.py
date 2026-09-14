@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import os
+import re
 import signal
 import struct
 import sys
@@ -58,7 +59,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -66,6 +67,7 @@ __all__ = [
     "TerminalState",
     "Winsize",
     "ExitStatus",
+    "ExpectResult",
     "spawn",
     "open_pty",
     "PtyError",
@@ -218,6 +220,69 @@ class PtyChild:
 
     def __repr__(self) -> str:
         return f"PtyChild(pid={self.pid}, running={self.is_running})"
+
+
+@dataclass(frozen=True)
+class ExpectResult:
+    """Result of :meth:`PtySession.expect`.
+
+    Attributes:
+        index: Position of the winning pattern in the (normalized) pattern
+            list. A single pattern is index 0.
+        match: The regex match object, or ``None`` when the winner was a
+            literal bytes/str pattern.
+        buffer: All bytes read up to and including the matching chunk.
+
+    Backward compatibility with the pre-0.7.1 ``-> bytes`` return:
+    ``bytes(result)`` and ``result == b"…"`` compare against ``buffer``,
+    and ``b"…" in result`` searches it — but ``.decode()`` is gone, so
+    spell it ``bytes(result).decode()`` (or ``result.buffer.decode()``).
+    """
+
+    index: int
+    match: re.Match[bytes] | None
+    buffer: bytes
+
+    def __bytes__(self) -> bytes:
+        return self.buffer
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ExpectResult):
+            return (self.index, self.buffer) == (other.index, other.buffer)
+        if isinstance(other, (bytes, bytearray)):
+            return self.buffer == bytes(other)
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash((self.index, self.buffer))
+
+    def __contains__(self, item: object) -> bool:
+        if isinstance(item, (bytes, bytearray)):
+            return bytes(item) in self.buffer
+        if isinstance(item, str):
+            return item.encode() in self.buffer
+        return False
+
+
+def _compile_expect_pattern(
+    pattern: bytes | str | re.Pattern[bytes], index: int
+) -> re.Pattern[bytes]:
+    """Normalize one expect() pattern to a bytes regex."""
+    if isinstance(pattern, re.Pattern):
+        if isinstance(pattern.pattern, str):
+            raise TypeError(
+                f"expect() pattern #{index} is a str regex; PTY output is "
+                f"bytes, so compile rb'…' instead of {pattern.pattern!r}"
+            )
+        return pattern
+    if isinstance(pattern, str):
+        pattern = pattern.encode()
+    if isinstance(pattern, (bytes, bytearray)):
+        return re.compile(re.escape(bytes(pattern)))
+    raise TypeError(
+        "expect() patterns must be bytes, str, re.Pattern[bytes], or a "
+        f"list/tuple thereof; got {type(pattern).__name__} at index {index}"
+    )
 
 
 class PtySession:
@@ -437,31 +502,82 @@ class PtySession:
         """
         return await self.interact(timeout=timeout)
 
-    async def expect(self, pattern: bytes, timeout: float = 30.0) -> bytes:
-        """Read until `pattern` appears in output (like pexpect).
+    async def expect(
+        self,
+        patterns: bytes | str | re.Pattern[bytes] | list[bytes | str | re.Pattern[bytes]] | tuple[bytes | str | re.Pattern[bytes], ...],
+        timeout: float = 30.0,
+    ) -> ExpectResult:
+        """Read until a pattern appears in output (like pexpect).
 
-        Returns all data read up to and including the pattern.
-        Raises TimeoutError if pattern not found within timeout.
+        Args:
+            patterns: One pattern or a list/tuple of them. Each may be
+                ``bytes`` (literal), ``str`` (literal, UTF-8 encoded), or a
+                bytes ``re.Pattern``. With several patterns, the first one in
+                *list order* that matches anywhere in the buffer wins (not
+                the earliest position).
+            timeout: Seconds to wait before giving up.
+
+        Returns:
+            An :class:`ExpectResult` with the winning ``index``, the regex
+            ``match`` (``None`` for literal hits), and the full ``buffer``
+            read so far.
+
+        Raises:
+            TimeoutError: On timeout or EOF before any match. The bytes seen
+                so far are attached as the exception's ``.buffer`` attribute.
+            TypeError: For non-bytes/str/regex patterns (note: ``str`` regexes
+                are rejected — PTY output is bytes, so compile ``rb"…"``).
         """
-        buffer = bytearray()
-        deadline = asyncio.get_running_loop().time() + timeout
+        if isinstance(patterns, (bytes, str, re.Pattern)):
+            wanted: list[bytes | str | re.Pattern[bytes]] = [patterns]
+        elif isinstance(patterns, (list, tuple)):
+            if not patterns:
+                raise ValueError("expect() requires at least one pattern")
+            wanted = list(patterns)
+        else:
+            raise TypeError(
+                "expect() patterns must be bytes, str, re.Pattern[bytes], "
+                f"or a list/tuple thereof; got {type(patterns).__name__}"
+            )
+        compiled = [
+            _compile_expect_pattern(p, index=i) for i, p in enumerate(wanted)
+        ]
 
+        buffer = bytearray()
+
+        def _timeout(message: str) -> TimeoutError:
+            exc = TimeoutError(message)
+            setattr(exc, "buffer", bytes(buffer))
+            return exc
+
+        deadline = asyncio.get_running_loop().time() + timeout
         while True:
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
-                raise TimeoutError(f"Pattern {pattern!r} not found within {timeout}s")
+                raise _timeout(
+                    f"Pattern {patterns!r} not found within {timeout}s"
+                )
 
             try:
                 chunk = await self.read_timeout(4096, remaining)
             except PtyError:
-                raise TimeoutError(f"Pattern {pattern!r} not found. Buffer: {bytes(buffer)!r}")
+                raise _timeout(
+                    f"Pattern {patterns!r} not found. Buffer: {bytes(buffer)!r}"
+                )
 
             if not chunk:
-                raise TimeoutError(f"EOF before pattern found. Buffer: {bytes(buffer)!r}")
+                raise _timeout(
+                    f"EOF before pattern found. Buffer: {bytes(buffer)!r}"
+                )
 
             buffer.extend(chunk)
-            if pattern in buffer:
-                return bytes(buffer)
+            for index, rx in enumerate(compiled):
+                found = rx.search(buffer)
+                if found is not None:
+                    is_regex = isinstance(wanted[index], re.Pattern)
+                    return ExpectResult(
+                        index, found if is_regex else None, bytes(buffer)
+                    )
 
     # ── Terminal emulation properties ─────────────────────────────────
 

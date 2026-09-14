@@ -6,6 +6,19 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.7.1] — `expect()` upgrades
+
+### Added
+- `expect()` accepts `str` literals, bytes regexes (`re.Pattern[bytes]`),
+  and lists/tuples of mixed patterns (first in list order wins).
+- Returns `ExpectResult(index, match, buffer)`; `match` is `None` for
+  literal hits. `TimeoutError`s carry the bytes seen as `.buffer`.
+
+### Changed (minor behavior note)
+- `expect()` no longer returns bare `bytes`. Shims keep old call sites
+  working (`in`, `== bytes`, `bytes(…)`); only `.decode()` must now be
+  spelled `bytes(result).decode()`.
+
 ## [0.7.0] — Consolidated event polling
 
 ### Added

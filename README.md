@@ -222,7 +222,7 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `send_signal` | `send_signal(num) → None` | Send arbitrary signal number |
 | `interact` | `await interact(input_data=None, timeout=None) → bytes` | Write input, read until EOF (high-level) |
 | `read_all` | `await read_all(timeout=1.0) → bytes` | Read all output until timeout |
-| `expect` | `await expect(pattern, timeout=30.0) → bytes` | pexpect-style: read until pattern found |
+| `expect` | `await expect(patterns, timeout=30.0) → ExpectResult` | pexpect-style: bytes/str/regex, single or list; `.buffer` on timeouts |
 
 **Properties:**
 
@@ -558,23 +558,36 @@ import asyncio
 from stitch_pty import spawn
 
 async def main():
+    import re
     session = await spawn("bash", ["-i"])
 
-    # Wait for a prompt
+    # Wait for a prompt (single literal → index 0)
     prompt = await session.expect(b"$ ", timeout=10.0)
-    print(f"Got: {prompt.decode()}")
+    print(f"Got: {bytes(prompt).decode()}")
 
     # Send command
     await session.write(b"uname -a\n")
 
-    # Wait for output
-    output = await session.expect(b"\n", timeout=5.0)
-    print(f"Output: {output.decode()}")
+    # Wait for whichever comes first: output line or an error banner.
+    # Lists match in list order; regex hits carry a match object.
+    output = await session.expect(
+        [re.compile(rb"Linux .*"), b"command not found"], timeout=5.0
+    )
+    print(f"Output [{output.index}]: {output.buffer.decode()}")
+    if output.match is not None:
+        print(f"Matched: {output.match.group(0).decode()}")
 
     await session.terminate()
 
 asyncio.run(main())
 ```
+
+`expect()` returns an `ExpectResult(index, match, buffer)`: `index` is the
+winning pattern's position, `match` is the regex match (or `None` for literal
+hits), and `buffer` holds everything read so far. Timeouts and EOF raise
+`TimeoutError` with the bytes seen attached as `.buffer`. Legacy call sites
+keep working: `b"…" in result`, `result == b"…"`, and `bytes(result)` all
+read from `buffer` — only `.decode()` needs spelling out now.
 
 ### Raw PTY (No Child)
 
