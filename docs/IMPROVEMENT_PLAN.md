@@ -13,8 +13,12 @@ Every version below is **exactly one commit**, pushed to `dev` immediately.
 
 | Change class | Bump | Examples in this plan |
 |---|---|---|
-| Bug fix, test-only, CI/chore, docs | `+0.0.1` (patch) | 0.5.8, 0.5.9, 0.9.1 |
-| New feature, major refactor | `+0.1.0` (minor) | 0.6.0, 0.7.0, 0.8.0, 0.9.0 |
+| Bug fix, test-only, CI/chore, docs | `+0.0.1` (patch) | 0.5.8, 0.5.9, 0.6.1 |
+| New feature, major refactor | `+0.1.0` (minor) | 0.6.0, 0.7.0 |
+
+Incremental features that build directly on a just-landed feature and don't
+expand the API surface (e.g. 0.6.1 OSC tracking on top of 0.6.0 `cwd`) ride
+as patches, per the roadmap annotations.
 
 After a minor bump, the patch sequence continues from the new minor
 (`0.6.0 → 0.6.1 → …`), never under the old minor.
@@ -47,13 +51,13 @@ version before pushing.
 | 0.5.11 | fix | `spawn()` forwards `scrollback` (and raw-output cap) | 1 |
 | 0.5.12 | chore | Repo hygiene: untrack `.pyc`, add `.gitattributes` | 1 |
 | 0.5.13 | chore | `CHANGELOG.md` + release checklist | 1 |
-| 0.6.0 | feature | `cwd` parameter on `spawn()` | 2 |
-| 0.7.0 | feature | Consolidated event polling (`poll_events()`) | 2 |
-| 0.8.0 | feature | OSC 7 / OSC 9;9 cwd tracking | 2 |
-| 0.9.0 | feature | `expect()` upgrades: regex + multi-pattern | 2 |
-| 0.9.1 | test | Property-based invariants for parser→Screen | 3 |
-| 0.9.2 | fix | CI lint gates (clippy, fmt, ruff, mypy) | 3 |
-| 0.9.3 | test | Concurrency contract tests | 3 |
+| 0.6.0 | feature (minor) | `cwd` parameter on `spawn()` — new user-facing option, platform-layer change | 2 |
+| 0.6.1 | feature (patch) | OSC 7 / 9;9 cwd tracking — incremental, builds directly on 0.6.0; small parser addition | 2 |
+| 0.7.0 | feature (minor) | Consolidated event polling (`poll_events()`) — new API surface | 2 |
+| 0.7.1 | feature (patch) | `expect()` upgrades: regex + multi-pattern | 2 |
+| 0.7.2 | test | Property-based invariants for parser→Screen | 3 |
+| 0.7.3 | fix | CI lint gates (clippy, fmt, ruff, mypy) | 3 |
+| 0.7.4 | test | Concurrency contract tests | 3 |
 
 ---
 
@@ -216,7 +220,7 @@ documented entry point cannot configure scrollback at all.
 
 ---
 
-## 4. Tier 2 — Features (minor series `0.6.0 … 0.9.0`)
+## 4. Tier 2 — Features (series `0.6.0 … 0.7.1`)
 
 ### v0.6.0 — feature: `cwd` parameter on `spawn()`
 
@@ -251,12 +255,55 @@ has no working-directory parameter. Consumers spawn shells and immediately
 
 ---
 
+### v0.6.1 — feature: OSC 7 / OSC 9;9 cwd tracking
+
+> Patch bump: incremental feature building directly on 0.6.0's `cwd` plumbing;
+> small parser addition, no new API surface beyond one getter/event.
+
+**Problem.** Terminals report the shell's cwd via
+`OSC 7 ; file://host/path BEL` (macOS/Linux shells, Windows Terminal) or
+`OSC 9;9 ; path ST` (ConPTY). The parser currently drops both. Kilim-style UIs
+use cwd for tab tooltips/launch defaults.
+
+**Design.**
+
+- `parser.rs::osc_dispatch`: handle `b"7"` (params[1] = URI) and the
+  `b"9"` + param `9;9` form. Parse:
+  - `file://host/path` → strip scheme/host, percent-decode (small hand-rolled
+    decoder or `percent-encoding` crate — prefer the crate, it's tiny).
+  - Windows drive forms: accept `file:///C:/…` → `C:\…` normalization helper
+    in a new `src/terminal/cwd.rs` with unit tests (this parsing is fiddly —
+    isolate it).
+- `Screen.cwd: Option<String>`; `enter_alt_screen`/`reset` do **not** clear it
+  (cwd survives alt-screen; it's shell state, not screen state).
+- 0.6.1 exposes the state: `TerminalState.cwd` getter, `PtySession.cwd`
+  property. Emitting `TermEvent::CwdChanged` on change is wired up when the
+  0.7.0 event pipeline lands (this section's enum mention is its future hook).
+
+**Files.** `src/terminal/cwd.rs` (new), `src/terminal/parser.rs`,
+`src/terminal/screen.rs`, `src/terminal/history.rs`, `src/terminal_api.rs`,
+`python/stitch_pty/__init__.py`, `README.md`, tests.
+
+**Tests.**
+
+- `OSC 7 ; file://myhost/home/user%20name BEL` → `"/home/user name"`.
+- `OSC 9;9 ; C:\Users\Main ST` → `"C:\Users\Main"`.
+- Malformed OSC 7 (no scheme, binary junk) → cwd unchanged, no panic
+  (this is untrusted shell output — never `unwrap()`).
+
+**Commit.** `feat: track shell cwd via OSC 7 and OSC 9;9 (v0.6.1)`
+
+---
+
 ### v0.7.0 — feature: consolidated event polling (`poll_events()`)
+
+> Minor bump: new API surface (event enum + pymethod) and a refactor of how
+> low-frequency signals reach consumers.
 
 **Problem.** A frontend tick must make N separate FFI crossings per frame —
 `take_bell()`, `take_dirty_rows()`, `title`, mode getters — and has no way to
 know *when* things happened inside a feed. Cost is small but grows with every
-new signal (0.8.0 adds cwd; future: scrollback-growth).
+new signal (0.6.1 adds cwd; future: scrollback-growth).
 
 **Design.**
 
@@ -266,7 +313,7 @@ new signal (0.8.0 adds cwd; future: scrollback-growth).
       Bell,
       TitleChanged(String),
       IconChanged(String),
-      CwdChanged(String),        // populated from 0.8.0 on
+      CwdChanged(String),        // populated from 0.6.1 on
       AltScreen { entered: bool },
       ScrollbackGrew(u64),       // lines pushed since last drain
   }
@@ -304,43 +351,10 @@ row for `poll_events`.
 
 ---
 
-### v0.8.0 — feature: OSC 7 / OSC 9;9 cwd tracking
+### v0.7.1 — feature: `expect()` upgrades — regex + multi-pattern
 
-**Problem.** Terminals report the shell's cwd via
-`OSC 7 ; file://host/path BEL` (macOS/Linux shells, Windows Terminal) or
-`OSC 9;9 ; path ST` (ConPTY). The parser currently drops both. Kilim-style UIs
-use cwd for tab tooltips/launch defaults.
-
-**Design.**
-
-- `parser.rs::osc_dispatch`: handle `b"7"` (params[1] = URI) and the
-  `b"9"` + param `9;9` form. Parse:
-  - `file://host/path` → strip scheme/host, percent-decode (small hand-rolled
-    decoder or `percent-encoding` crate — prefer the crate, it's tiny).
-  - Windows drive forms: accept `file:///C:/…` → `C:\…` normalization helper
-    in a new `src/terminal/cwd.rs` with unit tests (this parsing is fiddly —
-    isolate it).
-- `Screen.cwd: Option<String>`; `enter_alt_screen`/`reset` do **not** clear it
-  (cwd survives alt-screen; it's shell state, not screen state).
-- Emit `TermEvent::CwdChanged` (0.7.0 pipeline pays off).
-- Expose: `TerminalState.cwd` getter, `PtySession.cwd` property.
-
-**Files.** `src/terminal/cwd.rs` (new), `src/terminal/parser.rs`,
-`src/terminal/screen.rs`, `src/terminal/history.rs`, `src/terminal_api.rs`,
-`python/stitch_pty/__init__.py`, `README.md`, tests.
-
-**Tests.**
-
-- `OSC 7 ; file://myhost/home/user%20name BEL` → `"/home/user name"`.
-- `OSC 9;9 ; C:\Users\Main ST` → `"C:\Users\Main"`.
-- Malformed OSC 7 (no scheme, binary junk) → cwd unchanged, no panic
-  (this is untrusted shell output — never `unwrap()`).
-
-**Commit.** `feat: track shell cwd via OSC 7 and OSC 9;9 (v0.8.0)`
-
----
-
-### v0.9.0 — feature: `expect()` upgrades — regex + multi-pattern
+> Patch bump: extends an existing function's accepted pattern types; no new
+> API surface beyond the return type's shims.
 
 **Problem.** `expect(pattern: bytes)` accepts one literal byte pattern.
 pexpect-grade consumers need alternation ("awaiting prompt OR error banner")
@@ -380,13 +394,13 @@ and regex.
 - Literal (legacy shape), regex, list-of-mixed, EOF-before-match, chunk-split
   pattern, timeout carries `.buffer`.
 
-**Commit.** `feat: expect() supports regex and multi-pattern matching (v0.9.0)`
+**Commit.** `feat: expect() supports regex and multi-pattern matching (v0.7.1)`
 
 ---
 
-## 5. Tier 3 — Robustness (patch series `0.9.1 … 0.9.3`)
+## 5. Tier 3 — Robustness (patch series `0.7.2 … 0.7.4`)
 
-### v0.9.1 — test: property-based invariants for parser→Screen
+### v0.7.2 — test: property-based invariants for parser→Screen
 
 **Problem.** The vte state machine is upstream-tested; the glue
 (`Performer`/`Screen`/`HistoryScreen`) is covered by example-based tests only.
@@ -416,11 +430,11 @@ Malformed/untrusted byte streams are the *normal input* for a terminal library.
 **Files.** `Cargo.toml`, `src/terminal/parser.rs` (tests mod),
 `src/terminal/history.rs` (tests mod), `docs/TESTS.md`.
 
-**Commit.** `test: property-based invariants for terminal parsing pipeline (v0.9.1)`
+**Commit.** `test: property-based invariants for terminal parsing pipeline (v0.7.2)`
 
 ---
 
-### v0.9.2 — fix: CI lint gates
+### v0.7.3 — fix: CI lint gates
 
 **Problem.** `.github/workflows/CI.yml` runs `cargo test` and `pytest` but no
 linters — ruff/mypy/clippy configs exist locally and silently drift.
@@ -440,11 +454,11 @@ strict-mode complaints on the new `ExpectResult`).
 
 **Files.** `.github/workflows/CI.yml`, assorted lint fixes.
 
-**Commit.** `fix: enforce fmt/clippy/ruff/mypy gates in CI (v0.9.2)`
+**Commit.** `fix: enforce fmt/clippy/ruff/mypy gates in CI (v0.7.3)`
 
 ---
 
-### v0.9.3 — test: concurrency contract tests
+### v0.7.4 — test: concurrency contract tests
 
 **Problem.** Behavior for two concurrent `read()`s, `read()` racing
 `terminate()`, and `poll_events()` during an active feed is defined only by
@@ -468,7 +482,7 @@ violations into explicit decisions:
 **Files.** `tests/test_concurrency.py` (new), possibly `src/async_io.rs`,
 `docs/ARCHITECTURE.md` (Threading/Concurrency section).
 
-**Commit.** `test: pin concurrency contracts for reads/terminate/drains (v0.9.3)`
+**Commit.** `test: pin concurrency contracts for reads/terminate/drains (v0.7.4)`
 
 ---
 
@@ -499,11 +513,11 @@ violations into explicit decisions:
 | 5 | 0.5.12 | ☐ pending |
 | 6 | 0.5.13 | ☐ pending |
 | 7 | 0.6.0 | ☐ pending |
-| 8 | 0.7.0 | ☐ pending |
-| 9 | 0.8.0 | ☐ pending |
-| 10 | 0.9.0 | ☐ pending |
-| 11 | 0.9.1 | ☐ pending |
-| 12 | 0.9.2 | ☐ pending |
-| 13 | 0.9.3 | ☐ pending |
+| 8 | 0.6.1 | ☐ pending |
+| 9 | 0.7.0 | ☐ pending |
+| 10 | 0.7.1 | ☐ pending |
+| 11 | 0.7.2 | ☐ pending |
+| 12 | 0.7.3 | ☐ pending |
+| 13 | 0.7.4 | ☐ pending |
 
 Update this table as versions land. Each row = one commit on `dev`, pushed.
