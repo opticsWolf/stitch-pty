@@ -34,6 +34,45 @@ async def test_session_cwd_osc7(idle):
 
 
 @pytest.mark.asyncio
+async def test_osc_payloads_rejoin_semicolons(idle):
+    """';' splits OSC params — payloads must be rejoined, not concatenated
+    (v0.7.5 review finding: titles and OSC 7 paths silently dropped ';')."""
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        session.terminal.feed(b"\x1b]0;my;title\x07")
+        assert session.terminal.title == "my;title"
+        session.terminal.feed(b"\x1b]7;file://host/docs;old\x07")
+        assert session.cwd == "/docs;old"
+        # The 9;9 branch always rejoined correctly — pin it too.
+        session.terminal.feed(b"\x1b]9;9;C:\\docs;old\x07")
+        assert session.cwd == "C:\\docs;old"
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_terminal_resize_zero_clamped(idle):
+    """Zero geometry must clamp to 1, not panic on the next feed
+    (v0.7.5 review finding: resize(0, 80) then feed panicked in Rust)."""
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        session.terminal.resize(0, 80)
+        session.terminal.feed(b"hello")  # must not panic
+        assert any("hello" in row for row in session.display)
+        session.terminal.resize(24, 0)
+        session.terminal.feed(b"\x1b[1K")  # EL-1 with clamped columns
+        assert len(session.display) == 24
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
 async def test_poll_events_ordered(idle):
     prog, args = idle()
     session = await spawn(prog, args)

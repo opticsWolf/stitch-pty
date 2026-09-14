@@ -60,7 +60,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.7.4"
+__version__ = "0.7.5"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -321,15 +321,23 @@ class PtySession:
 
     def _record_raw(self, data: bytes) -> None:
         """Append a read chunk to the bounded raw-output window."""
-        if self._raw_cap is not None:
+        if self._raw_cap is None:
+            # Unbounded legacy mode: raw_output_cap=None.
+            self._raw_chunks.append(data)
+            self._raw_bytes += len(data)
+        elif len(data) >= self._raw_cap:
+            # A chunk at/over the cap evicts everything, including itself —
+            # keep only its tail so `raw_output` stays "the last cap bytes"
+            # even for a single oversized read (v0.7.5 review finding).
+            tail = bytes(data[-self._raw_cap :])
+            self._raw_chunks.clear()
+            self._raw_chunks.append(tail)
+            self._raw_bytes = len(tail)
+        else:
             self._raw_chunks.append(data)
             self._raw_bytes += len(data)
             while self._raw_chunks and self._raw_bytes > self._raw_cap:
                 self._raw_bytes -= len(self._raw_chunks.popleft())
-        else:
-            # Unbounded legacy mode: raw_output_cap=None.
-            self._raw_chunks.append(data)
-            self._raw_bytes += len(data)
 
     @property
     def is_alive(self) -> bool:
@@ -568,6 +576,9 @@ class PtySession:
             try:
                 chunk = await self.read_timeout(4096, remaining)
             except PtyError:
+                # Sound today: read_timeout raises PtyError *only* on timeout
+                # (EOF returns b"", handled below). If PtyError ever gains
+                # other read-path meanings, revisit this blanket catch.
                 raise _timeout(
                     f"Pattern {patterns!r} not found. Buffer: {bytes(buffer)!r}"
                 ) from None

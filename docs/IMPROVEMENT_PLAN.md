@@ -499,6 +499,37 @@ violations into explicit decisions:
   rows against current implementation reality before the 1.0 marketing push.
 - **1.0.0** — API freeze review: settle the `expect()` return type, event tag
   vocabulary, and error taxonomy; semver promises start there.
+- **Cap the `Screen.events` log** — events accumulate unboundedly between
+  drains (same leak class v0.5.8 fixed for raw bytes). Low urgency: the
+  intended consumers drain per frame, but the library shouldn't grow without
+  bound for consumers that never do. Options: length cap (drop oldest) or
+  coalescing consecutive same-tag events.
+- **ConEmu-style quoted OSC 9;9 paths** (`9;9;"C:\path"`) are not unquoted;
+  fine for ConPTY, wrong for ConEmu-originated streams.
+- **`expect()` blanket `except PtyError`** — safe today (read_timeout only
+  raises PtyError on timeout); revisit if PtyError gains other read-path
+  meanings (comment pinned in-code since 0.7.5).
+
+## 8. Post-plan: review-driven fixes (v0.7.5)
+
+A full plan-vs-implementation review after 0.7.4 surfaced four findings,
+all fixed in one patch version:
+
+1. **OSC sub-params dropped `;`** — titles and OSC 7 payloads were
+   reconstructed by concatenation instead of rejoining on `;` (OSC 9;9 was
+   the only branch that did it right). Fix + Rust/Python tests.
+2. **`resize(0, N)` panic** — zero geometry reached Rust unclamped from the
+   FFI boundary and panicked on the next feed; also defeated the 0.7.2
+   EL-1 clamp assumption (`columns ≥ 1`). Fix at `Screen::new`,
+   `Screen::resize`, and `HistoryScreen::resize` entry + tests.
+3. **Oversized raw chunk emptied the window** — the plan's own v0.5.8
+   algorithm evicted a chunk larger than the cap entirely; now the tail is
+   retained. Fix + test.
+4. **CI never ran on `dev`** — the 0.7.3 gates had only ever executed for
+   `main`/tags. Trigger now includes `dev`; linters pinned.
+
+Governance note: all four are bug fixes / CI changes → single `+0.0.1`
+patch version, one commit.
 
 ---
 
@@ -519,7 +550,8 @@ violations into explicit decisions:
 | 11 | 0.7.2 | ☑ landed (`e266d1c`) — plus real find: EL-1 pending-wrap panic, fixed in-version |
 | 12 | 0.7.3 | ☑ landed (`5ea0546`) |
 | 13 | 0.7.4 | ☑ landed (`9d22084`) |
+| 14 | 0.7.5 | ☑ landed — post-plan review fixes (§8) |
 
 All rows landed, one commit per version, all pushed to `dev`.
-Final tally at v0.7.4: **364 Rust tests, 186 Python tests**, all green;
+Final tally at v0.7.5: **370 Rust tests, 189 Python tests**, all green;
 `fmt --check`, `clippy -D warnings`, `ruff check`, `mypy --strict` all clean.

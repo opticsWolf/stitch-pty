@@ -379,6 +379,32 @@ async def test_raw_output_window_slides(idle):
 
 
 @pytest.mark.asyncio
+async def test_raw_output_oversized_chunk_keeps_tail(idle):
+    """A chunk at/over the cap must leave its tail, not empty the window
+    (v0.7.5 review finding: the eviction loop removed the chunk itself)."""
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        session._raw_cap = 1_048_576
+        session._record_raw(b"x" * 3_000_000)
+        assert session.raw_output == b"x" * 1_048_576
+        # Exactly at the cap: window holds that chunk verbatim (not > cap).
+        session._raw_chunks.clear()
+        session._raw_bytes = 0
+        session._record_raw(b"z" * 1_048_576)
+        assert session.raw_output == b"z" * 1_048_576
+        # The window still slides after an oversized fill: a fresh chunk
+        # evicts the oldest chunk wholesale (coarse granularity, as the
+        # slide test above pins).
+        session._record_raw(b"y" * 100)
+        assert session.raw_output == b"y" * 100
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
 async def test_session_init_positional_inner(shell):
     """PtySession(inner) positional construction still works (compat)."""
     prog, args = shell("echo compat")

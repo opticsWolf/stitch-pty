@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     tags: ['v*']
   pull_request:
     branches: [main]
@@ -40,10 +40,12 @@ jobs:
       - name: Install maturin
         run: pip install maturin
       - name: Lint (fmt, clippy, ruff, mypy)
+        # Pinned to the versions the maintainers verify locally; a silent
+        # linter upgrade must never turn mypy --strict red on its own.
         run: |
           cargo fmt --all --check
           cargo clippy --all-targets -- -D warnings
-          pip install ruff mypy
+          pip install "ruff==0.16.5" "mypy==2.3.0"
           ruff check python/ tests/
           mypy python/stitch_pty/
       - name: Rust test

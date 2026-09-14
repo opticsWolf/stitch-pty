@@ -171,6 +171,10 @@ pub struct Screen {
 
 impl Screen {
     pub fn new(columns: usize, lines: usize) -> Self {
+        // Zero-sized screens are unrepresentable (every row index would be
+        // out of bounds) and panic downstream — clamp to a 1×1 minimum.
+        let columns = columns.max(1);
+        let lines = lines.max(1);
         let default_char = Char::blank();
         let buffer = vec![vec![default_char.clone(); columns]; lines];
         let mut tabstops = HashSet::new();
@@ -261,6 +265,11 @@ impl Screen {
     }
 
     pub fn resize(&mut self, lines: usize, columns: usize) {
+        // Clamp before anything touches the geometry: `lines`/`columns` of 0
+        // make every row index out of bounds (regression: v0.7.5 review
+        // finding — `resize(0, 80)` panicked on the next feed).
+        let lines = lines.max(1);
+        let columns = columns.max(1);
         if self.lines == lines && self.columns == columns {
             return;
         }
@@ -1658,6 +1667,25 @@ mod tests {
         s.draw("bo");
         s.resize(2, 1);
         assert_eq!(s.display(), vec!["b", " "]);
+    }
+
+    #[test]
+    fn test_resize_zero_clamped() {
+        // Zero geometry panics on any later indexing (regression: v0.7.5
+        // review finding — Python `resize(0, 80)` then feed panicked).
+        let mut s = make_screen(4, 2);
+        s.resize(0, 80);
+        assert_eq!(s.lines, 1);
+        assert_eq!(s.columns, 80);
+        s.draw("hi"); // must not panic
+        let row = s.display().remove(0);
+        assert!(row.starts_with("hi"));
+        assert_eq!(row.len(), 80);
+
+        let mut s2 = Screen::new(80, 0);
+        assert_eq!(s2.lines, 1);
+        assert_eq!(s2.columns, 80);
+        s2.erase_in_line(1); // EL-1 with clamped columns: must not panic
     }
 
     // ── Tab Stops ───────────────────────────────────────────────────────

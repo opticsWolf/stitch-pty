@@ -6,6 +6,28 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.7.5] — Post-plan review fixes
+
+### Fixed
+- **OSC payload rejoin**: `;` splits OSC params, so titles and OSC 7 file
+  URIs containing `;` were silently corrupted (`OSC 0;my;title` →
+  `"mytitle"`, `file://host/docs;old` → `"/docsold"`). Titles and OSC 7
+  now rejoin sub-params with `;`, like OSC 9;9 always did.
+- **Zero-size resize panic**: `terminal.resize(0, 80)` left a zero-row
+  screen that panicked in Rust on the next `feed()` (and `resize(24, 0)`
+  + `ESC[1K` panicked at the 0.7.2 EL-1 clamp). `Screen::new` and
+  `Screen::resize`/`HistoryScreen::resize` now clamp to a 1×1 minimum.
+- **Raw window tail**: a single read chunk at/over `raw_output_cap` evicted
+  the entire window including itself — `raw_output` was empty right after
+  an oversized read. The window now keeps the chunk's last `cap` bytes.
+
+### Changed
+- CI now triggers on pushes to `dev` (previously only `main`/tags — the
+  lint gates had never executed remotely) and pins `ruff==0.16.5`
+  / `mypy==2.3.0` so a silent linter upgrade can't turn `mypy --strict`
+  red on its own.
+- `expect()` documents why the blanket `except PtyError` is safe.
+
 ## [0.7.4] — Concurrency contracts
 
 ### Added

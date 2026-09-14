@@ -47,8 +47,10 @@ impl<'a> Perform for Performer<'a> {
         let param_str = params[0];
         match param_str {
             b"0" | b"1" | b"2" => {
+                // `;` splits OSC params: rejoin the payload with separators.
+                // (`OSC 0;my;title BEL` must yield the title "my;title".)
                 let title_bytes: Vec<u8> = if params.len() > 1 {
-                    params[1..].iter().copied().flatten().cloned().collect()
+                    params[1..].join(&b";"[..])
                 } else {
                     Vec::new()
                 };
@@ -72,8 +74,10 @@ impl<'a> Perform for Performer<'a> {
             }
             b"7" => {
                 // OSC 7 ; file://host/path — shell working directory.
+                // Rejoin on ';' like OSC 9;9: ';' is legal inside a file URI
+                // path (RFC 8089 sub-delims) and vte splits the payload on it.
                 if params.len() > 1 {
-                    let payload: Vec<u8> = params[1..].iter().copied().flatten().cloned().collect();
+                    let payload = params[1..].join(&b";"[..]);
                     if let Some(path) = super::cwd::parse_osc7(&payload) {
                         self.screen.set_cwd(path);
                     }
@@ -405,6 +409,26 @@ mod tests {
         let mut performer = Performer::new(&mut s);
         performer.osc_dispatch(&[b"9", b"9", b"C:\\a", b"b"], false);
         assert_eq!(s.cwd(), Some("C:\\a;b"));
+    }
+
+    #[test]
+    fn test_osc_title_semicolon_in_payload() {
+        // Title payloads containing ';' arrive as multiple params and must be
+        // rejoined, not concatenated (regression: v0.7.5 review finding).
+        let mut s = make_screen(10, 10);
+        let mut performer = Performer::new(&mut s);
+        performer.osc_dispatch(&[b"0", b"my", b"title"], true);
+        assert_eq!(s.title, "my;title");
+        assert_eq!(s.icon_name, "my;title");
+    }
+
+    #[test]
+    fn test_osc7_semicolon_in_path() {
+        // ';' is legal inside a file URI path — rejoin, never drop it.
+        let mut s = make_screen(10, 10);
+        let mut performer = Performer::new(&mut s);
+        performer.osc_dispatch(&[b"7", b"file://host/docs", b"old"], false);
+        assert_eq!(s.cwd(), Some("/docs;old"));
     }
 
     // ── Property tests: parser→Screen glue invariants ─────────────────

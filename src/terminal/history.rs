@@ -322,6 +322,11 @@ impl HistoryScreen {
         self.clear_history();
     }
     pub fn resize(&mut self, lines: usize, columns: usize) {
+        // Clamp at entry, before the arithmetic below: a 0 would make
+        // `old_lines - lines` evict the whole screen into scrollback and
+        // desync from inner.resize's own clamp (v0.7.5 review finding).
+        let lines = lines.max(1);
+        let columns = columns.max(1);
         // On the alternate screen there is no scrollback interaction: just
         // reshape both the live alt buffer and the parked primary buffer.
         if self.inner.alt_screen {
