@@ -295,6 +295,8 @@ impl HistoryScreen {
     pub fn write_process_input(&mut self) -> &mut dyn FnMut(&str) { &mut self.inner.write_process_input }
     pub fn title(&self) -> &str { &self.inner.title }
     pub fn icon_name(&self) -> &str { &self.inner.icon_name }
+    pub fn set_cwd(&mut self, cwd: String) { self.inner.set_cwd(cwd); }
+    pub fn cwd(&self) -> Option<&str> { self.inner.cwd() }
 
     /// Whether a BEL (0x07) arrived since the last call, then resets it.
     pub fn take_bell(&mut self) -> bool { self.inner.take_bell() }

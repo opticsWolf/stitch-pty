@@ -66,6 +66,25 @@ impl<'a> Perform for Performer<'a> {
                     self.screen.set_title(&title);
                 }
             }
+            b"7" => {
+                // OSC 7 ; file://host/path — shell working directory.
+                if params.len() > 1 {
+                    let payload: Vec<u8> = params[1..].iter().copied().flatten().cloned().collect();
+                    if let Some(path) = super::cwd::parse_osc7(&payload) {
+                        self.screen.set_cwd(path);
+                    }
+                }
+            }
+            b"9" => {
+                // ConPTY: OSC 9;9 ; raw path. Rejoin on ';' — unlike URIs,
+                // Windows paths may legally contain semicolons.
+                if params.len() > 2 && params[1] == b"9" {
+                    let payload: Vec<u8> = params[2..].join(&b";"[..]);
+                    if let Some(path) = super::cwd::parse_osc9_9(&payload) {
+                        self.screen.set_cwd(path);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -337,6 +356,56 @@ mod tests {
         performer.osc_dispatch(&[b"0", b"Both"], false);
         assert_eq!(s.icon_name, "Both");
         assert_eq!(s.title, "Both");
+    }
+
+    // ── OSC 7 / OSC 9;9 cwd ────────────────────────────────────────────
+
+    #[test]
+    fn test_osc7_sets_cwd() {
+        let mut s = make_screen(10, 10);
+        let mut performer = Performer::new(&mut s);
+        performer.osc_dispatch(&[b"7", b"file://myhost/home/user%20name"], true);
+        assert_eq!(s.cwd(), Some("/home/user name"));
+    }
+
+    #[test]
+    fn test_osc9_9_sets_cwd() {
+        let mut s = make_screen(10, 10);
+        let mut performer = Performer::new(&mut s);
+        performer.osc_dispatch(&[b"9", b"9", b"C:\\Users\\Main"], false);
+        assert_eq!(s.cwd(), Some("C:\\Users\\Main"));
+    }
+
+    #[test]
+    fn test_osc9_9_semicolon_in_path() {
+        // ';' splits OSC params — the payload must be rejoined.
+        let mut s = make_screen(10, 10);
+        let mut performer = Performer::new(&mut s);
+        performer.osc_dispatch(&[b"9", b"9", b"C:\\a", b"b"], false);
+        assert_eq!(s.cwd(), Some("C:\\a;b"));
+    }
+
+    #[test]
+    fn test_osc7_malformed_keeps_cwd() {
+        fn dispatch(s: &mut Screen, params: &[&[u8]]) {
+            Performer::new(s).osc_dispatch(params, false);
+        }
+        let mut s = make_screen(10, 10);
+        dispatch(&mut s, &[b"7", b"file://h/good"]);
+        assert_eq!(s.cwd(), Some("/good"));
+        dispatch(&mut s, &[b"7", b"garbage%zz"]);
+        assert_eq!(s.cwd(), Some("/good")); // unchanged, no panic
+        dispatch(&mut s, &[b"9", b"8", b"C:\\x"]);
+        assert_eq!(s.cwd(), Some("/good")); // OSC 9;8 is not cwd
+    }
+
+    #[test]
+    fn test_cwd_survives_reset() {
+        let mut s = make_screen(10, 10);
+        s.set_cwd("/work".to_string());
+        s.reset();
+        assert_eq!(s.cwd(), Some("/work"));
+        assert_eq!(s.title, ""); // titles still clear
     }
 
     // ── Stream Operations ──────────────────────────────────────────────

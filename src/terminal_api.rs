@@ -90,6 +90,13 @@ impl TerminalState {
         self.screen.title().to_string()
     }
 
+    /// Shell working directory from OSC 7 / OSC 9;9, if reported yet.
+    /// `None` until the shell emits its first cwd sequence.
+    #[getter]
+    pub fn cwd(&self) -> Option<String> {
+        self.screen.cwd().map(str::to_string)
+    }
+
     /// Whether a BEL (0x07) arrived since the last call, then resets it.
     /// Edge-triggered: two calls in a row return ``True`` then ``False``.
     /// OSC sequences terminated by BEL (e.g. window titles) do NOT ring.

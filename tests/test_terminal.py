@@ -6,6 +6,45 @@ import pytest
 from stitch_pty import spawn
 
 
+@pytest.mark.asyncio
+async def test_session_cwd_none_until_reported(idle):
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        assert session.cwd is None
+        assert session.terminal.cwd is None
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_session_cwd_osc7(idle):
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        session.terminal.feed(b"\x1b]7;file://myhost/home/user%20name\x07")
+        assert session.cwd == "/home/user name"
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_session_cwd_osc9_9(idle):
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        session.terminal.feed(b"\x1b]9;9;C:\\Users\\Main\x1b\\")
+        assert session.cwd == "C:\\Users\\Main"
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
 IS_WINDOWS = platform.system() == "Windows"
 
 

@@ -58,7 +58,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -484,6 +484,16 @@ class PtySession:
     def full_display(self) -> list[str]:
         """Get the full display (scrollback + visible screen) as a list of strings."""
         return self._terminal.display()
+
+    @property
+    def cwd(self) -> str | None:
+        """Shell working directory from OSC 7 / OSC 9;9, if reported yet.
+
+        `None` until the shell emits its first cwd sequence (most interactive
+        shells emit one per prompt). Unlike screen state, this survives
+        alt-screen switches and terminal resets.
+        """
+        return self._terminal.cwd
 
     @property
     def raw_output(self) -> bytes:

@@ -116,6 +116,9 @@ pub struct Screen {
     pub dirty: BTreeSet<usize>,
     pub icon_name: String,
     pub title: String,
+    /// Shell working directory from OSC 7 / OSC 9;9. Shell state, not screen
+    /// state: survives alt-screen switches and `reset()`.
+    pub cwd: Option<String>,
     /// Whether a BEL (0x07) arrived since the last `take_bell()` call.
     pub bell_pending: bool,
     pub write_process_input: Box<dyn FnMut(&str) + Send + Sync + 'static>,
@@ -145,7 +148,7 @@ impl Screen {
             columns, lines, buffer, cursor: Cursor::default(), default_char, mode,
             margins: None, tabstops, g0_charset: CharsetRef::Ascii, g1_charset: CharsetRef::Ascii,
             charset: CharsetRef::Ascii, charset_index: 0, dirty: BTreeSet::new(),
-            icon_name: String::new(), title: String::new(), bell_pending: false,
+            icon_name: String::new(), title: String::new(), cwd: None, bell_pending: false,
             write_process_input: Box::new(|_: &str| {}) as Box<dyn FnMut(&str) + Send + Sync + 'static>, cursor_style: CursorStyle::Default,
             cursor_blink: true,
             keyboard_mode: 0, keyboard_mode_stack: Vec::new(),
@@ -169,6 +172,8 @@ impl Screen {
         self.mode = Modes::new(); self.margins = None; self.cursor = Cursor::default();
         self.g0_charset = CharsetRef::Ascii; self.g1_charset = CharsetRef::Ascii;
         self.charset = CharsetRef::Ascii; self.charset_index = 0;
+        // NOTE: `cwd` is deliberately NOT cleared here — it describes the
+        // shell, not the screen, and survives RIS/reset like a real terminal.
         self.icon_name.clear(); self.title.clear(); self.bell_pending = false; self.cursor_style = CursorStyle::Default; self.cursor_blink = true;
         self.keyboard_mode = 0; self.keyboard_mode_stack.clear(); self.init_tabstops();
         self.scrolled_off.clear();
@@ -623,6 +628,12 @@ impl Screen {
     }
 
     pub fn set_title(&mut self, title: &str) { self.title = title.to_string(); }
+
+    /// Record the shell working directory (OSC 7 / OSC 9;9).
+    pub fn set_cwd(&mut self, cwd: String) { self.cwd = Some(cwd); }
+
+    /// Shell working directory, if the shell has reported one yet.
+    pub fn cwd(&self) -> Option<&str> { self.cwd.as_deref() }
 
     // ── Charset ──────────────────────────────────────────────────
     pub fn define_charset(&mut self, designator: &str, target: char) {

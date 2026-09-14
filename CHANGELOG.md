@@ -6,6 +6,15 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.6.1] — OSC 7 / OSC 9;9 cwd tracking
+
+### Added
+- Terminal tracks the shell working directory from `OSC 7;file://…`
+  (macOS/Linux shells, Windows Terminal) and `OSC 9;9;…` (ConPTY):
+  `TerminalState.cwd` getter + `PtySession.cwd` property (`None` until the
+  first report). Malformed sequences leave state untouched, never panic.
+- `cwd` survives alt-screen switches and `reset()` — it is shell state.
+
 ## [0.6.0] — `cwd` on `spawn()`
 
 ### Added

@@ -5,6 +5,7 @@
 //!
 //! Modules:
 //! - `parser` — ANSI stream parser (Performer + Parser + Stream)
+//! - `cwd` — shell working-directory parsing (OSC 7 / OSC 9;9)
 //! - `screen` — Screen buffer with Char, Cursor, SGR attributes
 //! - `history` — HistoryScreen with scrollback
 //! - `ansi_parser` — ECMA-48 ANSI escape sequence state machine
@@ -17,6 +18,7 @@
 pub mod ansi_parser;
 pub mod charsets;
 pub mod control;
+pub mod cwd;
 pub mod escape;
 pub mod graphics;
 pub mod history;
