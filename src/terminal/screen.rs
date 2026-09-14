@@ -612,6 +612,13 @@ impl Screen {
         std::mem::replace(&mut self.bell_pending, false)
     }
 
+    /// Drain the dirty-row set: returns the sorted indices of rows modified
+    /// since the last call, leaving the set empty. Rows re-dirtied between
+    /// calls coalesce into one entry (a set, not a log).
+    pub fn take_dirty_rows(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.dirty).into_iter().collect()
+    }
+
     pub fn set_title(&mut self, title: &str) { self.title = title.to_string(); }
 
     // ── Charset ──────────────────────────────────────────────────

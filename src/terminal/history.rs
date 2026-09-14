@@ -298,6 +298,10 @@ impl HistoryScreen {
 
     /// Whether a BEL (0x07) arrived since the last call, then resets it.
     pub fn take_bell(&mut self) -> bool { self.inner.take_bell() }
+
+    /// Drain the dirty-row set: sorted indices of rows modified since the
+    /// last call, leaving it empty. Coalesces repeated writes to one row.
+    pub fn take_dirty_rows(&mut self) -> Vec<usize> { self.inner.take_dirty_rows() }
     pub fn g0_charset(&self) -> super::charsets::CharsetRef { self.inner.g0_charset }
 
     /// Feed raw bytes into the terminal state machine.

@@ -53,6 +53,14 @@ impl TerminalState {
         self.screen.dirty().iter().copied().collect()
     }
 
+    /// Drain the dirty-row set: sorted indices of rows modified since the
+    /// last call, leaving it empty. Coalesces repeated writes to one row.
+    /// Consuming alternative to `dirty()` — call after each `feed()` to get
+    /// exactly the rows to repaint this frame.
+    pub fn take_dirty_rows(&mut self) -> Vec<usize> {
+        self.screen.take_dirty_rows()
+    }
+
     /// Resize the terminal screen.
     pub fn resize(&mut self, lines: usize, columns: usize) {
         self.screen.resize(lines, columns);

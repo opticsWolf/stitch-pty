@@ -466,6 +466,18 @@ class PtySession:
         """
         return self._terminal.take_bell()
 
+    def take_dirty_rows(self) -> list[int]:
+        """Drain the dirty-row set: sorted visible-row indices modified since
+        the last call, leaving it empty.
+
+        Coalescing: a row rewritten several times between calls appears once.
+        Pair with :meth:`read` — rows are accumulated during ``feed()`` inside
+        the read path, so call this once per frame after draining reads to get
+        exactly the rows to repaint. See also :attr:`display` for re-fetching
+        those rows' text.
+        """
+        return self._terminal.take_dirty_rows()
+
     def __repr__(self) -> str:
         return f"PtySession(...)"
 

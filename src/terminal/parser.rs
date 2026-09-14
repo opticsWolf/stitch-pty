@@ -811,6 +811,29 @@ mod tests {
         assert!(!s.take_bell(), "OSC BEL terminator must not ring the bell");
     }
 
+    // ── Dirty-row tracking ────────────────────────────────────────
+
+    #[test]
+    fn test_parser_take_dirty_rows_drains() {
+        let mut s = make_screen(10, 10);
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"hello");
+        let rows = s.take_dirty_rows();
+        assert_eq!(rows, vec![0], "writes to row 0 dirty only row 0");
+        assert!(s.take_dirty_rows().is_empty(), "edge-triggered: drain leaves it empty");
+    }
+
+    #[test]
+    fn test_parser_take_dirty_rows_coalesces() {
+        let mut s = make_screen(10, 10);
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"a\nb"); // rows 0 and 1
+        parser.feed(&mut s, b"\r\nc"); // rows 1 and 2 again touch row 1
+        let rows = s.take_dirty_rows();
+        assert_eq!(rows, vec![0, 1, 2]);
+        assert!(s.take_dirty_rows().is_empty());
+    }
+
     #[test]
     fn test_parser_csi_alignment_display() {
         let mut s = make_screen(5, 5);
