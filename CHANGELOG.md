@@ -6,6 +6,19 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.7.6] — Unix-only clippy lints (CI repair)
+
+### Fixed
+- First CI run on `main` failed the 0.7.3 lint gate on Linux/macOS:
+  `platform_unix.rs` is never compiled by the Windows toolchain, so 8
+  clippy errors hid there (dead fields, collapsible `if`s, redundant
+  closure, `is_ok`+`unwrap`). Fixed; verified with local
+  `--target x86_64-unknown-linux-gnu` and `--target aarch64-apple-darwin`
+  clippy runs, which now join the pre-push checklist in `docs/RELEASING.md`.
+- `PreparedCommand`'s `argv`/`env` fields are intentional ownership anchors
+  for the exec-time raw pointers — marked `#[allow(dead_code)]` with the
+  rationale, not removed (removing them would be a use-after-free).
+
 ### Changed
 - Docs accuracy pass: removed the README tagline; ARCHITECTURE and QUICKREF
   updated to the current API surface (cwd/events modules, drain APIs, OSC

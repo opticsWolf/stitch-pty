@@ -60,7 +60,11 @@ pub fn close_random_fds_async_signal_safe(skip: &[RawFd]) {
 /// pointers, making it async-signal-safe.
 struct PreparedCommand {
     program: CString,
+    // `argv`/`env` are never read directly — they own the buffers that
+    // `argv_ptrs`/`envp_ptrs` point into, so they must stay alive.
+    #[allow(dead_code)]
     argv: Vec<CString>,
+    #[allow(dead_code)]
     env: Vec<CString>,
     argv_ptrs: Vec<*const c_char>,
     envp_ptrs: Vec<*const c_char>,
@@ -110,24 +114,22 @@ impl PreparedCommand {
 // Returns an absolute path string suitable for execve.
 fn resolve_executable(program: &str) -> String {
     // Try as absolute or relative path first
-    if let Ok(metadata) = std::fs::metadata(program) {
-        if metadata.is_file() {
-            if let Ok(abs) = std::fs::canonicalize(program) {
-                return abs.to_string_lossy().to_string();
-            }
-        }
+    if let Ok(metadata) = std::fs::metadata(program)
+        && metadata.is_file()
+        && let Ok(abs) = std::fs::canonicalize(program)
+    {
+        return abs.to_string_lossy().to_string();
     }
 
     // Search PATH
     let path_dirs = std::env::var_os("PATH").unwrap_or_default();
     for dir in std::env::split_paths(&path_dirs) {
         let candidate = dir.join(program);
-        if let Ok(m) = std::fs::metadata(&candidate) {
-            if m.is_file() {
-                if let Ok(abs) = std::fs::canonicalize(&candidate) {
-                    return abs.to_string_lossy().to_string();
-                }
-            }
+        if let Ok(m) = std::fs::metadata(&candidate)
+            && m.is_file()
+            && let Ok(abs) = std::fs::canonicalize(&candidate)
+        {
+            return abs.to_string_lossy().to_string();
         }
     }
 
@@ -540,11 +542,11 @@ unsafe fn child_setup(
 
     // chdir before exec (async-signal-safe: no allocation, raw pointer).
     // 127 distinguishes it from exec failure (126) and setup failures (1).
-    if let Some(dir) = cwd {
-        if unsafe { libc::chdir(dir.as_ptr()) } != 0 {
-            unsafe {
-                libc::_exit(127);
-            }
+    if let Some(dir) = cwd
+        && unsafe { libc::chdir(dir.as_ptr()) } != 0
+    {
+        unsafe {
+            libc::_exit(127);
         }
     }
 
@@ -587,7 +589,7 @@ fn fork_pty(
     let cmd = PreparedCommand::new(&resolved, args, env)?;
     // The chdir target is prepared here too: the child must not allocate.
     let cwd_cstr = cwd
-        .map(|dir| CString::new(dir))
+        .map(CString::new)
         .transpose()
         .map_err(|_| PtyErrorKind::ForkFailed("cwd contains NUL byte".into()))?;
 
@@ -657,8 +659,7 @@ mod tests {
     #[test]
     fn test_pty_pair_drop_closes_fds() {
         let pair = PtyPair::open(None);
-        if pair.is_ok() {
-            let p = pair.unwrap();
+        if let Ok(p) = pair {
             let _master = p.master_fd;
             let _slave = p.slave_fd;
         }

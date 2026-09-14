@@ -25,6 +25,11 @@ git checkout dev && git status --short    # must be clean before starting
    - `pyproject.toml` → `version = "X.Y.Z"`
    - `python/stitch_pty/__init__.py` → `__version__ = "X.Y.Z"`
 2. **Rust suite:** `cargo test --lib` → 0 failures.
+3. **Cross-platform lints:** `cargo clippy --all-targets --target
+   x86_64-unknown-linux-gnu -- -D warnings` and `--target
+   aarch64-apple-darwin` → 0 errors. (The Windows toolchain never compiles
+   `platform_unix.rs`, so Unix-only lints hide from it — v0.7.6 repaired
+   exactly this CI failure. `rustup target add <triple>` once to install.)
 3. **Rebuild the extension:** `uvx maturin develop --release`
    (requires a venv: `uv venv` if none exists).
 4. **Python suite:** `uv run python -m pytest tests/ -q`
