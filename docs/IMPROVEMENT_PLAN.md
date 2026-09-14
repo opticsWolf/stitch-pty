@@ -506,18 +506,20 @@ violations into explicit decisions:
 
 | Order | Version | Status |
 |---|---|---|
-| 1 | 0.5.8 | ☐ pending |
-| 2 | 0.5.9 | ☐ pending |
-| 3 | 0.5.10 | ☐ pending |
-| 4 | 0.5.11 | ☐ pending |
-| 5 | 0.5.12 | ☐ pending |
-| 6 | 0.5.13 | ☐ pending |
-| 7 | 0.6.0 | ☐ pending |
-| 8 | 0.6.1 | ☐ pending |
-| 9 | 0.7.0 | ☐ pending |
-| 10 | 0.7.1 | ☐ pending |
-| 11 | 0.7.2 | ☐ pending |
-| 12 | 0.7.3 | ☐ pending |
-| 13 | 0.7.4 | ☐ pending |
+| 1 | 0.5.8 | ☑ landed (`8c70aba`) |
+| 2 | 0.5.9 | ☑ landed (`87be76d`) |
+| 3 | 0.5.10 | ☑ landed (`1ced344`) |
+| 4 | 0.5.11 | ☑ landed (`b30387e`) |
+| 5 | 0.5.12 | ☑ landed (`5456df2`) |
+| 6 | 0.5.13 | ☑ landed (`d9574e7`) |
+| 7 | 0.6.0 | ☑ landed (`0291f5c`) |
+| 8 | 0.6.1 | ☑ landed (`047690e`) |
+| 9 | 0.7.0 | ☑ landed (`4358dfa`) |
+| 10 | 0.7.1 | ☑ landed (`f178f2c`) |
+| 11 | 0.7.2 | ☑ landed (`e266d1c`) — plus real find: EL-1 pending-wrap panic, fixed in-version |
+| 12 | 0.7.3 | ☑ landed (`5ea0546`) |
+| 13 | 0.7.4 | ☑ landed (`9d22084`) |
 
-Update this table as versions land. Each row = one commit on `dev`, pushed.
+All rows landed, one commit per version, all pushed to `dev`.
+Final tally at v0.7.4: **364 Rust tests, 186 Python tests**, all green;
+`fmt --check`, `clippy -D warnings`, `ruff check`, `mypy --strict` all clean.
