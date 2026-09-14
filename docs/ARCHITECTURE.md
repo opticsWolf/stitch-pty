@@ -38,6 +38,8 @@ src/
 │   ├── parser.rs             # Performer + Parser + Stream (pyte.Stream)
 │   ├── screen.rs             # Screen buffer, Char, Cursor, SGR
 │   ├── history.rs            # HistoryScreen with scrollback
+│   ├── cwd.rs                # OSC 7 / OSC 9;9 shell working-directory parsing
+│   ├── events.rs             # TermEvent enum + stable string tags
 │   ├── charsets.rs           # G0/G1 character set mappings
 │   ├── control.rs            # C0/C1 control character constants
 │   ├── escape.rs             # Escape sequence designators
@@ -215,12 +217,18 @@ Implements `Perform` trait to translate parser events into `Screen` calls:
 ```rust
 impl Perform for Performer {
     fn print(&mut self, c: char) { /* → Screen.draw */ }
-    fn execute(&mut self, byte: u8) { /* CR/LF/Tab/BS/ShiftIn/ShiftOut */ }
-    fn osc_dispatch(&mut self, params, bell_term) { /* OSC 0/1/2; title/icon */ }
+    fn execute(&mut self, byte: u8) { /* CR/LF/Tab/BS/ShiftIn/ShiftOut/BEL → Screen.ring_bell */ }
+    fn osc_dispatch(&mut self, params, bell_term) { /* OSC 0/1/2/l title+icon; OSC 7/9;9 cwd */ }
     fn csi_dispatch(&mut self, params, intermediates, action) { /* → Screen.csi_dispatch */ }
     fn esc_dispatch(&mut self, intermediates, ignore, byte) { /* ESC 7/8/Z/H/D/E/M/#8/=/> */ }
 }
 ```
+
+OSC payloads arrive split on `;`, so every multi-part payload (title, OSC 7
+URI, OSC 9;9 path) is **rejoined with `;`** before parsing — Windows paths
+and file URIs legally contain semicolons. A lone BEL (0x07) in `Ground`
+state rings the bell; OSC BEL terminators never do (they end `osc_dispatch`
+instead).
 
 ### Event pipeline (`terminal/events.rs`)
 
@@ -251,6 +259,10 @@ scroll margins, and dirty tracking. Supports:
 - **Scroll region**: configurable top/bottom margins
 - **Kitty Keyboard Protocol**: mode push/pop/replace
 - **Unicode**: width-1 and width-2 characters, combining marks, CJK, emoji
+- **Shell cwd**: OSC 7 (`file://host/path`) / OSC 9;9 raw-path tracking
+  (`terminal/cwd.rs`), surviving alt-screen switches and RIS
+- **Drain APIs**: `take_bell()` (coalescing bit), `take_dirty_rows()`
+  (sorted, emptied set), `take_events()` (ordered log — see below)
 
 **Char Cell:**
 ```rust
@@ -309,8 +321,12 @@ pub struct HistoryScreen {
 | `total_lines()` | history_len + visible_lines |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
 | `styled_viewport()` | Full buffer as styled cells |
-| `dirty()` | Modified row indices (BTreeSet) |
-| `reset()` | Reset terminal + clear history |
+| `dirty()` | Modified row indices (BTreeSet, level-triggered peek) |
+| `take_dirty_rows()` | Drain dirty rows (sorted, empty afterwards) |
+| `take_bell()` | Edge-triggered BEL check (resets the flag) |
+| `take_events()` | Drain the ordered event log (trailing `ScrollbackGrew`) |
+| `set_cwd(cwd)` / `cwd()` | Record / read shell cwd (OSC 7 / 9;9) |
+| `reset()` | Reset terminal + clear history (cwd survives) |
 | `resize(lines, cols)` | Resize screen buffer |
 | `columns()` / `lines()` | Current dimensions |
 | `history_size()` / `scrollback_lines()` | Capacity info |
@@ -438,6 +454,7 @@ Python exception (PtyError / ProcessError / IOError / PyOSError / PyIOError)
 | `ForkFailed`, `ProcessNotRunning` | `ProcessError` |
 | `InvalidHandle`, `WinsizeFailed`, `BufferOverflow` | `IOError` |
 | `SignalError`, `WindowsError` | `PyOSError` |
+| `Eof` | `PyOSError` with `errno == 0` **and a stable `kind == "eof"` attribute** — Python branches on the attribute, never on string matching (read paths only; write-side EIO maps to `BrokenPipe`) |
 | `AsyncIo` | `PyIOError` |
 
 ## Python API (`python_api.rs`)
@@ -458,7 +475,7 @@ Python exception (PtyError / ProcessError / IOError / PyOSError / PyIOError)
 | Method | Description |
 |--------|-------------|
 | `read(size)` | Read up to `size` bytes |
-| `read_timeout(size, timeout)` | Read with timeout (raises `IOError` on timeout) |
+| `read_timeout(size, timeout)` | Read with timeout (raises `PtyError` on timeout) |
 | `write(data)` | Write bytes, returns count |
 | `write_all(data)` | Write all bytes (handles partial writes) |
 | `set_winsize(Winsize)` | Set window size |
@@ -490,8 +507,10 @@ Delegates to `PtyMaster` + `PtyChild`. Adds:
 `TerminalState` with `terminal`, `display`, `scrollback`, `full_display`, and
 `raw_output` properties (data read via `read`/`read_timeout` is auto-fed
 through the emulator); `interact()`, `read_all()`, and `expect()` helpers;
-`__aenter__`/`__aexit__` async context management; and `wait()` returning
-`ExitStatus | None`.
+per-frame drains — `poll_events()`, `take_bell()`, `take_dirty_rows()` — and
+the `cwd` property; `spawn(..., scrollback=..., raw_output_cap=..., cwd=...)`
+forwarding; `__aenter__`/`__aexit__` async context management; and `wait()`
+returning `ExitStatus | None`.
 
 ### `Winsize` — Terminal Size
 
@@ -511,8 +530,12 @@ through the emulator); `interact()`, `read_all()`, and `expect()` helpers;
 | `display()` | Full display (history + visible) |
 | `visible_display()` | Visible screen only |
 | `history_display()` | Scrollback only |
-| `dirty()` | Modified row indices |
-| `resize(lines, cols)` | Resize buffer |
+| `dirty()` | Modified row indices (peek) |
+| `take_dirty_rows()` | Drain dirty rows (sorted, empty afterwards) |
+| `take_bell()` | Edge-triggered BEL check (resets the flag) |
+| `cwd()` | Shell cwd from OSC 7 / OSC 9;9, if reported yet |
+| `poll_events()` | Drain ordered events → `list[(tag, payload)]`; tags: `bell`, `title`, `icon`, `cwd`, `altscreen`, `scrollback_grew` |
+| `resize(lines, cols)` | Resize buffer (zero rows/columns clamp to 1) |
 | `reset()` | Reset terminal + clear history |
 | `cursor_x` / `cursor_y` | Cursor position (0-indexed, visible area) |
 | `title` | Window title (from OSC) |
@@ -543,17 +566,18 @@ CI runs full test suites on:
 ## Deployment Pipeline
 
 ```
-Developer push
+Developer push (dev or main)
     │
     ▼
 GitHub Actions
+    ├── lint gates (cargo fmt --check, clippy -D warnings, ruff, mypy --strict)
+    │
     ├── test (matrix: ubuntu-latest / macos-latest / windows-latest, Python 3.12+)
     │
     └── build-wheels
-        ├── Linux x86_64 (manylinux_2_28)
-        ├── Linux ARM64 (manylinux_2_28)
-        ├── macOS x86_64
-        ├── macOS ARM64
+        ├── Linux x86_64 (manylinux auto)
+        ├── Linux ARM64 (manylinux auto, QEMU)
+        ├── macOS universal2 (x86_64 + ARM64)
         └── Windows x86_64
             │
             ▼

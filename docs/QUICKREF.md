@@ -55,9 +55,15 @@ asyncio.run(main())
 
 ## API Summary
 
-### `spawn(program, args=None, env=None, winsize=None) → PtySession`
+### `spawn(program, args=None, env=None, winsize=None, scrollback=1000, raw_output_cap=1_048_576, cwd=None) → PtySession`
 
 Async. Spawns a child process in a PTY, auto-feeds output to terminal.
+
+| Extra kwarg | Default | Description |
+|-------------|---------|-------------|
+| `scrollback` | `1000` | Terminal scrollback capacity in lines |
+| `raw_output_cap` | `1_048_576` | Max bytes kept in `raw_output` (`None` = unbounded legacy) |
+| `cwd` | `None` | Child working directory (missing path raises `PtyError`) |
 
 ### `open_pty(winsize=None) → PtyMaster`
 
@@ -88,7 +94,7 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | Method | Description |
 |--------|-------------|
 | `await read(size=4096)` | Read PTY output (auto-feeds terminal) |
-| `await read_timeout(size, timeout)` | Read with timeout (raises `IOError` on timeout) |
+| `await read_timeout(size, timeout)` | Read with timeout (raises `PtyError` on timeout; returns `b""` on EOF) |
 | `await write(data)` | Write bytes to PTY, returns bytes written |
 | `await write_all(data)` | Write all bytes (handles partial writes) |
 | `resize(rows, cols)` | Resize terminal (forwards to PTY backend) |
@@ -98,14 +104,18 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `send_signal(num)` | Send signal number |
 | `await wait(timeout=None)` | Wait for exit, returns `ExitStatus \| None`. Raises `TimeoutError` on timeout. |
 | `await interact(input_data=None, timeout=None)` | Write input, read until EOF |
-| `await expect(pattern, timeout=30.0)` | pexpect-style: read until pattern found |
+| `await expect(patterns, timeout=30.0)` | pexpect-style: `bytes`/`str`/`re.Pattern`/list → `ExpectResult(index, match, buffer)`; timeouts carry `.buffer` |
 | `await read_all(timeout=1.0)` | Read all output until timeout |
+| `poll_events()` | Drain ordered events → `list[(tag, payload)]` (`bell`, `title`, `icon`, `cwd`, `altscreen`, `scrollback_grew`) |
+| `take_bell()` | Edge-triggered BEL check (resets the flag) |
+| `take_dirty_rows()` | Drain dirty row indices (sorted, empty afterwards) |
 | `is_alive` | Process still running? |
 | `terminal` | Raw `TerminalState` (for direct access) |
 | `display` | Visible screen (`list[str]`) |
 | `scrollback` | Scrollback history (`list[str]`) |
 | `full_display` | History + visible (`list[str]`) |
-| `raw_output` | All raw bytes read (unparsed, `bytes`) |
+| `cwd` | Shell cwd from OSC 7 / OSC 9;9, or `None` until reported |
+| `raw_output` | Last `raw_output_cap` raw bytes read (unparsed, `bytes`) |
 
 ### `PtyMaster` — raw PTY I/O (no terminal emulation)
 
@@ -131,7 +141,6 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `kill()` | Force kill |
 | `interrupt()` | Send Ctrl+C |
 | `send_signal(num)` | Send signal number |
-| `await wait(timeout=None)` | Wait for exit, returns `ExitStatus \| None`. Raises `TimeoutError` on timeout. |
 
 ### `TerminalState` — terminal emulation state
 
@@ -141,8 +150,11 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `display()` | Full display (history + visible, `list[str]`) |
 | `visible_display()` | Visible screen only (`list[str]`) |
 | `history_display()` | Scrollback only (`list[str]`) |
-| `dirty()` | Modified row indices (`list[int]`) |
-| `resize(lines, cols)` | Resize screen buffer |
+| `dirty()` | Modified row indices (`list[int]`, peek) |
+| `take_dirty_rows()` | Drain dirty rows (sorted, empty afterwards) |
+| `take_bell()` | Edge-triggered BEL check (resets the flag) |
+| `poll_events()` | Drain ordered events → `list[(tag, payload)]` |
+| `resize(lines, cols)` | Resize screen buffer (zero rows/columns clamp to 1) |
 | `reset()` | Reset terminal + clear history |
 | `styled_viewport()` | Full buffer as styled cells: `list[list[(text, fg, bg, attrs_bitmask)]]` |
 | `total_lines()` | Total lines = history + visible |
@@ -153,6 +165,7 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `cursor_x` | Cursor column (0-indexed, visible area) |
 | `cursor_y` | Cursor row (0-indexed, visible area) |
 | `title` | Window title (from OSC sequences) |
+| `cwd` | Shell cwd from OSC 7 / OSC 9;9, or `None` until reported |
 | `history_size` | Current scrollback line count |
 | `scrollback_lines` | Scrollback capacity |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
@@ -169,6 +182,11 @@ These are the native exception classes registered by the Rust core and
 re-exported from `stitch_pty`, so `except stitch_pty.IOError` / `ProcessError`
 matches errors raised from native code. (Note: `stitch_pty.IOError` shadows the
 builtin `IOError`/`OSError` within this namespace.)
+
+**EOF:** once the child exits, `read()`/`read_timeout()` return `b""`
+(never raise). Natively this is `PtyErrorKind::Eof`, surfaced as an `OSError`
+with `errno == 0` and a stable `kind == "eof"` attribute — Python code should
+branch on the attribute, not on string matching.
 
 ## Platform Differences
 
@@ -243,6 +261,9 @@ builtin `IOError`/`OSError` within this namespace.)
 | `CSI s/u` | Save/restore cursor |
 | `ESC 7/8` | Save/restore cursor (legacy) |
 | `OSC 0/1/2;… BEL` | Set icon/title name |
+| `OSC 7 ; file://host/path` | Shell cwd (percent-decoded, host stripped) |
+| `OSC 9;9 ; path` | Shell cwd (raw OS path, ConPTY) |
+| `BEL` (0x07) | Bell — coalescing `take_bell()` flag + `bell` event |
 | `ESC Z` | DA0 (identify terminal) |
 | `CSI c` | DA1 (identify terminal) |
 | `CSI ?6c` | DA1 response |
@@ -287,6 +308,12 @@ cargo test               # pure Rust tests
 maturin develop          # Python extension dev build
 maturin build --release  # Python extension release
 uv run --extra dev pytest # run Python tests
+
+# CI lint gates (same commands CI enforces):
+cargo fmt --all --check
+cargo clippy --all-targets -- -D warnings
+uvx ruff check python/ tests/
+uv run --with mypy python -m mypy python/stitch_pty/
 ```
 
 ## Dependencies
@@ -295,12 +322,18 @@ uv run --extra dev pytest # run Python tests
 |-------|---------|
 | `pyo3` + `pyo3-async-runtimes` | Python bindings + tokio runtime bridge |
 | `tokio` (full) | Async runtime, named pipes, io-util |
+| `tokio-util` | Codec helpers |
 | `parking_lot` | Fast mutexes for pipe handles |
 | `thiserror` | Error types |
+| `async-trait` | Async PTY/Child backend traits |
+| `tracing` | Structured logging |
 | `bitflags` | Terminal mode flags |
 | `unicode-width` | Unicode character width (for wide chars) |
+| `unicode-segmentation` | Grapheme segmentation (combining marks) |
 | `nix` (Unix only) | POSIX PTY, signals, ioctls |
+| `libc` (Unix only) | Raw syscalls (read/write/ioctl) |
 | `windows` (Windows only) | ConPTY, NamedPipes, CreateProcessW |
+| `proptest` (dev) | Property-based parser→Screen invariants |
 
 ## License
 

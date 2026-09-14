@@ -113,7 +113,7 @@ class PtyMaster:
     async def read_timeout(self, size: int, timeout: float) -> bytes:
         """Read with a timeout in seconds.
 
-        Raises stitch_pty.IOError if the timeout expires.
+        Raises stitch_pty.PtyError if the timeout expires.
         """
         return bytes(await self._inner.read_timeout(size, timeout))
 

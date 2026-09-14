@@ -1,7 +1,5 @@
 # stitch-pty
 
-> Cross-platform async PTY with integrated terminal emulation for Python.
-
 [![CI](https://github.com/opticsWolf/stitch-pty/actions/workflows/CI.yml/badge.svg)](https://github.com/opticsWolf/stitch-pty/actions)
 [![PyPI](https://img.shields.io/pypi/v/stitch-pty.svg)](https://pypi.org/project/stitch-pty/)
 [![crates.io](https://img.shields.io/crates/v/stitch-pty.svg)](https://crates.io/crates/stitch-pty)
@@ -210,8 +208,8 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `read` | `await read(size=4096) → bytes` | Read from PTY (auto-feeds terminal) |
-| `read_timeout` | `await read_timeout(size, timeout) → bytes` | Read with timeout (raises `IOError` on timeout) |
+| `read` | `await read(size=4096) → bytes` | Read from PTY (auto-feeds terminal); returns `b""` on EOF (child exited) |
+| `read_timeout` | `await read_timeout(size, timeout) → bytes` | Read with timeout (raises `PtyError` on timeout; `b""` on EOF) |
 | `write` | `await write(data) → int` | Write bytes to PTY, returns bytes written |
 | `write_all` | `await write_all(data) → None` | Write all bytes (handles partial writes) |
 | `resize` | `resize(rows, cols) → None` | Resize terminal (forwards to PTY backend) |
@@ -223,6 +221,9 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `interact` | `await interact(input_data=None, timeout=None) → bytes` | Write input, read until EOF (high-level) |
 | `read_all` | `await read_all(timeout=1.0) → bytes` | Read all output until timeout |
 | `expect` | `await expect(patterns, timeout=30.0) → ExpectResult` | pexpect-style: bytes/str/regex, single or list; `.buffer` on timeouts |
+| `poll_events` | `poll_events() → list[tuple[str, object]]` | Drain ordered events (`bell`, `title`, `icon`, `cwd`, `altscreen`, `scrollback_grew`) |
+| `take_bell` | `take_bell() → bool` | Edge-triggered BEL check (resets the flag) |
+| `take_dirty_rows` | `take_dirty_rows() → list[int]` | Drain dirty row indices (sorted, empty afterwards) |
 
 **Properties:**
 
@@ -233,7 +234,8 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `display` | `list[str]` | Visible screen (one string per row) |
 | `scrollback` | `list[str]` | Scrollback history |
 | `full_display` | `list[str]` | History + visible screen |
-| `raw_output` | `bytes` | All raw bytes read (unparsed) |
+| `cwd` | `str \| None` | Shell cwd from OSC 7 / OSC 9;9, `None` until reported |
+| `raw_output` | `bytes` | Last `raw_output_cap` raw bytes read (unparsed; sliding window, default 1 MiB) |
 
 **Context Manager:**
 
@@ -337,9 +339,13 @@ ws = Winsize(50, 120, 0, 0)
 
 | Exception | Inherits | Raised On |
 |-----------|----------|-----------|
-| `PtyError` | `Exception` | PTY open/operation failures, platform errors |
+| `PtyError` | `Exception` | PTY open/operation failures, platform errors, **read timeouts** |
 | `ProcessError` | `PtyError` | Spawn/kill failures, process not running |
-| `IOError` | `PtyError` | I/O errors, timeouts, winsize failures |
+| `IOError` | `PtyError` | I/O errors, winsize failures |
+
+EOF note: after the child exits, `read()`/`read_timeout()` return `b""`
+instead of raising; natively the condition is `PtyErrorKind::Eof`, surfaced
+as an `OSError` with `errno == 0` and a stable `kind == "eof"` attribute.
 
 ---
 
@@ -455,7 +461,8 @@ ECMA-48 state machine with 10 states:
 | **Character sets** | G0/G1 with DEC Special line drawing |
 | **Unicode** | Width-1/2 chars, combining marks, CJK, emoji |
 | **Kitty Keyboard Protocol** | Mode push/pop/replace |
-| **Dirty tracking** | `BTreeSet<usize>` of modified row indices |
+| **Shell cwd** | OSC 7 / OSC 9;9 tracking, survives alt-screen and reset |
+| **Dirty tracking** | `BTreeSet<usize>` peek (`dirty()`) + drain (`take_dirty_rows()`) + ordered event log (`poll_events()`) + bell flag (`take_bell()`) |
 
 #### Scrollback (`history.rs`)
 

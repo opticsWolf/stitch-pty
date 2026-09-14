@@ -6,6 +6,15 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+### Changed
+- Docs accuracy pass: removed the README tagline; ARCHITECTURE and QUICKREF
+  updated to the current API surface (cwd/events modules, drain APIs, OSC
+  rejoin note, `raw_output_cap` window semantics, lint gates in the build
+  and pipeline sections); corrected stale claims — read **timeouts raise
+  `PtyError`** (not `IOError`) across README/QUICKREF/ARCHITECTURE and the
+  `PtyMaster.read_timeout` docstring; EOF contract documented; duplicate
+  `PtyChild.wait` row removed from QUICKREF.
+
 ## [0.7.5] — Post-plan review fixes
 
 ### Fixed
