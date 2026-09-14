@@ -24,6 +24,8 @@ pub struct HistoryScreen {
     inner: Screen,
     history: Vec<Vec<Char>>,
     scrollback_lines: usize,
+    /// Lines that entered scrollback since the last `take_events()` drain.
+    scrollback_grew: u64,
 }
 
 impl HistoryScreen {
@@ -32,6 +34,7 @@ impl HistoryScreen {
             inner: Screen::new(columns, lines),
             history: Vec::new(),
             scrollback_lines,
+            scrollback_grew: 0,
         }
     }
 
@@ -116,6 +119,7 @@ impl HistoryScreen {
 
     fn push_history(&mut self, line: Vec<Char>) {
         self.history.push(line);
+        self.scrollback_grew += 1;
         self.trim_history();
     }
 
@@ -304,6 +308,18 @@ impl HistoryScreen {
     /// Drain the dirty-row set: sorted indices of rows modified since the
     /// last call, leaving it empty. Coalesces repeated writes to one row.
     pub fn take_dirty_rows(&mut self) -> Vec<usize> { self.inner.take_dirty_rows() }
+
+    /// Drain the ordered event log. A trailing `ScrollbackGrew(n)` summary is
+    /// appended when lines entered scrollback since the last drain — it is a
+    /// per-drain summary, not a parser-ordered event.
+    pub fn take_events(&mut self) -> Vec<super::events::TermEvent> {
+        let mut events = self.inner.take_events();
+        let grew = std::mem::replace(&mut self.scrollback_grew, 0);
+        if grew > 0 {
+            events.push(super::events::TermEvent::ScrollbackGrew(grew));
+        }
+        events
+    }
     pub fn g0_charset(&self) -> super::charsets::CharsetRef { self.inner.g0_charset }
 
     /// Feed raw bytes into the terminal state machine.
@@ -624,5 +640,59 @@ mod tests {
         hs.select_graphic_rendition(&[1, 31]);
         assert!(hs.cursor().attrs.bold);
         assert_eq!(hs.cursor().attrs.fg, "red");
+    }
+
+    // ── Event pipeline ───────────────────────────────────────────────
+
+    #[test]
+    fn test_feed_orders_events() {
+        use crate::terminal::events::TermEvent;
+        let mut hs = make_history(80, 24, 100);
+        hs.feed(b"\x1b]2;t\x07\x07\x1b[?1049h");
+        assert_eq!(
+            hs.take_events(),
+            vec![
+                TermEvent::TitleChanged("t".to_string()),
+                TermEvent::Bell,
+                TermEvent::AltScreen { entered: true },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_take_events_drains() {
+        let mut hs = make_history(80, 24, 100);
+        hs.feed(b"\x07");
+        assert_eq!(hs.take_events().len(), 1);
+        assert!(hs.take_events().is_empty());
+    }
+
+    #[test]
+    fn test_bell_paths_agree_poll_first() {
+        use crate::terminal::events::TermEvent;
+        let mut hs = make_history(80, 24, 100);
+        hs.feed(b"\x07");
+        assert!(hs.take_events().contains(&TermEvent::Bell));
+        assert!(!hs.take_bell()); // the drain consumed it
+    }
+
+    #[test]
+    fn test_bell_paths_agree_take_first() {
+        use crate::terminal::events::TermEvent;
+        let mut hs = make_history(80, 24, 100);
+        hs.feed(b"\x07\x07");
+        assert!(hs.take_bell()); // coalesced pair → one true
+        assert!(!hs.take_events().contains(&TermEvent::Bell)); // take consumed them
+        assert!(!hs.take_bell());
+    }
+
+    #[test]
+    fn test_scrollback_grew_trails() {
+        use crate::terminal::events::TermEvent;
+        let mut hs = make_history(80, 3, 100);
+        hs.feed(b"A\r\nB\r\nC\r\nD"); // A scrolls into history
+        let events = hs.take_events();
+        assert_eq!(events.last(), Some(&TermEvent::ScrollbackGrew(1)));
+        assert!(hs.take_events().is_empty());
     }
 }

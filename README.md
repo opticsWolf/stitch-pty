@@ -148,6 +148,21 @@ output = await session.interact()
 print(output.decode())  # b"hello\n"
 ```
 
+#### `poll_events() → list[tuple[str, object]]` *(PtySession method)*
+
+Drain the ordered low-frequency event log for this frame — one FFI crossing
+instead of polling each signal separately. Tags: `("bell", None)` (also
+consumes `take_bell()`), `("title", str)`, `("icon", str)`, `("cwd", str)`,
+`("altscreen", bool)`, `("scrollback_grew", int)`.
+
+```python
+for tag, payload in session.poll_events():
+    if tag == "bell":
+        flash_tab_dot()
+    elif tag == "title":
+        set_tab_title(payload)
+```
+
 #### `open_pty(winsize=None) → PtyMaster`
 
 Async. Opens a PTY pair without spawning a child process.

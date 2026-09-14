@@ -6,6 +6,17 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.7.0] — Consolidated event polling
+
+### Added
+- Ordered low-frequency event pipeline: `Screen.events` log (bell, title,
+  icon, cwd, alt-screen, scrollback growth), drained per frame via
+  `HistoryScreen::take_events()` → `TerminalState.poll_events()` →
+  `PtySession.poll_events()` as `(tag, payload)` tuples.
+- `take_bell()` and the event drain are unified: consuming either path
+  consumes the pending bell for both. `reset()` drops pending events to
+  keep that agreement across RIS.
+
 ## [0.6.1] — OSC 7 / OSC 9;9 cwd tracking
 
 ### Added

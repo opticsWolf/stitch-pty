@@ -58,7 +58,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.6.1"
+__version__ = "0.7.0"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -511,8 +511,22 @@ class PtySession:
         Edge-triggered: a second call right after returns False. Coalescing:
         multiple BELs between calls collapse to a single True. OSC sequences
         terminated by BEL (e.g. window titles) do NOT ring — only lone BELs.
+
+        Equivalent to filtering :meth:`poll_events` for ``("bell", …)``:
+        draining either path consumes the pending bell for both.
         """
         return self._terminal.take_bell()
+
+    def poll_events(self) -> list[tuple[str, object]]:
+        """Drain the ordered low-frequency event log for this frame.
+
+        Tags: ``("bell", None)``, ``("title", str)``, ``("icon", str)``,
+        ``("cwd", str)``, ``("altscreen", bool)``,
+        ``("scrollback_grew", int)``. Order matches the parser; draining
+        consumes the pending bell too (see :meth:`take_bell`). One call per
+        frame replaces polling each signal separately.
+        """
+        return self._terminal.poll_events()
 
     def take_dirty_rows(self) -> list[int]:
         """Drain the dirty-row set: sorted visible-row indices modified since

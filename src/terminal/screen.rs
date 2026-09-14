@@ -119,6 +119,9 @@ pub struct Screen {
     /// Shell working directory from OSC 7 / OSC 9;9. Shell state, not screen
     /// state: survives alt-screen switches and `reset()`.
     pub cwd: Option<String>,
+    /// Ordered low-frequency events (bell/title/cwd/altscreen) since the
+    /// last `take_events()` drain. A log, not a set — order is the point.
+    pub events: Vec<super::events::TermEvent>,
     /// Whether a BEL (0x07) arrived since the last `take_bell()` call.
     pub bell_pending: bool,
     pub write_process_input: Box<dyn FnMut(&str) + Send + Sync + 'static>,
@@ -148,7 +151,7 @@ impl Screen {
             columns, lines, buffer, cursor: Cursor::default(), default_char, mode,
             margins: None, tabstops, g0_charset: CharsetRef::Ascii, g1_charset: CharsetRef::Ascii,
             charset: CharsetRef::Ascii, charset_index: 0, dirty: BTreeSet::new(),
-            icon_name: String::new(), title: String::new(), cwd: None, bell_pending: false,
+            icon_name: String::new(), title: String::new(), cwd: None, events: Vec::new(), bell_pending: false,
             write_process_input: Box::new(|_: &str| {}) as Box<dyn FnMut(&str) + Send + Sync + 'static>, cursor_style: CursorStyle::Default,
             cursor_blink: true,
             keyboard_mode: 0, keyboard_mode_stack: Vec::new(),
@@ -174,6 +177,9 @@ impl Screen {
         self.charset = CharsetRef::Ascii; self.charset_index = 0;
         // NOTE: `cwd` is deliberately NOT cleared here — it describes the
         // shell, not the screen, and survives RIS/reset like a real terminal.
+        // Pending events ARE dropped: they describe pre-reset state, and the
+        // bell flag below is cleared too, so both bell paths stay in agreement.
+        self.events.clear();
         self.icon_name.clear(); self.title.clear(); self.bell_pending = false; self.cursor_style = CursorStyle::Default; self.cursor_blink = true;
         self.keyboard_mode = 0; self.keyboard_mode_stack.clear(); self.init_tabstops();
         self.scrolled_off.clear();
@@ -259,6 +265,7 @@ impl Screen {
         let fresh = vec![vec![self.default_char.clone(); self.columns]; self.lines];
         self.saved_buffer = Some(std::mem::replace(&mut self.buffer, fresh));
         self.alt_screen = true;
+        self.events.push(super::events::TermEvent::AltScreen { entered: true });
         self.mark_all_dirty();
     }
 
@@ -275,6 +282,7 @@ impl Screen {
         }
         self.cursor.x = self.cursor.x.min(self.columns.saturating_sub(1));
         self.cursor.y = self.cursor.y.min(self.lines.saturating_sub(1));
+        self.events.push(super::events::TermEvent::AltScreen { entered: false });
         self.mark_all_dirty();
     }
 
@@ -607,17 +615,38 @@ impl Screen {
     }
 
     // ── Title / Icon ─────────────────────────────────────────────
-    pub fn set_icon_name(&mut self, name: &str) { self.icon_name = name.to_string(); }
+    pub fn set_icon_name(&mut self, name: &str) {
+        self.icon_name = name.to_string();
+        self.events.push(super::events::TermEvent::IconChanged(self.icon_name.clone()));
+    }
     /// Mark a BEL arrival. Coalescing (not counted): frontends poll, so "rang
     /// since last check" is the whole contract — a counter would just
     /// overflow-argue for no benefit.
     pub fn ring_bell(&mut self) {
         self.bell_pending = true;
+        self.events.push(super::events::TermEvent::Bell);
     }
 
     /// Edge-triggered read: returns whether a BEL arrived, resetting the flag.
+    /// Unified with the event pipeline: consuming here also removes pending
+    /// `Bell` events, so a later `take_events()` will not re-report them —
+    /// and vice versa. Equivalent to filtering `take_events()` for `Bell`.
     pub fn take_bell(&mut self) -> bool {
-        std::mem::replace(&mut self.bell_pending, false)
+        let had = std::mem::replace(&mut self.bell_pending, false);
+        if had {
+            self.events.retain(|e| !matches!(e, super::events::TermEvent::Bell));
+        }
+        had
+    }
+
+    /// Drain the ordered event log, leaving it empty. Also clears the bell
+    /// flag when a `Bell` is drained, so `take_bell()` afterwards is `false`.
+    pub fn take_events(&mut self) -> Vec<super::events::TermEvent> {
+        let events = std::mem::take(&mut self.events);
+        if events.iter().any(|e| matches!(e, super::events::TermEvent::Bell)) {
+            self.bell_pending = false;
+        }
+        events
     }
 
     /// Drain the dirty-row set: returns the sorted indices of rows modified
@@ -627,10 +656,16 @@ impl Screen {
         std::mem::take(&mut self.dirty).into_iter().collect()
     }
 
-    pub fn set_title(&mut self, title: &str) { self.title = title.to_string(); }
+    pub fn set_title(&mut self, title: &str) {
+        self.title = title.to_string();
+        self.events.push(super::events::TermEvent::TitleChanged(self.title.clone()));
+    }
 
     /// Record the shell working directory (OSC 7 / OSC 9;9).
-    pub fn set_cwd(&mut self, cwd: String) { self.cwd = Some(cwd); }
+    pub fn set_cwd(&mut self, cwd: String) {
+        self.cwd = Some(cwd.clone());
+        self.events.push(super::events::TermEvent::CwdChanged(cwd));
+    }
 
     /// Shell working directory, if the shell has reported one yet.
     pub fn cwd(&self) -> Option<&str> { self.cwd.as_deref() }

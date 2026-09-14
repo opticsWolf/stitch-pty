@@ -222,6 +222,23 @@ impl Perform for Performer {
 }
 ```
 
+### Event pipeline (`terminal/events.rs`)
+
+Low-frequency signals accumulate in `Screen.events: Vec<TermEvent>` in parser
+order while high-frequency row changes go to the dirty-row set. Consumers
+drain both once per frame: `take_dirty_rows()` for *what to repaint*,
+`take_events()` (→ `TerminalState.poll_events()` → `PtySession.poll_events()`)
+for *what happened* — one FFI crossing per frame instead of one per signal.
+
+- Events are a **log, not a set**: ordering is the contract (`TitleChanged`
+  before `Bell` before `AltScreen` within one feed stays in that order).
+- `ScrollbackGrew(n)` is the exception: a per-drain summary appended trailing
+  by `HistoryScreen::take_events`, since scrollback arrivals are collected
+  after each feed rather than during parsing.
+- `take_bell()` is the coalescing one-bit shortcut over the same state:
+  draining either path consumes the pending bell for both, and `reset()`
+  drops pending events so the agreement survives RIS.
+
 ### `Screen` — Terminal Buffer
 
 Manages a 2D grid of `Char` cells, cursor position, tab stops, character sets,

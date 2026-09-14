@@ -33,6 +33,42 @@ async def test_session_cwd_osc7(idle):
 
 
 @pytest.mark.asyncio
+async def test_poll_events_ordered(idle):
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        session.terminal.feed(b"\x1b]2;t\x07\x07\x1b[?1049h")
+        assert session.poll_events() == [
+            ("title", "t"),
+            ("bell", None),
+            ("altscreen", True),
+        ]
+        # Draining twice: second drain is empty.
+        assert session.poll_events() == []
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_poll_events_bell_consistency(idle):
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        session.terminal.feed(b"\x07")
+        assert ("bell", None) in session.poll_events()
+        assert session.take_bell() is False  # the drain consumed it
+        session.terminal.feed(b"\x07\x07")
+        assert session.take_bell() is True  # coalesced pair → one True
+        assert ("bell", None) not in session.poll_events()
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
 async def test_session_cwd_osc9_9(idle):
     prog, args = idle()
     session = await spawn(prog, args)

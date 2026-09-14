@@ -5,6 +5,7 @@
 //!
 //! Modules:
 //! - `parser` — ANSI stream parser (Performer + Parser + Stream)
+//! - `events` — ordered low-frequency event pipeline (bell/title/cwd/altscreen)
 //! - `cwd` — shell working-directory parsing (OSC 7 / OSC 9;9)
 //! - `screen` — Screen buffer with Char, Cursor, SGR attributes
 //! - `history` — HistoryScreen with scrollback
@@ -20,6 +21,7 @@ pub mod charsets;
 pub mod control;
 pub mod cwd;
 pub mod escape;
+pub mod events;
 pub mod graphics;
 pub mod history;
 pub mod modes;

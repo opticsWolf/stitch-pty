@@ -104,6 +104,40 @@ impl TerminalState {
         self.screen.take_bell()
     }
 
+    /// Drain the ordered low-frequency event log as ``(tag, payload)`` tuples.
+    ///
+    /// Tags: ``("bell", None)``, ``("title", str)``, ``("icon", str)``,
+    /// ``("cwd", str)``, ``("altscreen", bool)``, ``("scrollback_grew", int)``.
+    /// Drained, not coalesced: order matches the parser. Draining consumes
+    /// the pending bell too, so ``take_bell()`` afterwards is ``False`` —
+    /// and vice versa. One FFI crossing per frame instead of one per signal.
+    pub fn poll_events(&mut self, py: Python<'_>) -> Vec<(String, Py<PyAny>)> {
+        use crate::terminal::events::TermEvent;
+        self.screen
+            .take_events()
+            .into_iter()
+            .map(|e| {
+                let tag = e.tag().to_string();
+                let payload: Py<PyAny> = match e {
+                    TermEvent::Bell => py.None().into_any(),
+                    TermEvent::TitleChanged(t)
+                    | TermEvent::IconChanged(t)
+                    | TermEvent::CwdChanged(t) => {
+                        t.into_pyobject(py).unwrap().into_any().unbind()
+                    }
+                    // `bool` converts to a borrowed reference: own it first.
+                    TermEvent::AltScreen { entered } => {
+                        entered.into_pyobject(py).unwrap().to_owned().into_any().unbind()
+                    }
+                    TermEvent::ScrollbackGrew(n) => {
+                        n.into_pyobject(py).unwrap().into_any().unbind()
+                    }
+                };
+                (tag, payload)
+            })
+            .collect()
+    }
+
     /// Get the number of lines in the scrollback history.
     #[getter]
     pub fn history_size(&self) -> usize {
