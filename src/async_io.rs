@@ -11,7 +11,7 @@ pub async fn read_timeout(
     tokio::time::timeout(timeout, read_fn).await
         .map_err(|_| crate::errors::PtyErrorKind::Timeout(timeout))?
         .map(Some)
-        .map_err(|e| crate::errors::PtyErrorKind::AsyncIo(e.to_string()))
+        .map_err(crate::errors::PtyErrorKind::from_read_error)
 }
 
 #[cfg(test)]

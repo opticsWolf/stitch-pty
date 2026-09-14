@@ -147,6 +147,51 @@ async def test_raw_output_cap_none_unbounded(shell, read_all):
 
 
 @pytest.mark.asyncio
+async def test_eof_drain_returns_empty(shell, read_all):
+    prog, args = shell("echo eof_done")
+    session = await spawn(prog, args)
+    try:
+        await read_all(session)
+
+        async def _drain_once() -> bytes:
+            # After the child exits, further reads surface EOF cleanly:
+            # prompt b"" (Unix EIO / ConPTY pipe close) or a PtyError
+            # timeout (ConPTY pipe still draining) — never an OSError leak.
+            try:
+                return await session.read_timeout(4096, 3.0)
+            except PtyError:
+                return b""
+
+        assert await _drain_once() == b""
+        # Second read after EOF: still clean b"", never raises.
+        assert await _drain_once() == b""
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_typed_eof_branch(shell):
+    """An OSError with kind=="eof" (the Rust EOF contract) maps to b""."""
+    prog, args = shell("echo hi")
+    session = await spawn(prog, args)
+    real_inner = session._inner
+    try:
+        err = OSError(0, "PTY EOF: child side closed")
+        err.kind = "eof"  # attached by the Rust layer, not string-matched
+        assert "os error 5" not in str(err)  # guard: not the legacy path
+
+        class _EofInner:
+            async def read(self, size):
+                raise err
+
+        session._inner = _EofInner()
+        assert await session.read(4096) == b""
+    finally:
+        session._inner = real_inner
+        await session.terminate()
+
+
+@pytest.mark.asyncio
 async def test_raw_output_window_slides(idle):
     """Direct-feed unit check of the sliding window (idle child: no PTY noise)."""
     prog, args = idle()

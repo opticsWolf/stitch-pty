@@ -58,7 +58,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.5.8"
+__version__ = "0.5.9"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -273,8 +273,12 @@ class PtySession:
         try:
             data = await self._inner.read(size)
         except OSError as e:
-            # Linux PTY returns EIO when the slave closes (child exited).
-            # Check both errno and message (PyO3 may not set errno).
+            # Typed EOF from the Rust layer: OSError(errno=0, kind="eof"),
+            # raised when the child side closes (Unix EIO on the master,
+            # ConPTY ERROR_BROKEN_PIPE/ERROR_NO_DATA). The errno/message
+            # checks below are the pre-0.5.9 legacy fallback.
+            if getattr(e, "kind", None) == "eof":
+                return b""
             if e.errno == errno.EIO or "os error 5" in str(e):
                 return b""
             raise
@@ -295,6 +299,9 @@ class PtySession:
             except asyncio.TimeoutError:
                 raise PtyError("Read timed out") from None
         except OSError as e:
+            # Same typed-EOF contract as read() (see above).
+            if getattr(e, "kind", None) == "eof":
+                return b""
             if e.errno == errno.EIO or "os error 5" in str(e):
                 return b""
             raise

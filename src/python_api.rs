@@ -21,7 +21,7 @@ impl PtyMaster {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut buf = vec![0u8; size];
             let n = inner.read(&mut buf).await
-                .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))?;
+                .map_err(PtyErrorKind::from_read_error)?;
             buf.truncate(n);
             Ok(buf)  // Vec<u8> → PyBytes
         })
@@ -35,7 +35,7 @@ impl PtyMaster {
             let timeout_result = tokio::time::timeout(duration, inner.read(&mut buf)).await;
             let n = match timeout_result {
                 Ok(Ok(n)) => n,
-                Ok(Err(e)) => return Err(PtyErrorKind::AsyncIo(e.to_string()).into()),
+                Ok(Err(e)) => return Err(PtyErrorKind::from_read_error(e).into()),
                 Err(_) => return Err(PtyErrorKind::Timeout(duration).into()),
             };
             buf.truncate(n);

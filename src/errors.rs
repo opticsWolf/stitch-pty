@@ -50,6 +50,9 @@ pub enum PtyErrorKind {
     #[error("PTY is closed")]
     Closed,
 
+    #[error("PTY EOF: child side closed")]
+    Eof,
+
     #[error("Timeout after {0:?}")]
     Timeout(std::time::Duration),
 
@@ -80,6 +83,15 @@ impl From<PtyErrorKind> for PyErr {
             | PtyErrorKind::WinsizeFailed(_)
             | PtyErrorKind::BufferOverflow { .. } => {
                 IOError::new_err(err.to_string())
+            }
+            PtyErrorKind::Eof => {
+                // Stable, string-match-free contract for Python: a builtin
+                // OSError with errno 0 and a `kind == "eof"` attribute.
+                let py_err = PyOSError::new_err((0, err.to_string()));
+                Python::attach(|py| {
+                    let _ = py_err.value(py).setattr("kind", "eof");
+                });
+                py_err
             }
             PtyErrorKind::Timeout(_) => {
                 PtyError::new_err(err.to_string())
@@ -118,6 +130,52 @@ impl From<windows::core::Error> for PtyErrorKind {
 }
 
 // ── Result Type Alias ─────────────────────────────────────────
+
+impl PtyErrorKind {
+    /// Classify a `std::io::Error` from a PTY master/pipe **read**.
+    ///
+    /// Errors that mean "the child side is gone" become [`PtyErrorKind::Eof`]
+    /// (surfaced to Python as an `OSError` with `errno == 0` and a stable
+    /// `kind == "eof"` attribute); everything else becomes `AsyncIo`.
+    ///
+    /// Write paths must NOT use this: on Unix, write-side EIO maps to
+    /// `BrokenPipe` in the backend instead (see `platform_unix.rs`).
+    pub fn from_read_error(err: std::io::Error) -> Self {
+        if is_eof_error(&err) {
+            PtyErrorKind::Eof
+        } else {
+            PtyErrorKind::AsyncIo(err.to_string())
+        }
+    }
+}
+
+/// True when an `io::Error` from a PTY read means the child side closed.
+///
+/// Centralizes what used to be ad-hoc `"os error 5" in str(e)` matching on
+/// the Python side: Unix EIO on the master, or ConPTY's broken-pipe errors.
+/// (The Unix backend additionally short-circuits EIO to `Ok(0)`; this covers
+/// every other read path, e.g. readiness errors and the Windows backend.)
+pub fn is_eof_error(err: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        if err.raw_os_error() == Some(libc::EIO) {
+            return true;
+        }
+    }
+    #[cfg(windows)]
+    {
+        // ERROR_BROKEN_PIPE (109) / ERROR_NO_DATA (232) from the ConPTY pipe.
+        const ERROR_BROKEN_PIPE: i32 = 109;
+        const ERROR_NO_DATA: i32 = 232;
+        if matches!(
+            err.raw_os_error(),
+            Some(ERROR_BROKEN_PIPE) | Some(ERROR_NO_DATA)
+        ) {
+            return true;
+        }
+    }
+    false
+}
 
 pub type PtyResult<T> = Result<T, PtyErrorKind>;
 
@@ -217,5 +275,43 @@ mod tests {
     fn test_result_type_alias() {
         let ok: PtyResult<i32> = Ok(42);
         assert_eq!(ok.unwrap(), 42);
+    }
+
+    #[test]
+    fn test_error_display_eof() {
+        assert_eq!(PtyErrorKind::Eof.to_string(), "PTY EOF: child side closed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_from_read_error_eio_is_eof() {
+        let eio = std::io::Error::from_raw_os_error(libc::EIO);
+        assert!(is_eof_error(&eio));
+        assert_eq!(
+            PtyErrorKind::from_read_error(eio),
+            PtyErrorKind::Eof
+        );
+    }
+
+    #[test]
+    fn test_from_read_error_other_is_async_io() {
+        let other = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
+        assert!(!is_eof_error(&other));
+        match PtyErrorKind::from_read_error(other) {
+            PtyErrorKind::AsyncIo(msg) => assert!(msg.contains("refused")),
+            _ => panic!("expected AsyncIo"),
+        }
+    }
+
+    #[cfg(feature = "python")]
+    #[test]
+    fn test_eof_maps_to_oserror_with_kind_attr() {
+        Python::attach(|py| {
+            let py_err: PyErr = PtyErrorKind::Eof.into();
+            let value = py_err.value(py);
+            assert!(value.is_instance_of::<PyOSError>());
+            assert_eq!(value.getattr("errno").unwrap().extract::<i32>().unwrap(), 0);
+            assert_eq!(value.getattr("kind").unwrap().extract::<String>().unwrap(), "eof");
+        });
     }
 }
