@@ -295,6 +295,9 @@ impl HistoryScreen {
     pub fn write_process_input(&mut self) -> &mut dyn FnMut(&str) { &mut self.inner.write_process_input }
     pub fn title(&self) -> &str { &self.inner.title }
     pub fn icon_name(&self) -> &str { &self.inner.icon_name }
+
+    /// Whether a BEL (0x07) arrived since the last call, then resets it.
+    pub fn take_bell(&mut self) -> bool { self.inner.take_bell() }
     pub fn g0_charset(&self) -> super::charsets::CharsetRef { self.inner.g0_charset }
 
     /// Feed raw bytes into the terminal state machine.

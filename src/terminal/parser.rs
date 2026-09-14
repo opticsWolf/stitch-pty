@@ -31,6 +31,7 @@ impl<'a> Perform for Performer<'a> {
             b'\x0b' | b'\x0c' => self.screen.linefeed(),
             b'\x0e' => self.screen.shift_out(),
             b'\x0f' => self.screen.shift_in(),
+            b'\x07' => self.screen.ring_bell(),
             _ => {}
         }
     }
@@ -779,6 +780,35 @@ mod tests {
         parser.feed(&mut s, b"\x1b]l;icon;title\x07"); // OSC l;icon;title BEL
         assert_eq!(s.icon_name, "icon");
         assert_eq!(s.title, "title");
+    }
+
+    // ── Bell ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parser_bell_lone_bel() {
+        let mut s = make_screen(10, 10);
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"\x07");
+        assert!(s.take_bell(), "lone BEL should ring the bell");
+        assert!(!s.take_bell(), "edge-triggered: second read must be false");
+    }
+
+    #[test]
+    fn test_parser_bell_coalesced() {
+        let mut s = make_screen(10, 10);
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"\x07\x07");
+        assert!(s.take_bell(), "coalesced BELs still read as one true");
+        assert!(!s.take_bell());
+    }
+
+    #[test]
+    fn test_parser_bell_osc_terminator_is_not_a_bell() {
+        let mut s = make_screen(10, 10);
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"\x1b]2;mytitle\x07"); // OSC title terminated by BEL
+        assert_eq!(s.title, "mytitle");
+        assert!(!s.take_bell(), "OSC BEL terminator must not ring the bell");
     }
 
     #[test]

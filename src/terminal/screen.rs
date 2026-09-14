@@ -116,6 +116,8 @@ pub struct Screen {
     pub dirty: BTreeSet<usize>,
     pub icon_name: String,
     pub title: String,
+    /// Whether a BEL (0x07) arrived since the last `take_bell()` call.
+    pub bell_pending: bool,
     pub write_process_input: Box<dyn FnMut(&str) + Send + Sync + 'static>,
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
@@ -143,7 +145,7 @@ impl Screen {
             columns, lines, buffer, cursor: Cursor::default(), default_char, mode,
             margins: None, tabstops, g0_charset: CharsetRef::Ascii, g1_charset: CharsetRef::Ascii,
             charset: CharsetRef::Ascii, charset_index: 0, dirty: BTreeSet::new(),
-            icon_name: String::new(), title: String::new(),
+            icon_name: String::new(), title: String::new(), bell_pending: false,
             write_process_input: Box::new(|_: &str| {}) as Box<dyn FnMut(&str) + Send + Sync + 'static>, cursor_style: CursorStyle::Default,
             cursor_blink: true,
             keyboard_mode: 0, keyboard_mode_stack: Vec::new(),
@@ -167,7 +169,7 @@ impl Screen {
         self.mode = Modes::new(); self.margins = None; self.cursor = Cursor::default();
         self.g0_charset = CharsetRef::Ascii; self.g1_charset = CharsetRef::Ascii;
         self.charset = CharsetRef::Ascii; self.charset_index = 0;
-        self.icon_name.clear(); self.title.clear(); self.cursor_style = CursorStyle::Default; self.cursor_blink = true;
+        self.icon_name.clear(); self.title.clear(); self.bell_pending = false; self.cursor_style = CursorStyle::Default; self.cursor_blink = true;
         self.keyboard_mode = 0; self.keyboard_mode_stack.clear(); self.init_tabstops();
         self.scrolled_off.clear();
         self.alt_screen = false; self.saved_buffer = None; self.alt_saved_cursor = None;
@@ -598,6 +600,18 @@ impl Screen {
 
     // ── Title / Icon ─────────────────────────────────────────────
     pub fn set_icon_name(&mut self, name: &str) { self.icon_name = name.to_string(); }
+    /// Mark a BEL arrival. Coalescing (not counted): frontends poll, so "rang
+    /// since last check" is the whole contract — a counter would just
+    /// overflow-argue for no benefit.
+    pub fn ring_bell(&mut self) {
+        self.bell_pending = true;
+    }
+
+    /// Edge-triggered read: returns whether a BEL arrived, resetting the flag.
+    pub fn take_bell(&mut self) -> bool {
+        std::mem::replace(&mut self.bell_pending, false)
+    }
+
     pub fn set_title(&mut self, title: &str) { self.title = title.to_string(); }
 
     // ── Charset ──────────────────────────────────────────────────
