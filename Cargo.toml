@@ -1,6 +1,6 @@
 [package]
 name = "stitch-pty"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
 authors = ["stitch-pty authors"]
 description = "Cross-platform async PTY with integrated terminal emulation for Python"
@@ -60,6 +60,7 @@ windows = { version = "0.62", features = [
 
 [dev-dependencies]
 tokio-test = "0.4"
+proptest = "1"
 
 [profile.release]
 opt-level = 3

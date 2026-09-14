@@ -642,6 +642,89 @@ mod tests {
         assert_eq!(hs.cursor().attrs.fg, "red");
     }
 
+    // ── Property tests: HistoryScreen invariants ──────────────────────
+
+    use proptest::prelude::*;
+    use proptest::test_runner::TestCaseResult;
+
+    const PROP_FRAGMENTS: &[&[u8]] = &[
+        b"\x1b[38;5;196m", b"\x1b[0m", b"\x1b[2J", b"\x1b[H", b"\x1b[1;1H",
+        b"\x1b[?1049h", b"\x1b[?1049l", b"\x1b[?25l", b"\x1b[?25h",
+        b"\x1b]0;title\x07", b"\x1b]2;t\x07", b"\x1b]7;file:///x\x07",
+        b"\x1b]9;9;C:\\x\x1b\\", b"\x1bM", b"\x1b7", b"\x1b8",
+        b"\x07", b"\x08", b"\r", b"\n", b"\t",
+        "\u{20ac}".as_bytes(), "\u{4e2d}".as_bytes(), "\u{1f389}".as_bytes(),
+        b"\xff", b"\xfe\x80", b"\xc3", b"hello", b" ",
+    ];
+
+    fn arb_mixed_stream() -> impl Strategy<Value = Vec<u8>> {
+        prop::collection::vec(prop::sample::select(PROP_FRAGMENTS.to_vec()), 0..16)
+            .prop_map(|parts| parts.concat())
+    }
+
+    fn feed_history_chunked(hs: &mut HistoryScreen, data: &[u8], cuts: &[u8]) {
+        let mut points: Vec<usize> =
+            cuts.iter().map(|&b| b as usize % (data.len() + 1)).collect();
+        points.sort_unstable();
+        let mut start = 0;
+        for &p in &points {
+            hs.feed(&data[start..p]);
+            start = p;
+        }
+        hs.feed(&data[start..]);
+    }
+
+    fn check_history_shape(
+        hs: &HistoryScreen,
+        cols: usize,
+        lines: usize,
+        cap: usize,
+    ) -> TestCaseResult {
+        prop_assert_eq!(hs.inner.buffer.len(), lines);
+        for row in hs.inner.buffer.iter() {
+            prop_assert_eq!(row.len(), cols);
+        }
+        // x == cols is the legal pending-wrap state (see parser.rs props).
+        prop_assert!(hs.cursor().x <= cols);
+        prop_assert!(hs.cursor().y < lines);
+        // cap == 0 means unbounded; otherwise history never exceeds capacity.
+        prop_assert!(
+            cap == 0 || hs.history_size() <= cap,
+            "history {} > cap {}", hs.history_size(), cap
+        );
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn prop_history_mixed_shapes(
+            data in arb_mixed_stream(),
+            cuts in prop::collection::vec(any::<u8>(), 0..4),
+            cols in 1..40usize,
+            lines in 1..25usize,
+            cap in 0..50usize,
+        ) {
+            let mut hs = make_history(cols, lines, cap);
+            feed_history_chunked(&mut hs, &data, &cuts);
+            check_history_shape(&hs, cols, lines, cap)?;
+            let _ = hs.take_bell();
+            prop_assert!(!hs.take_bell(), "take_bell fired twice in a row");
+        }
+
+        #[test]
+        fn prop_alt_roundtrip_restores_primary(
+            prefix in prop::collection::vec(any::<u8>(), 0..64),
+        ) {
+            // Any prefix state S is normalized: ENTER is a noop when already
+            // in alt, and the trailing EXIT always returns to primary.
+            let mut hs = make_history(20, 10, 100);
+            hs.feed(&prefix);
+            hs.feed(b"\x1b[?1049hX\x1b[?1049l");
+            prop_assert!(!hs.inner.alt_screen, "stuck in alt screen");
+            prop_assert_eq!(hs.inner.buffer.len(), 10, "parked row count");
+        }
+    }
+
     // ── Event pipeline ───────────────────────────────────────────────
 
     #[test]

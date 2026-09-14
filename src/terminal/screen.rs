@@ -442,7 +442,10 @@ impl Screen {
     pub fn erase_in_line(&mut self, mode: usize) {
         match mode {
             0 => { for i in self.cursor.x..self.columns { self.buffer[self.cursor.y][i] = self.default_char.clone(); } }
-            1 => { for i in 0..=self.cursor.x { self.buffer[self.cursor.y][i] = self.default_char.clone(); } }
+            // Clamped: cursor.x == columns is the legal pending-wrap state
+            // (printed exactly to the margin); without the min this indexes
+            // buffer[y][columns] — out of bounds. Cf. erase_in_display below.
+            1 => { for i in 0..=self.cursor.x.min(self.columns - 1) { self.buffer[self.cursor.y][i] = self.default_char.clone(); } }
             _ => { for i in 0..self.columns { self.buffer[self.cursor.y][i] = self.default_char.clone(); } }
         }
         self.dirty.insert(self.cursor.y);
@@ -931,6 +934,18 @@ mod tests {
         s.cursor.x = 2;
         s.erase_in_line(0); // cursor to end
         assert_eq!(s.display(), vec!["sa   "]);
+    }
+
+    #[test]
+    fn test_erase_in_line_mode1_at_pending_wrap() {
+        // Regression (found by proptest, v0.7.2): printing exactly to the
+        // right margin leaves cursor.x == columns (pending-wrap). EL 1
+        // (`ESC[1K`) in that state used to index buffer[y][columns] and panic.
+        let mut s = make_screen(5, 1);
+        s.draw("sam i"); // 5 chars on 5 cols → x == 5 == columns
+        assert_eq!(s.cursor.x, 5);
+        s.erase_in_line(1); // start of line through cursor, clamped
+        assert_eq!(s.display(), vec!["     "]);
     }
 
     #[test]

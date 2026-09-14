@@ -76,6 +76,35 @@ In `src/platform_unix.rs`.
 
 ---
 
+## Property Tests (proptest, v0.7.2+)
+
+Example-based tests cover known sequences; `proptest` covers the hostile
+ones. Strategies: arbitrary byte vecs, structured mixes (valid CSI/OSC/ESC
+fragments spliced with UTF-8 multibyte and lone high bytes), and random
+feed-split boundaries (control sequences straddling feeds).
+
+Invariants (asserted after every feed):
+
+1. Buffer is exactly `lines` rows × `columns` cols.
+2. Cursor `x <= columns` (`==` is the legal pending-wrap state), `y < lines`.
+3. Scrollback `len <= cap` (cap `0` = unbounded).
+4. `take_bell()` never fires twice in a row.
+5. `display()` is total and row-shaped (UTF-8 validity is structural).
+6. `?1049h … ?1049l` always returns to the primary buffer.
+
+Locations: `src/terminal/parser.rs` (Screen-level), `src/terminal/history.rs`
+(HistoryScreen-level). CI pins `PROPTEST_CASES=256`; run more locally with
+`PROPTEST_CASES=10000 cargo test --lib prop_`.
+
+Failure workflow (mandatory): a shrunk counterexample is saved under
+`proptest-regressions/` (committed — seeds replay every run), promoted into
+a named `#[test]` regression next to the related unit tests, and — if it
+names a real bug rather than a wrong invariant — fixed in the same version.
+First catch: `test_erase_in_line_mode1_at_pending_wrap` (`ESC[1K` with the
+cursor in pending-wrap indexed out of bounds; fixed v0.7.2).
+
+---
+
 ## Known Issues & Mitigations
 
 ### macOS Tokio Timer Starvation (v0.5.6+)

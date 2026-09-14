@@ -40,6 +40,8 @@ jobs:
       - name: Install maturin
         run: pip install maturin
       - name: Rust test
+        env:
+          PROPTEST_CASES: "256"
         run: cargo test
       - name: Python extension build and test
         env:

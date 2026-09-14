@@ -6,6 +6,21 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.7.2] — Property-based parser invariants
+
+### Added
+- `proptest` harness over the parser→Screen glue (arbitrary bytes,
+  structured CSI/OSC/ESC mixes, split-boundary feeds) locking buffer shape,
+  cursor bounds, scrollback caps, bell edge semantics, and alt-screen
+  round-trips. Seeds persist under `proptest-regressions/`; CI pins
+  `PROPTEST_CASES=256`. See `docs/TESTS.md` for the failure workflow.
+
+### Fixed
+- `erase_in_line` mode 1 (`ESC[1K`) panicked with an out-of-bounds index
+  when the cursor sat in pending-wrap state (`x == columns` after printing
+  exactly to the margin). Now clamps like `erase_in_display` already did.
+  Found by the new proptest; locked by `test_erase_in_line_mode1_at_pending_wrap`.
+
 ## [0.7.1] — `expect()` upgrades
 
 ### Added

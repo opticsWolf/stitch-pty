@@ -385,6 +385,90 @@ mod tests {
         assert_eq!(s.cwd(), Some("C:\\a;b"));
     }
 
+    // ── Property tests: parser→Screen glue invariants ─────────────────
+    //
+    // The state machine is upstream-tested; these lock the *glue*: no input
+    // — however malformed — may break buffer shape, cursor bounds, or the
+    // take_bell edge contract. Shape-only by design: mojibake is legal,
+    // structural corruption is not.
+
+    use proptest::prelude::*;
+    use proptest::test_runner::TestCaseResult;
+
+    /// Byte fragments covering CSI/OSC/ESC/C0, UTF-8 multibyte, lone high
+    /// bytes, and plain text — spliced into hostile streams below.
+    const PROP_FRAGMENTS: &[&[u8]] = &[
+        b"\x1b[38;5;196m", b"\x1b[0m", b"\x1b[2J", b"\x1b[H", b"\x1b[1;1H",
+        b"\x1b[?1049h", b"\x1b[?1049l", b"\x1b[?25l", b"\x1b[?25h",
+        b"\x1b]0;title\x07", b"\x1b]2;t\x07", b"\x1b]7;file:///x\x07",
+        b"\x1bM", b"\x1b7", b"\x1b8", b"\x1bD", b"\x1bE",
+        b"\x07", b"\x08", b"\r", b"\n", b"\t",
+        "\u{20ac}".as_bytes(), "\u{4e2d}".as_bytes(), "\u{1f389}".as_bytes(),
+        b"\xff", b"\xfe\x80", b"\xc3", b"hello", b" ",
+    ];
+
+    fn arb_mixed_stream() -> impl Strategy<Value = Vec<u8>> {
+        prop::collection::vec(prop::sample::select(PROP_FRAGMENTS.to_vec()), 0..16)
+            .prop_map(|parts| parts.concat())
+    }
+
+    /// Feed `data` through a fresh state machine per segment, cut at `cuts`.
+    /// Exercises split-boundary handling (control sequences and UTF-8
+    /// straddling feed boundaries).
+    fn feed_screen_chunked(s: &mut Screen, data: &[u8], cuts: &[u8]) {
+        use super::ansi_parser::Parser as AnsiParser;
+        let mut points: Vec<usize> =
+            cuts.iter().map(|&b| b as usize % (data.len() + 1)).collect();
+        points.sort_unstable();
+        let mut start = 0;
+        for &p in &points {
+            let mut performer = Performer::new(&mut *s);
+            let mut parser = AnsiParser::new();
+            parser.advance(&mut performer, &data[start..p]);
+            start = p;
+        }
+        let mut performer = Performer::new(&mut *s);
+        let mut parser = AnsiParser::new();
+        parser.advance(&mut performer, &data[start..]);
+    }
+
+    fn check_screen_shape(s: &Screen, cols: usize, lines: usize) -> TestCaseResult {
+        prop_assert_eq!(s.buffer.len(), lines);
+        for row in s.buffer.iter() {
+            prop_assert_eq!(row.len(), cols);
+        }
+        // x == cols is the legal pending-wrap state (printed exactly to the
+        // margin; every indexing site guards or clamps it — see erase_in_line
+        // mode 1). y must always be a real row.
+        prop_assert!(s.cursor.x <= cols);
+        prop_assert!(s.cursor.y < lines);
+        // display() is total over any state; cell text is `String`, so UTF-8
+        // validity is structural — this locks the shape, not the encoding.
+        prop_assert_eq!(s.display().len(), lines, "display row count");
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn prop_screen_noise_shapes(
+            data in prop::collection::vec(any::<u8>(), 0..128),
+            cuts in prop::collection::vec(any::<u8>(), 0..4),
+        ) {
+            let mut s = make_screen(20, 10);
+            feed_screen_chunked(&mut s, &data, &cuts);
+            check_screen_shape(&s, 20, 10)?;
+            let _ = s.take_bell();
+            prop_assert!(!s.take_bell(), "take_bell fired twice in a row");
+        }
+
+        #[test]
+        fn prop_screen_mixed_shapes(data in arb_mixed_stream()) {
+            let mut s = make_screen(20, 10);
+            feed_screen_chunked(&mut s, &data, &[7]);
+            check_screen_shape(&s, 20, 10)?;
+        }
+    }
+
     #[test]
     fn test_osc7_malformed_keeps_cwd() {
         fn dispatch(s: &mut Screen, params: &[&[u8]]) {
