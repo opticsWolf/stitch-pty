@@ -835,6 +835,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parser_take_dirty_rows_full_screen_ops() {
+        let mut s = make_screen(10, 4);
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"x");
+        s.take_dirty_rows();
+        // resize alters every row (conform/pad) — must re-dirty all of them
+        s.resize(3, 12);
+        assert_eq!(s.take_dirty_rows(), (0..3).collect::<Vec<_>>());
+        // reset wipes every row — same
+        s.reset();
+        assert_eq!(s.take_dirty_rows(), (0..3).collect::<Vec<_>>());
+    }
+
+    #[test]
     fn test_parser_csi_alignment_display() {
         let mut s = make_screen(5, 5);
         let mut parser = Parser::new();

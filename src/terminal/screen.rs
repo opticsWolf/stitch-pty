@@ -175,6 +175,7 @@ impl Screen {
         self.alt_screen = false; self.saved_buffer = None; self.alt_saved_cursor = None;
         self.dirty.clear();
         for line in &mut self.buffer { for ch in line { *ch = self.default_char.clone(); } }
+        self.mark_all_dirty();
     }
 
     pub fn resize(&mut self, lines: usize, columns: usize) {
@@ -187,6 +188,7 @@ impl Screen {
         self.buffer = old_buffer.into_iter().chain(std::iter::repeat(default_line)).take(lines).collect();
         self.lines = lines; self.columns = columns; self.margins = None;
         self.dirty.clear(); self.init_tabstops();
+        self.mark_all_dirty();
         self.cursor.x = self.cursor.x.min(self.columns.saturating_sub(1));
         self.cursor.y = self.cursor.y.min(self.lines.saturating_sub(1));
         // Keep the parked primary buffer in sync so it restores cleanly on exit.
@@ -235,6 +237,7 @@ impl Screen {
     fn clear_buffer(&mut self) {
         for line in &mut self.buffer { for ch in line { *ch = self.default_char.clone(); } }
         self.dirty.clear();
+        self.mark_all_dirty();
     }
 
     // ── Alternate screen buffer ──────────────────────────────────
