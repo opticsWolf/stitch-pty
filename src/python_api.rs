@@ -4,7 +4,7 @@
 //! future_into_py re-acquires the GIL to convert them to Python objects.
 
 use crate::errors::PtyErrorKind;
-use crate::platform::{open_pty_platform, spawn_platform, ChildBackend, PtyBackend};
+use crate::platform::{ChildBackend, PtyBackend, open_pty_platform, spawn_platform};
 use crate::winsize::Winsize;
 use pyo3::prelude::*;
 use std::time::Duration;
@@ -20,14 +20,21 @@ impl PtyMaster {
         let inner = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut buf = vec![0u8; size];
-            let n = inner.read(&mut buf).await
+            let n = inner
+                .read(&mut buf)
+                .await
                 .map_err(PtyErrorKind::from_read_error)?;
             buf.truncate(n);
-            Ok(buf)  // Vec<u8> → PyBytes
+            Ok(buf) // Vec<u8> → PyBytes
         })
     }
 
-    fn read_timeout<'py>(&self, py: Python<'py>, size: usize, timeout_secs: f64) -> PyResult<Bound<'py, PyAny>> {
+    fn read_timeout<'py>(
+        &self,
+        py: Python<'py>,
+        size: usize,
+        timeout_secs: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut buf = vec![0u8; size];
@@ -46,9 +53,11 @@ impl PtyMaster {
     fn write<'py>(&self, py: Python<'py>, data: Vec<u8>) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let n = inner.write(&data).await
+            let n = inner
+                .write(&data)
+                .await
                 .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))?;
-            Ok(n)  // usize → int
+            Ok(n) // usize → int
         })
     }
 
@@ -57,11 +66,13 @@ impl PtyMaster {
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut remaining = &data[..];
             while !remaining.is_empty() {
-                let n = inner.write(remaining).await
+                let n = inner
+                    .write(remaining)
+                    .await
                     .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))?;
                 remaining = &remaining[n..];
             }
-            Ok(())  // () → None
+            Ok(()) // () → None
         })
     }
 
@@ -74,8 +85,14 @@ impl PtyMaster {
     }
 
     fn raw_fd(&self) -> i32 {
-        #[cfg(unix)] { self.inner.raw_handle() as i32 }
-        #[cfg(windows)] { -1 }
+        #[cfg(unix)]
+        {
+            self.inner.raw_handle() as i32
+        }
+        #[cfg(windows)]
+        {
+            -1
+        }
     }
 
     fn is_open(&self) -> bool {
@@ -83,7 +100,8 @@ impl PtyMaster {
     }
 
     fn __repr__(&self) -> String {
-        format!("PtyMaster(platform={}, open={})",
+        format!(
+            "PtyMaster(platform={}, open={})",
             if cfg!(unix) { "unix" } else { "windows" },
             self.is_open()
         )
@@ -116,7 +134,11 @@ impl PtyChild {
         })
     }
 
-    fn terminate<'py>(&mut self, py: Python<'py>, grace_period_secs: f64) -> PyResult<Bound<'py, PyAny>> {
+    fn terminate<'py>(
+        &mut self,
+        py: Python<'py>,
+        grace_period_secs: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let grace = Duration::from_secs_f64(grace_period_secs);
         let inner = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -171,7 +193,11 @@ impl PtyChild {
     }
 
     fn __repr__(&self) -> String {
-        format!("PtyChild(pid={}, running={})", self.inner.pid(), self.inner.is_running())
+        format!(
+            "PtyChild(pid={}, running={})",
+            self.inner.pid(),
+            self.inner.is_running()
+        )
     }
 }
 
@@ -183,29 +209,69 @@ pub struct PtySession {
 
 #[pymethods]
 impl PtySession {
-    fn read<'py>(&self, py: Python<'py>, size: usize) -> PyResult<Bound<'py, PyAny>> { self.master.read(py, size) }
-    fn read_timeout<'py>(&self, py: Python<'py>, size: usize, timeout_secs: f64) -> PyResult<Bound<'py, PyAny>> { self.master.read_timeout(py, size, timeout_secs) }
-    fn write<'py>(&self, py: Python<'py>, data: Vec<u8>) -> PyResult<Bound<'py, PyAny>> { self.master.write(py, data) }
-    fn write_all<'py>(&self, py: Python<'py>, data: Vec<u8>) -> PyResult<Bound<'py, PyAny>> { self.master.write_all(py, data) }
-    fn set_winsize(&self, winsize: &Winsize) -> PyResult<()> { self.master.set_winsize(winsize) }
-    fn get_winsize(&self) -> PyResult<Winsize> { self.master.get_winsize() }
-
-    fn resize(&self, rows: u16, cols: u16) -> PyResult<()> {
-        self.master.set_winsize(&Winsize { rows, cols, xpixel: 0, ypixel: 0 })
+    fn read<'py>(&self, py: Python<'py>, size: usize) -> PyResult<Bound<'py, PyAny>> {
+        self.master.read(py, size)
+    }
+    fn read_timeout<'py>(
+        &self,
+        py: Python<'py>,
+        size: usize,
+        timeout_secs: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.master.read_timeout(py, size, timeout_secs)
+    }
+    fn write<'py>(&self, py: Python<'py>, data: Vec<u8>) -> PyResult<Bound<'py, PyAny>> {
+        self.master.write(py, data)
+    }
+    fn write_all<'py>(&self, py: Python<'py>, data: Vec<u8>) -> PyResult<Bound<'py, PyAny>> {
+        self.master.write_all(py, data)
+    }
+    fn set_winsize(&self, winsize: &Winsize) -> PyResult<()> {
+        self.master.set_winsize(winsize)
+    }
+    fn get_winsize(&self) -> PyResult<Winsize> {
+        self.master.get_winsize()
     }
 
-    fn wait<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> { self.child.wait(py) }
-    fn terminate<'py>(&mut self, py: Python<'py>, grace_period_secs: f64) -> PyResult<Bound<'py, PyAny>> { self.child.terminate(py, grace_period_secs) }
-    fn kill(&self) -> PyResult<()> { self.child.kill() }
-    fn interrupt(&self) -> PyResult<()> { self.child.interrupt() }
-    fn send_signal(&self, signal_num: i32) -> PyResult<()> { self.child.send_signal(signal_num) }
+    fn resize(&self, rows: u16, cols: u16) -> PyResult<()> {
+        self.master.set_winsize(&Winsize {
+            rows,
+            cols,
+            xpixel: 0,
+            ypixel: 0,
+        })
+    }
+
+    fn wait<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.child.wait(py)
+    }
+    fn terminate<'py>(
+        &mut self,
+        py: Python<'py>,
+        grace_period_secs: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.child.terminate(py, grace_period_secs)
+    }
+    fn kill(&self) -> PyResult<()> {
+        self.child.kill()
+    }
+    fn interrupt(&self) -> PyResult<()> {
+        self.child.interrupt()
+    }
+    fn send_signal(&self, signal_num: i32) -> PyResult<()> {
+        self.child.send_signal(signal_num)
+    }
 
     #[getter]
-    fn is_alive(&self) -> bool { self.child.is_running() }
+    fn is_alive(&self) -> bool {
+        self.child.is_running()
+    }
 
     fn __repr__(&self) -> String {
-        format!("PtySession(master={}, child={})",
-            self.master.__repr__(), self.child.__repr__()
+        format!(
+            "PtySession(master={}, child={})",
+            self.master.__repr__(),
+            self.child.__repr__()
         )
     }
 }
@@ -214,9 +280,7 @@ impl PtySession {
 #[pyo3(signature = (winsize=None))]
 pub fn open_pty(py: Python<'_>, winsize: Option<Winsize>) -> PyResult<Bound<'_, PyAny>> {
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        let backend = open_pty_platform(winsize)
-            .await
-            .map_err(PyErr::from)?;
+        let backend = open_pty_platform(winsize).await.map_err(PyErr::from)?;
         Ok(PtyMaster { inner: backend })
     })
 }
@@ -239,13 +303,16 @@ pub fn spawn<'py>(
         .collect();
     let winsize = winsize;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        let (pty_backend, child_backend) = spawn_platform(&program, &args, &env, winsize, cwd.as_deref())
-            .await
-            .map_err(|e| PtyErrorKind::ForkFailed(e.to_string()))?;
+        let (pty_backend, child_backend) =
+            spawn_platform(&program, &args, &env, winsize, cwd.as_deref())
+                .await
+                .map_err(|e| PtyErrorKind::ForkFailed(e.to_string()))?;
         let session = PtySession {
             master: PtyMaster { inner: pty_backend },
-            child: PtyChild { inner: child_backend },
+            child: PtyChild {
+                inner: child_backend,
+            },
         };
-        Ok(session)  // PtySession → Python object
+        Ok(session) // PtySession → Python object
     })
 }

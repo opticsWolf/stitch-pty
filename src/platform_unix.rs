@@ -13,20 +13,19 @@ use crate::errors::{PtyErrorKind, PtyResult};
 use crate::platform::{ChildBackend, ChildKiller, ProcessExit, PtyBackend};
 use crate::winsize::Winsize;
 use libc::c_char;
-use nix::fcntl::{fcntl, FcntlArg, OFlag};
-use std::os::fd::{BorrowedFd, IntoRawFd};
+use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::pty::openpty;
-use nix::sys::signal::{kill, Signal};
-use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{close, fork, setsid, ForkResult, Pid};
+use nix::sys::signal::{Signal, kill};
+use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
+use nix::unistd::{ForkResult, Pid, close, fork, setsid};
 use parking_lot::Mutex;
 use std::ffi::CString;
 use std::os::fd::RawFd;
+use std::os::fd::{BorrowedFd, IntoRawFd};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
-
+use tokio::io::unix::AsyncFd;
 
 // ============================================================================
 // close_random_fds (async-signal-safe version)
@@ -68,11 +67,7 @@ struct PreparedCommand {
 }
 
 impl PreparedCommand {
-    fn new(
-        program: &str,
-        args: &[String],
-        env: &[(String, String)],
-    ) -> PtyResult<Self> {
+    fn new(program: &str, args: &[String], env: &[(String, String)]) -> PtyResult<Self> {
         let program_cstr = CString::new(program)
             .map_err(|_| PtyErrorKind::ForkFailed("program contains NUL byte".into()))?;
 
@@ -89,8 +84,9 @@ impl PreparedCommand {
         for (k, v) in env {
             let s = format!("{}={}", k, v);
             envp.push(
-                CString::new(s)
-                    .map_err(|_| PtyErrorKind::ForkFailed("environment contains NUL byte".into()))?,
+                CString::new(s).map_err(|_| {
+                    PtyErrorKind::ForkFailed("environment contains NUL byte".into())
+                })?,
             );
         }
 
@@ -150,7 +146,9 @@ pub struct UnixPtyMaster {
 impl UnixPtyMaster {
     pub fn new(fd: RawFd) -> std::io::Result<Self> {
         let async_fd = AsyncFd::with_interest(fd, Interest::READABLE | Interest::WRITABLE)?;
-        Ok(UnixPtyMaster { async_fd: Some(async_fd) })
+        Ok(UnixPtyMaster {
+            async_fd: Some(async_fd),
+        })
     }
 
     fn fd(&self) -> RawFd {
@@ -168,9 +166,7 @@ impl PtyBackend for UnixPtyMaster {
             // Err(TryIoError) = WouldBlock (retry). Ok(Err(e)) = real error.
             match guard.try_io(|inner| {
                 let fd = *inner.get_ref();
-                let ret = unsafe {
-                    libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len())
-                };
+                let ret = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len()) };
 
                 if ret < 0 {
                     let err = std::io::Error::last_os_error();
@@ -196,9 +192,7 @@ impl PtyBackend for UnixPtyMaster {
 
             match guard.try_io(|inner| {
                 let fd = *inner.get_ref();
-                let ret = unsafe {
-                    libc::write(fd, buf.as_ptr() as *const _, buf.len())
-                };
+                let ret = unsafe { libc::write(fd, buf.as_ptr() as *const _, buf.len()) };
 
                 if ret < 0 {
                     let err = std::io::Error::last_os_error();
@@ -227,15 +221,18 @@ impl PtyBackend for UnixPtyMaster {
         unsafe {
             let ret = libc::ioctl(fd, libc::TIOCSWINSZ, &ws as *const _);
             if ret < 0 {
-                return Err(PtyErrorKind::WinsizeFailed(
-                    format!("TIOCSWINSZ failed: {}", std::io::Error::last_os_error())
-                ));
+                return Err(PtyErrorKind::WinsizeFailed(format!(
+                    "TIOCSWINSZ failed: {}",
+                    std::io::Error::last_os_error()
+                )));
             }
         }
         // Forward SIGWINCH to process group
         let pgrp = unsafe { libc::tcgetpgrp(fd) };
         if pgrp > 0 {
-            unsafe { libc::kill(-pgrp, libc::SIGWINCH); }
+            unsafe {
+                libc::kill(-pgrp, libc::SIGWINCH);
+            }
         }
         Ok(())
     }
@@ -246,9 +243,10 @@ impl PtyBackend for UnixPtyMaster {
         unsafe {
             let ret = libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws as *mut _);
             if ret < 0 {
-                return Err(PtyErrorKind::WinsizeFailed(
-                    format!("TIOCGWINSZ failed: {}", std::io::Error::last_os_error())
-                ));
+                return Err(PtyErrorKind::WinsizeFailed(format!(
+                    "TIOCGWINSZ failed: {}",
+                    std::io::Error::last_os_error()
+                )));
             }
         }
         Ok(ws.into())
@@ -354,9 +352,7 @@ impl UnixChildProcess {
             }
         });
 
-        UnixChildProcess {
-            inner: state,
-        }
+        UnixChildProcess { inner: state }
     }
 }
 
@@ -456,10 +452,16 @@ impl PtyPair {
         let master_borrowed: BorrowedFd = unsafe { BorrowedFd::borrow_raw(master_fd) };
         let flags = fcntl(master_borrowed, FcntlArg::F_GETFL)
             .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl GETFL: {}", e)))?;
-        fcntl(master_borrowed, FcntlArg::F_SETFL(OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK))
-            .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl SETFL: {}", e)))?;
+        fcntl(
+            master_borrowed,
+            FcntlArg::F_SETFL(OFlag::from_bits_truncate(flags) | OFlag::O_NONBLOCK),
+        )
+        .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl SETFL: {}", e)))?;
 
-        Ok(PtyPair { master_fd, slave_fd })
+        Ok(PtyPair {
+            master_fd,
+            slave_fd,
+        })
     }
 }
 
@@ -487,23 +489,33 @@ unsafe fn child_setup(
         libc::SIGTERM,
         libc::SIGALRM,
     ] {
-        unsafe { libc::signal(*signo, libc::SIG_DFL); }
+        unsafe {
+            libc::signal(*signo, libc::SIG_DFL);
+        }
     }
 
     // Unblock all signals.
     let mut empty_set: libc::sigset_t = unsafe { std::mem::zeroed() };
-    unsafe { libc::sigemptyset(&mut empty_set); }
-    unsafe { libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut()); }
+    unsafe {
+        libc::sigemptyset(&mut empty_set);
+    }
+    unsafe {
+        libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut());
+    }
 
     // Create new session.
     if setsid().is_err() {
-        unsafe { libc::_exit(1); }
+        unsafe {
+            libc::_exit(1);
+        }
     }
 
     // Set controlling terminal.
     let ret = unsafe { libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
     if ret < 0 {
-        unsafe { libc::_exit(1); }
+        unsafe {
+            libc::_exit(1);
+        }
     }
 
     // Close random FDs (async-signal-safe version — no allocation).
@@ -514,17 +526,25 @@ unsafe fn child_setup(
         || unsafe { libc::dup2(slave_fd, libc::STDOUT_FILENO) } < 0
         || unsafe { libc::dup2(slave_fd, libc::STDERR_FILENO) } < 0
     {
-        unsafe { libc::_exit(1); }
+        unsafe {
+            libc::_exit(1);
+        }
     }
 
-    unsafe { libc::close(slave_fd); }
-    unsafe { libc::close(master_fd); }
+    unsafe {
+        libc::close(slave_fd);
+    }
+    unsafe {
+        libc::close(master_fd);
+    }
 
     // chdir before exec (async-signal-safe: no allocation, raw pointer).
     // 127 distinguishes it from exec failure (126) and setup failures (1).
     if let Some(dir) = cwd {
         if unsafe { libc::chdir(dir.as_ptr()) } != 0 {
-            unsafe { libc::_exit(127); }
+            unsafe {
+                libc::_exit(127);
+            }
         }
     }
 
@@ -548,7 +568,9 @@ unsafe fn child_setup(
     }
 
     // exec only returns on failure
-    unsafe { libc::_exit(126); }
+    unsafe {
+        libc::_exit(126);
+    }
 }
 
 fn fork_pty(
@@ -570,9 +592,9 @@ fn fork_pty(
         .map_err(|_| PtyErrorKind::ForkFailed("cwd contains NUL byte".into()))?;
 
     match unsafe { fork() } {
-        Ok(ForkResult::Child) => {
-            unsafe { child_setup(pty.slave_fd, pty.master_fd, &cmd, cwd_cstr.as_ref()); }
-        }
+        Ok(ForkResult::Child) => unsafe {
+            child_setup(pty.slave_fd, pty.master_fd, &cmd, cwd_cstr.as_ref());
+        },
         Ok(ForkResult::Parent { child }) => {
             let _ = close(pty.slave_fd);
             Ok(child)
@@ -599,8 +621,7 @@ pub fn open_pty(winsize: Option<Winsize>) -> PtyResult<UnixPtyMaster> {
         libc::close(slave_fd);
     }
 
-    UnixPtyMaster::new(master_fd)
-        .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))
+    UnixPtyMaster::new(master_fd).map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))
 }
 
 pub fn spawn(
@@ -618,8 +639,7 @@ pub fn spawn(
     let master_fd = pair.master_fd;
     std::mem::forget(pair);
 
-    let master = UnixPtyMaster::new(master_fd)
-        .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))?;
+    let master = UnixPtyMaster::new(master_fd).map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))?;
     let child = UnixChildProcess::new(pid);
 
     Ok((master, child))

@@ -6,6 +6,20 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.7.3] — CI lint gates
+
+### Fixed
+- `cargo fmt --all` normalization (the tree was never fmt-clean).
+- `cargo clippy --all-targets -- -D warnings` clean: removed same-type
+  casts, annotated ConPTY transmutes, derived `Color::default`, dropped dead
+  scroll helpers, collapsed conditionals, bool asserts.
+- `ruff check` clean: sorted imports, `TimeoutError` alias, explicit
+  `raise … from None`, `contextlib.suppress` cleanups, typed conversions.
+- `mypy --strict` clean: explicit `bytes`/`int`/`bool`/`list` conversions
+  at the FFI boundary (fail-fast shape assertions), `ignore_missing_imports`
+  for the unstubbed `_core` extension.
+- CI runs all four gates before the test suites.
+
 ## [0.7.2] — Property-based parser invariants
 
 ### Added

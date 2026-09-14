@@ -29,6 +29,6 @@ pub mod parser;
 pub mod screen;
 
 // Re-export core types for convenience
-pub use screen::{Char, Cursor, Margins, Screen};
 pub use history::HistoryScreen;
 pub use parser::{Parser, Stream};
+pub use screen::{Char, Cursor, Margins, Screen};

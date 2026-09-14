@@ -3,20 +3,35 @@
 /// Extends ``Screen`` with a fixed-capacity scrollback history.  When the
 /// visible area scrolls, lines are pushed into (or popped from) the history
 /// buffer.
-
 use super::screen::{Char, Margins, Screen};
 
 /// Pack a cell into the Python tuple shape (text, fg, bg, attrs_bitmask).
 fn pack_cell(c: &Char) -> (String, String, String, u8) {
     let mut a = 0u8;
-    if c.bold          { a |= 1 << 0; }
-    if c.dim           { a |= 1 << 1; }
-    if c.italics       { a |= 1 << 2; }
-    if c.underscore    { a |= 1 << 3; }
-    if c.blink         { a |= 1 << 4; }
-    if c.reverse       { a |= 1 << 5; }
-    if c.hidden        { a |= 1 << 6; }
-    if c.strikethrough { a |= 1 << 7; }
+    if c.bold {
+        a |= 1 << 0;
+    }
+    if c.dim {
+        a |= 1 << 1;
+    }
+    if c.italics {
+        a |= 1 << 2;
+    }
+    if c.underscore {
+        a |= 1 << 3;
+    }
+    if c.blink {
+        a |= 1 << 4;
+    }
+    if c.reverse {
+        a |= 1 << 5;
+    }
+    if c.hidden {
+        a |= 1 << 6;
+    }
+    if c.strikethrough {
+        a |= 1 << 7;
+    }
     (c.data.clone(), c.fg.clone(), c.bg.clone(), a)
 }
 
@@ -40,10 +55,18 @@ impl HistoryScreen {
 
     // ── Accessors ───────────────────────────────────────────────
 
-    pub fn columns(&self) -> usize { self.inner.columns }
-    pub fn lines(&self) -> usize { self.inner.lines }
-    pub fn history_size(&self) -> usize { self.history.len() }
-    pub fn scrollback_lines(&self) -> usize { self.scrollback_lines }
+    pub fn columns(&self) -> usize {
+        self.inner.columns
+    }
+    pub fn lines(&self) -> usize {
+        self.inner.lines
+    }
+    pub fn history_size(&self) -> usize {
+        self.history.len()
+    }
+    pub fn scrollback_lines(&self) -> usize {
+        self.scrollback_lines
+    }
 
     pub fn set_scrollback_lines(&mut self, lines: usize) {
         self.scrollback_lines = lines;
@@ -51,7 +74,9 @@ impl HistoryScreen {
     }
 
     pub fn display(&self) -> Vec<String> {
-        let history_display: Vec<String> = self.history.iter()
+        let history_display: Vec<String> = self
+            .history
+            .iter()
             .map(|line| line.iter().map(|c| c.data.as_str()).collect::<String>())
             .collect();
         let visible_display = self.inner.display();
@@ -63,7 +88,8 @@ impl HistoryScreen {
     }
 
     pub fn history_display(&self) -> Vec<String> {
-        self.history.iter()
+        self.history
+            .iter()
             .map(|line| line.iter().map(|c| c.data.as_str()).collect::<String>())
             .collect()
     }
@@ -75,12 +101,16 @@ impl HistoryScreen {
 
     /// Absolute cursor position: (x, history_len + on-screen_y).
     pub fn absolute_cursor(&self) -> (usize, usize) {
-        (self.inner.cursor.x, self.history.len() + self.inner.cursor.y)
+        (
+            self.inner.cursor.x,
+            self.history.len() + self.inner.cursor.y,
+        )
     }
 
     /// History + visible buffer as styled cells: (text, fg, bg, attrs_bitmask).
     pub fn styled_viewport(&self) -> Vec<Vec<(String, String, String, u8)>> {
-        self.history.iter()
+        self.history
+            .iter()
             .chain(self.inner.buffer.iter())
             .map(|row| row.iter().map(pack_cell).collect())
             .collect()
@@ -90,23 +120,34 @@ impl HistoryScreen {
     /// buffer. Rows below `history_len` come from scrollback; the rest from the
     /// visible screen. Lets callers serialize only the window currently on
     /// screen instead of the entire scrollback (O(window) instead of O(total)).
-    pub fn styled_range(&self, start: usize, count: usize)
-            -> Vec<Vec<(String, String, String, u8)>> {
+    pub fn styled_range(
+        &self,
+        start: usize,
+        count: usize,
+    ) -> Vec<Vec<(String, String, String, u8)>> {
         let total = self.total_lines();
         let end = start.saturating_add(count).min(total);
         let hlen = self.history.len();
         let mut out = Vec::with_capacity(end.saturating_sub(start));
         let mut i = start;
         while i < end {
-            let row = if i < hlen { &self.history[i] } else { &self.inner.buffer[i - hlen] };
+            let row = if i < hlen {
+                &self.history[i]
+            } else {
+                &self.inner.buffer[i - hlen]
+            };
             out.push(row.iter().map(pack_cell).collect());
             i += 1;
         }
         out
     }
 
-    pub fn buffer(&self) -> &Vec<Vec<Char>> { &self.inner.buffer }
-    pub fn buffer_mut(&mut self) -> &mut Vec<Vec<Char>> { &mut self.inner.buffer }
+    pub fn buffer(&self) -> &Vec<Vec<Char>> {
+        &self.inner.buffer
+    }
+    pub fn buffer_mut(&mut self) -> &mut Vec<Vec<Char>> {
+        &mut self.inner.buffer
+    }
 
     // ── History Management ──────────────────────────────────────
 
@@ -125,18 +166,6 @@ impl HistoryScreen {
 
     fn pop_history(&mut self) -> Option<Vec<Char>> {
         self.history.pop()
-    }
-
-    fn push_from_bottom(&mut self) {
-        if let Some(line) = self.inner.buffer.last().cloned() {
-            self.push_history(line);
-        }
-    }
-
-    fn pop_to_bottom(&mut self) {
-        if let Some(line) = self.pop_history() {
-            self.inner.buffer.push(line);
-        }
     }
 
     pub fn clear_history(&mut self) {
@@ -186,14 +215,30 @@ impl HistoryScreen {
 
     // ── Delegate Methods ────────────────────────────────────────
 
-    pub fn draw(&mut self, data: &str) { self.inner.draw(data); }
-    pub fn cursor_position(&mut self, row: usize, col: usize) { self.inner.cursor_position(row, col); }
-    pub fn cursor_up(&mut self, rows: usize) { self.inner.cursor_up(rows); }
-    pub fn cursor_down(&mut self, rows: usize) { self.inner.cursor_down(rows); }
-    pub fn cursor_forward(&mut self, cols: usize) { self.inner.cursor_forward(cols); }
-    pub fn cursor_back(&mut self, cols: usize) { self.inner.cursor_back(cols); }
-    pub fn carriage_return(&mut self) { self.inner.carriage_return(); }
-    pub fn linefeed(&mut self) { self.inner.linefeed(); }
+    pub fn draw(&mut self, data: &str) {
+        self.inner.draw(data);
+    }
+    pub fn cursor_position(&mut self, row: usize, col: usize) {
+        self.inner.cursor_position(row, col);
+    }
+    pub fn cursor_up(&mut self, rows: usize) {
+        self.inner.cursor_up(rows);
+    }
+    pub fn cursor_down(&mut self, rows: usize) {
+        self.inner.cursor_down(rows);
+    }
+    pub fn cursor_forward(&mut self, cols: usize) {
+        self.inner.cursor_forward(cols);
+    }
+    pub fn cursor_back(&mut self, cols: usize) {
+        self.inner.cursor_back(cols);
+    }
+    pub fn carriage_return(&mut self) {
+        self.inner.carriage_return();
+    }
+    pub fn linefeed(&mut self) {
+        self.inner.linefeed();
+    }
 
     pub fn index(&mut self) {
         let (_, bottom) = self.scroll_region();
@@ -215,26 +260,67 @@ impl HistoryScreen {
         }
     }
 
-    pub fn backspace(&mut self) { self.inner.backspace(); }
-    pub fn tab(&mut self) { self.inner.tab(); }
-    pub fn set_tab_stop(&mut self) { self.inner.set_tab_stop(); }
-    pub fn clear_tab_stop(&mut self, mode: u16) { self.inner.clear_tab_stop(mode); }
-    pub fn save_cursor(&mut self) { self.inner.save_cursor(); }
-    pub fn restore_cursor(&mut self) { self.inner.restore_cursor(); }
-    pub fn set_mode(&mut self, mode: u16, private: bool) { self.inner.set_mode(mode, private); }
-    pub fn reset_mode(&mut self, mode: u16, private: bool) { self.inner.reset_mode(mode, private); }
-    pub fn select_graphic_rendition(&mut self, params: &[u16]) { self.inner.select_graphic_rendition(params); }
-    pub fn erase_in_line(&mut self, mode: usize) { self.inner.erase_in_line(mode); }
-    pub fn erase_in_display(&mut self, mode: usize) { self.inner.erase_in_display(mode); }
-    pub fn insert_lines(&mut self, count: usize) { self.inner.insert_lines(count); }
-    pub fn delete_lines(&mut self, count: usize) { self.inner.delete_lines(count); }
-    pub fn insert_characters(&mut self, count: usize) { self.inner.insert_characters(count); }
-    pub fn delete_characters(&mut self, count: usize) { self.inner.delete_characters(count); }
-    pub fn erase_characters(&mut self, count: usize) { self.inner.erase_characters(count); }
-    pub fn set_margins(&mut self, top: Option<usize>, bottom: Option<usize>) { self.inner.set_margins(top, bottom); }
-    pub fn clear_margins(&mut self) { self.inner.clear_margins(); }
-    pub fn alignment_display(&mut self) { self.inner.alignment_display(); }
-    pub fn reset(&mut self) { self.inner.reset(); self.clear_history(); }
+    pub fn backspace(&mut self) {
+        self.inner.backspace();
+    }
+    pub fn tab(&mut self) {
+        self.inner.tab();
+    }
+    pub fn set_tab_stop(&mut self) {
+        self.inner.set_tab_stop();
+    }
+    pub fn clear_tab_stop(&mut self, mode: u16) {
+        self.inner.clear_tab_stop(mode);
+    }
+    pub fn save_cursor(&mut self) {
+        self.inner.save_cursor();
+    }
+    pub fn restore_cursor(&mut self) {
+        self.inner.restore_cursor();
+    }
+    pub fn set_mode(&mut self, mode: u16, private: bool) {
+        self.inner.set_mode(mode, private);
+    }
+    pub fn reset_mode(&mut self, mode: u16, private: bool) {
+        self.inner.reset_mode(mode, private);
+    }
+    pub fn select_graphic_rendition(&mut self, params: &[u16]) {
+        self.inner.select_graphic_rendition(params);
+    }
+    pub fn erase_in_line(&mut self, mode: usize) {
+        self.inner.erase_in_line(mode);
+    }
+    pub fn erase_in_display(&mut self, mode: usize) {
+        self.inner.erase_in_display(mode);
+    }
+    pub fn insert_lines(&mut self, count: usize) {
+        self.inner.insert_lines(count);
+    }
+    pub fn delete_lines(&mut self, count: usize) {
+        self.inner.delete_lines(count);
+    }
+    pub fn insert_characters(&mut self, count: usize) {
+        self.inner.insert_characters(count);
+    }
+    pub fn delete_characters(&mut self, count: usize) {
+        self.inner.delete_characters(count);
+    }
+    pub fn erase_characters(&mut self, count: usize) {
+        self.inner.erase_characters(count);
+    }
+    pub fn set_margins(&mut self, top: Option<usize>, bottom: Option<usize>) {
+        self.inner.set_margins(top, bottom);
+    }
+    pub fn clear_margins(&mut self) {
+        self.inner.clear_margins();
+    }
+    pub fn alignment_display(&mut self) {
+        self.inner.alignment_display();
+    }
+    pub fn reset(&mut self) {
+        self.inner.reset();
+        self.clear_history();
+    }
     pub fn resize(&mut self, lines: usize, columns: usize) {
         // On the alternate screen there is no scrollback interaction: just
         // reshape both the live alt buffer and the parked primary buffer.
@@ -268,18 +354,36 @@ impl HistoryScreen {
         // Reshape columns and pad/truncate to exactly `lines` rows.
         self.inner.resize(lines, columns);
     }
-    pub fn set_title(&mut self, title: &str) { self.inner.set_title(title); }
-    pub fn set_icon_name(&mut self, name: &str) { self.inner.set_icon_name(name); }
-    pub fn report_device_attributes(&mut self) { self.inner.report_device_attributes(); }
-    pub fn report_device_status(&mut self, param: usize) { self.inner.report_device_status(param); }
+    pub fn set_title(&mut self, title: &str) {
+        self.inner.set_title(title);
+    }
+    pub fn set_icon_name(&mut self, name: &str) {
+        self.inner.set_icon_name(name);
+    }
+    pub fn report_device_attributes(&mut self) {
+        self.inner.report_device_attributes();
+    }
+    pub fn report_device_status(&mut self, param: usize) {
+        self.inner.report_device_status(param);
+    }
 
     // ── Deref-like access ──────────────────────────────────────
 
-    pub fn cursor(&self) -> &super::screen::Cursor { &self.inner.cursor }
-    pub fn cursor_mut(&mut self) -> &mut super::screen::Cursor { &mut self.inner.cursor }
-    pub fn cursor_style(&self) -> super::screen::CursorStyle { self.inner.cursor_style }
-    pub fn cursor_blink(&self) -> bool { self.inner.cursor_blink }
-    pub fn alt_screen(&self) -> bool { self.inner.alt_screen }
+    pub fn cursor(&self) -> &super::screen::Cursor {
+        &self.inner.cursor
+    }
+    pub fn cursor_mut(&mut self) -> &mut super::screen::Cursor {
+        &mut self.inner.cursor
+    }
+    pub fn cursor_style(&self) -> super::screen::CursorStyle {
+        self.inner.cursor_style
+    }
+    pub fn cursor_blink(&self) -> bool {
+        self.inner.cursor_blink
+    }
+    pub fn alt_screen(&self) -> bool {
+        self.inner.alt_screen
+    }
 
     /// Cursor shape as a front-end-friendly name: "block", "underline", or "bar".
     pub fn cursor_shape(&self) -> &'static str {
@@ -290,24 +394,50 @@ impl HistoryScreen {
             CursorStyle::Block | CursorStyle::Default => "block",
         }
     }
-    pub fn mode(&self) -> &super::modes::Modes { &self.inner.mode }
-    pub fn mode_mut(&mut self) -> &mut super::modes::Modes { &mut self.inner.mode }
-    pub fn margins(&self) -> Option<Margins> { self.inner.margins }
-    pub fn dirty(&self) -> &std::collections::BTreeSet<usize> { &self.inner.dirty }
-    pub fn default_char(&self) -> &Char { &self.inner.default_char }
-    pub fn tabstops(&self) -> &std::collections::HashSet<usize> { &self.inner.tabstops }
-    pub fn write_process_input(&mut self) -> &mut dyn FnMut(&str) { &mut self.inner.write_process_input }
-    pub fn title(&self) -> &str { &self.inner.title }
-    pub fn icon_name(&self) -> &str { &self.inner.icon_name }
-    pub fn set_cwd(&mut self, cwd: String) { self.inner.set_cwd(cwd); }
-    pub fn cwd(&self) -> Option<&str> { self.inner.cwd() }
+    pub fn mode(&self) -> &super::modes::Modes {
+        &self.inner.mode
+    }
+    pub fn mode_mut(&mut self) -> &mut super::modes::Modes {
+        &mut self.inner.mode
+    }
+    pub fn margins(&self) -> Option<Margins> {
+        self.inner.margins
+    }
+    pub fn dirty(&self) -> &std::collections::BTreeSet<usize> {
+        &self.inner.dirty
+    }
+    pub fn default_char(&self) -> &Char {
+        &self.inner.default_char
+    }
+    pub fn tabstops(&self) -> &std::collections::HashSet<usize> {
+        &self.inner.tabstops
+    }
+    pub fn write_process_input(&mut self) -> &mut dyn FnMut(&str) {
+        &mut self.inner.write_process_input
+    }
+    pub fn title(&self) -> &str {
+        &self.inner.title
+    }
+    pub fn icon_name(&self) -> &str {
+        &self.inner.icon_name
+    }
+    pub fn set_cwd(&mut self, cwd: String) {
+        self.inner.set_cwd(cwd);
+    }
+    pub fn cwd(&self) -> Option<&str> {
+        self.inner.cwd()
+    }
 
     /// Whether a BEL (0x07) arrived since the last call, then resets it.
-    pub fn take_bell(&mut self) -> bool { self.inner.take_bell() }
+    pub fn take_bell(&mut self) -> bool {
+        self.inner.take_bell()
+    }
 
     /// Drain the dirty-row set: sorted indices of rows modified since the
     /// last call, leaving it empty. Coalesces repeated writes to one row.
-    pub fn take_dirty_rows(&mut self) -> Vec<usize> { self.inner.take_dirty_rows() }
+    pub fn take_dirty_rows(&mut self) -> Vec<usize> {
+        self.inner.take_dirty_rows()
+    }
 
     /// Drain the ordered event log. A trailing `ScrollbackGrew(n)` summary is
     /// appended when lines entered scrollback since the last drain — it is a
@@ -320,12 +450,14 @@ impl HistoryScreen {
         }
         events
     }
-    pub fn g0_charset(&self) -> super::charsets::CharsetRef { self.inner.g0_charset }
+    pub fn g0_charset(&self) -> super::charsets::CharsetRef {
+        self.inner.g0_charset
+    }
 
     /// Feed raw bytes into the terminal state machine.
     pub fn feed(&mut self, data: &[u8]) {
-        use super::parser::Performer;
         use super::ansi_parser::Parser as AnsiParser;
+        use super::parser::Performer;
         {
             let mut performer = Performer::new(&mut self.inner);
             let mut parser = AnsiParser::new();
@@ -420,9 +552,9 @@ mod tests {
     #[test]
     fn test_resize_shrink_pushes_top_to_history() {
         let mut hs = make_history(10, 4, 100);
-        hs.feed(b"A\r\nB\r\nC\r\nD");      // fills 4 rows, cursor on the last
+        hs.feed(b"A\r\nB\r\nC\r\nD"); // fills 4 rows, cursor on the last
         assert_eq!(hs.history_size(), 0);
-        hs.resize(2, 10);                  // shrink: top rows go to scrollback
+        hs.resize(2, 10); // shrink: top rows go to scrollback
         assert!(hs.history_size() >= 2, "history={}", hs.history_size());
         assert_eq!(hs.history_display()[0].trim_end(), "A");
         assert_eq!(hs.visible_display().last().unwrap().trim_end(), "D");
@@ -431,10 +563,10 @@ mod tests {
     #[test]
     fn test_resize_grow_preserves_history() {
         let mut hs = make_history(10, 2, 100);
-        hs.feed(b"A\r\nB\r\nC\r\nD");      // scrolls A,B into history; C,D visible
+        hs.feed(b"A\r\nB\r\nC\r\nD"); // scrolls A,B into history; C,D visible
         let before = hs.history_size();
         assert!(before >= 2, "history={}", before);
-        hs.resize(4, 10);                  // grow: history is NOT drained
+        hs.resize(4, 10); // grow: history is NOT drained
         assert_eq!(hs.history_size(), before);
         let vis = hs.visible_display();
         assert_eq!(vis.len(), 4);
@@ -454,13 +586,13 @@ mod tests {
         hs.feed(b"\x1b[?1049h");
         assert!(hs.alt_screen());
         assert_eq!(hs.visible_display()[0].trim_end(), ""); // fresh alt buffer
-        hs.feed(b"\x1b[H");                                 // home, then draw
+        hs.feed(b"\x1b[H"); // home, then draw
         hs.feed(b"ALT");
         assert_eq!(hs.visible_display()[0].trim_end(), "ALT");
         hs.feed(b"\x1b[?1049l");
         assert!(!hs.alt_screen());
         assert_eq!(hs.visible_display()[0].trim_end(), "primary"); // primary back
-        assert_eq!(hs.cursor().x, saved_x);                        // cursor restored
+        assert_eq!(hs.cursor().x, saved_x); // cursor restored
     }
 
     #[test]
@@ -468,8 +600,12 @@ mod tests {
         let mut hs = make_history(10, 3, 100);
         hs.feed(b"\x1b[?1049h");
         let before = hs.history_size();
-        hs.feed(b"a\r\nb\r\nc\r\nd\r\ne\r\nf");   // scroll a lot on the alt screen
-        assert_eq!(hs.history_size(), before, "alt screen must not feed scrollback");
+        hs.feed(b"a\r\nb\r\nc\r\nd\r\ne\r\nf"); // scroll a lot on the alt screen
+        assert_eq!(
+            hs.history_size(),
+            before,
+            "alt screen must not feed scrollback"
+        );
         hs.feed(b"\x1b[?1049l");
     }
 
@@ -478,7 +614,7 @@ mod tests {
         let mut hs = make_history(10, 4, 100);
         hs.feed(b"P0\r\nP1\r\nP2\r\nP3");
         hs.feed(b"\x1b[?1049h");
-        hs.resize(6, 10);                 // resize while on the alt screen
+        hs.resize(6, 10); // resize while on the alt screen
         assert!(hs.alt_screen());
         assert_eq!(hs.lines(), 6);
         hs.feed(b"\x1b[?1049l");
@@ -648,13 +784,35 @@ mod tests {
     use proptest::test_runner::TestCaseResult;
 
     const PROP_FRAGMENTS: &[&[u8]] = &[
-        b"\x1b[38;5;196m", b"\x1b[0m", b"\x1b[2J", b"\x1b[H", b"\x1b[1;1H",
-        b"\x1b[?1049h", b"\x1b[?1049l", b"\x1b[?25l", b"\x1b[?25h",
-        b"\x1b]0;title\x07", b"\x1b]2;t\x07", b"\x1b]7;file:///x\x07",
-        b"\x1b]9;9;C:\\x\x1b\\", b"\x1bM", b"\x1b7", b"\x1b8",
-        b"\x07", b"\x08", b"\r", b"\n", b"\t",
-        "\u{20ac}".as_bytes(), "\u{4e2d}".as_bytes(), "\u{1f389}".as_bytes(),
-        b"\xff", b"\xfe\x80", b"\xc3", b"hello", b" ",
+        b"\x1b[38;5;196m",
+        b"\x1b[0m",
+        b"\x1b[2J",
+        b"\x1b[H",
+        b"\x1b[1;1H",
+        b"\x1b[?1049h",
+        b"\x1b[?1049l",
+        b"\x1b[?25l",
+        b"\x1b[?25h",
+        b"\x1b]0;title\x07",
+        b"\x1b]2;t\x07",
+        b"\x1b]7;file:///x\x07",
+        b"\x1b]9;9;C:\\x\x1b\\",
+        b"\x1bM",
+        b"\x1b7",
+        b"\x1b8",
+        b"\x07",
+        b"\x08",
+        b"\r",
+        b"\n",
+        b"\t",
+        "\u{20ac}".as_bytes(),
+        "\u{4e2d}".as_bytes(),
+        "\u{1f389}".as_bytes(),
+        b"\xff",
+        b"\xfe\x80",
+        b"\xc3",
+        b"hello",
+        b" ",
     ];
 
     fn arb_mixed_stream() -> impl Strategy<Value = Vec<u8>> {
@@ -663,8 +821,10 @@ mod tests {
     }
 
     fn feed_history_chunked(hs: &mut HistoryScreen, data: &[u8], cuts: &[u8]) {
-        let mut points: Vec<usize> =
-            cuts.iter().map(|&b| b as usize % (data.len() + 1)).collect();
+        let mut points: Vec<usize> = cuts
+            .iter()
+            .map(|&b| b as usize % (data.len() + 1))
+            .collect();
         points.sort_unstable();
         let mut start = 0;
         for &p in &points {
@@ -690,7 +850,9 @@ mod tests {
         // cap == 0 means unbounded; otherwise history never exceeds capacity.
         prop_assert!(
             cap == 0 || hs.history_size() <= cap,
-            "history {} > cap {}", hs.history_size(), cap
+            "history {} > cap {}",
+            hs.history_size(),
+            cap
         );
         Ok(())
     }

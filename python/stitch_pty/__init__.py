@@ -30,36 +30,37 @@ import asyncio
 import errno
 import os
 import re
-import signal
-import struct
-import sys
 from collections import deque
 from dataclasses import dataclass
-from typing import Any
-
-# Unix-only imports (fcntl, termios) — stubbed on Windows
-if sys.platform == "win32":
-    fcntl = None  # type: ignore
-    termios = None  # type: ignore
-else:
-    import fcntl
-    import termios
+from typing import Any, cast
 
 # Import the Rust extension module
 from stitch_pty._core import (
     IOError,
     ProcessError,
-    PtyChild as _PtyChild,
     PtyError,
-    PtyMaster as _PtyMaster,
-    PtySession as _PtySession,
-    TerminalState as _TerminalState,
     Winsize,
+)
+from stitch_pty._core import (
+    PtyChild as _PtyChild,
+)
+from stitch_pty._core import (
+    PtyMaster as _PtyMaster,
+)
+from stitch_pty._core import (
+    PtySession as _PtySession,
+)
+from stitch_pty._core import (
+    TerminalState as _TerminalState,
+)
+from stitch_pty._core import (
     open_pty as _open_pty,
+)
+from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -107,18 +108,18 @@ class PtyMaster:
 
         Returns empty bytes on EOF (child process exited).
         """
-        return await self._inner.read(size)
+        return bytes(await self._inner.read(size))
 
     async def read_timeout(self, size: int, timeout: float) -> bytes:
         """Read with a timeout in seconds.
 
         Raises stitch_pty.IOError if the timeout expires.
         """
-        return await self._inner.read_timeout(size, timeout)
+        return bytes(await self._inner.read_timeout(size, timeout))
 
     async def write(self, data: bytes) -> int:
         """Write data to the PTY master. Returns bytes written."""
-        return await self._inner.write(data)
+        return int(await self._inner.write(data))
 
     async def write_all(self, data: bytes) -> None:
         """Write all data, handling partial writes automatically."""
@@ -130,12 +131,12 @@ class PtyMaster:
 
     def get_winsize(self) -> Winsize:
         """Get the current terminal window size."""
-        return self._inner.get_winsize()
+        return cast(Winsize, self._inner.get_winsize())
 
     @property
     def fd(self) -> int:
         """Raw file descriptor (for advanced use with select/poll)."""
-        return self._inner.raw_fd()
+        return int(self._inner.raw_fd())
 
     def __repr__(self) -> str:
         return f"PtyMaster(fd={self.fd})"
@@ -150,12 +151,12 @@ class PtyChild:
     @property
     def pid(self) -> int:
         """The child process PID."""
-        return self._inner.pid
+        return int(self._inner.pid)
 
     @property
     def is_running(self) -> bool:
         """Whether the process is still running."""
-        return self._inner.is_running
+        return bool(self._inner.is_running)
 
     async def wait(self, timeout: float | None = None) -> ExitStatus | None:
         """Wait for the process to exit.
@@ -180,9 +181,9 @@ class PtyChild:
                     self._inner.wait(), timeout=0.1
                 )
                 return ExitStatus(*result) if result is not None else None
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if deadline is not None and asyncio.get_running_loop().time() >= deadline:
-                    raise TimeoutError("wait() timed out")
+                    raise TimeoutError("wait() timed out") from None
                 continue
 
     async def terminate(self, grace_period: float = 5.0) -> None:
@@ -203,7 +204,7 @@ class PtyChild:
                     timeout=min(remaining, 0.1),
                 )
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
     def kill(self) -> None:
@@ -262,6 +263,12 @@ class ExpectResult:
         if isinstance(item, str):
             return item.encode() in self.buffer
         return False
+
+
+ExpectPattern = bytes | str | re.Pattern[bytes]
+"""One :meth:`PtySession.expect` pattern: literal bytes/str or a regex."""
+ExpectPatterns = ExpectPattern | list[ExpectPattern] | tuple[ExpectPattern, ...]
+"""Accepted by :meth:`PtySession.expect`: one pattern or a list/tuple."""
 
 
 def _compile_expect_pattern(
@@ -327,7 +334,7 @@ class PtySession:
     @property
     def is_alive(self) -> bool:
         """Whether the child process is still running."""
-        return self._inner.is_alive
+        return bool(self._inner.is_alive)
 
     async def read(self, size: int = 4096) -> bytes:
         """Read from the PTY and feed data through the terminal emulator.
@@ -336,7 +343,7 @@ class PtySession:
         On Linux, EIO on the PTY master means the slave closed (child exited).
         """
         try:
-            data = await self._inner.read(size)
+            data = bytes(await self._inner.read(size))
         except OSError as e:
             # Typed EOF from the Rust layer: OSError(errno=0, kind="eof"),
             # raised when the child side closes (Unix EIO on the master,
@@ -360,8 +367,8 @@ class PtySession:
         try:
             # Use asyncio.wait_for to guarantee PtyError on timeout
             try:
-                data = await asyncio.wait_for(self._inner.read(size), timeout=timeout)
-            except asyncio.TimeoutError:
+                data = bytes(await asyncio.wait_for(self._inner.read(size), timeout=timeout))
+            except TimeoutError:
                 raise PtyError("Read timed out") from None
         except OSError as e:
             # Same typed-EOF contract as read() (see above).
@@ -377,7 +384,7 @@ class PtySession:
 
     async def write(self, data: bytes) -> int:
         """Write to the PTY."""
-        return await self._inner.write(data)
+        return int(await self._inner.write(data))
 
     async def write_all(self, data: bytes) -> None:
         """Write all data."""
@@ -389,7 +396,7 @@ class PtySession:
 
     def get_winsize(self) -> Winsize:
         """Get current window size."""
-        return self._inner.get_winsize()
+        return cast(Winsize, self._inner.get_winsize())
 
     async def wait(self, timeout: float | None = None) -> ExitStatus | None:
         """Wait for the child to exit.
@@ -413,9 +420,9 @@ class PtySession:
                     self._inner.wait(), timeout=0.1
                 )
                 return ExitStatus(*result) if result is not None else None
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if deadline is not None and asyncio.get_running_loop().time() >= deadline:
-                    raise TimeoutError("wait() timed out")
+                    raise TimeoutError("wait() timed out") from None
                 continue
 
     async def terminate(self, grace_period: float = 5.0) -> None:
@@ -436,7 +443,7 @@ class PtySession:
                     timeout=min(remaining, 0.1),
                 )
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
     def kill(self) -> None:
@@ -504,7 +511,7 @@ class PtySession:
 
     async def expect(
         self,
-        patterns: bytes | str | re.Pattern[bytes] | list[bytes | str | re.Pattern[bytes]] | tuple[bytes | str | re.Pattern[bytes], ...],
+        patterns: ExpectPatterns,
         timeout: float = 30.0,
     ) -> ExpectResult:
         """Read until a pattern appears in output (like pexpect).
@@ -547,7 +554,7 @@ class PtySession:
 
         def _timeout(message: str) -> TimeoutError:
             exc = TimeoutError(message)
-            setattr(exc, "buffer", bytes(buffer))
+            exc.buffer = bytes(buffer)  # type: ignore[attr-defined]
             return exc
 
         deadline = asyncio.get_running_loop().time() + timeout
@@ -563,7 +570,7 @@ class PtySession:
             except PtyError:
                 raise _timeout(
                     f"Pattern {patterns!r} not found. Buffer: {bytes(buffer)!r}"
-                )
+                ) from None
 
             if not chunk:
                 raise _timeout(
@@ -589,17 +596,17 @@ class PtySession:
     @property
     def display(self) -> list[str]:
         """Get the visible screen as a list of strings (one per row)."""
-        return self._terminal.visible_display()
+        return list(self._terminal.visible_display())
 
     @property
     def scrollback(self) -> list[str]:
         """Get the scrollback history as a list of strings."""
-        return self._terminal.history_display()
+        return list(self._terminal.history_display())
 
     @property
     def full_display(self) -> list[str]:
         """Get the full display (scrollback + visible screen) as a list of strings."""
-        return self._terminal.display()
+        return list(self._terminal.display())
 
     @property
     def cwd(self) -> str | None:
@@ -609,7 +616,8 @@ class PtySession:
         shells emit one per prompt). Unlike screen state, this survives
         alt-screen switches and terminal resets.
         """
-        return self._terminal.cwd
+        cwd = self._terminal.cwd
+        return None if cwd is None else str(cwd)
 
     @property
     def raw_output(self) -> bytes:
@@ -631,7 +639,7 @@ class PtySession:
         Equivalent to filtering :meth:`poll_events` for ``("bell", …)``:
         draining either path consumes the pending bell for both.
         """
-        return self._terminal.take_bell()
+        return bool(self._terminal.take_bell())
 
     def poll_events(self) -> list[tuple[str, object]]:
         """Drain the ordered low-frequency event log for this frame.
@@ -642,7 +650,7 @@ class PtySession:
         consumes the pending bell too (see :meth:`take_bell`). One call per
         frame replaces polling each signal separately.
         """
-        return self._terminal.poll_events()
+        return list(self._terminal.poll_events())
 
     def take_dirty_rows(self) -> list[int]:
         """Drain the dirty-row set: sorted visible-row indices modified since
@@ -654,10 +662,10 @@ class PtySession:
         exactly the rows to repaint. See also :attr:`display` for re-fetching
         those rows' text.
         """
-        return self._terminal.take_dirty_rows()
+        return list(self._terminal.take_dirty_rows())
 
     def __repr__(self) -> str:
-        return f"PtySession(...)"
+        return "PtySession(...)"
 
     async def __aenter__(self) -> PtySession:
         return self

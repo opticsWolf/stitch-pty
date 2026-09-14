@@ -31,9 +31,18 @@ pub const TBC: char = 'g';
 pub const SM: char = 'h';
 pub const RM: char = 'l';
 
-#[inline] pub fn is_csi_final(c: char) -> bool { matches!(c as u32, 0x40..=0x7E) }
-#[inline] pub fn is_csi_param(c: char) -> bool { matches!(c as u32, 0x30..=0x39) }
-#[inline] pub fn is_csi_intermediate(c: char) -> bool { matches!(c as u32, 0x20..=0x2F) }
+#[inline]
+pub fn is_csi_final(c: char) -> bool {
+    matches!(c as u32, 0x40..=0x7E)
+}
+#[inline]
+pub fn is_csi_param(c: char) -> bool {
+    matches!(c as u32, 0x30..=0x39)
+}
+#[inline]
+pub fn is_csi_intermediate(c: char) -> bool {
+    matches!(c as u32, 0x20..=0x2F)
+}
 
 #[cfg(test)]
 mod tests {
@@ -75,21 +84,21 @@ mod tests {
 
     #[test]
     fn test_is_csi_final_basic() {
-        assert!(is_csi_final('A'));  // CUU
-        assert!(is_csi_final('m'));  // SGR
-        assert!(is_csi_final('J'));  // ED
-        assert!(is_csi_final('K'));  // EL
-        assert!(is_csi_final('c'));  // DA
+        assert!(is_csi_final('A')); // CUU
+        assert!(is_csi_final('m')); // SGR
+        assert!(is_csi_final('J')); // ED
+        assert!(is_csi_final('K')); // EL
+        assert!(is_csi_final('c')); // DA
         assert!(is_csi_final('z'));
     }
 
     #[test]
     fn test_is_csi_final_boundary() {
-        assert!(is_csi_final('@'));  // 0x40 lower bound
-        assert!(is_csi_final('~'));  // 0x7E upper bound
-        assert!(!is_csi_final(' '));  // 0x20 not in range
-        assert!(!is_csi_final('0'));  // 0x30 not in range
-        assert!(!is_csi_final('!'));  // 0x21 not in range
+        assert!(is_csi_final('@')); // 0x40 lower bound
+        assert!(is_csi_final('~')); // 0x7E upper bound
+        assert!(!is_csi_final(' ')); // 0x20 not in range
+        assert!(!is_csi_final('0')); // 0x30 not in range
+        assert!(!is_csi_final('!')); // 0x21 not in range
     }
 
     #[test]
@@ -102,25 +111,25 @@ mod tests {
 
     #[test]
     fn test_is_csi_param_boundary() {
-        assert!(is_csi_param('0'));  // 0x30 lower bound
-        assert!(is_csi_param('9'));  // 0x39 upper bound
-        assert!(!is_csi_param(' '));  // 0x20 not in range
-        assert!(!is_csi_param(':'));  // 0x3A not in range
+        assert!(is_csi_param('0')); // 0x30 lower bound
+        assert!(is_csi_param('9')); // 0x39 upper bound
+        assert!(!is_csi_param(' ')); // 0x20 not in range
+        assert!(!is_csi_param(':')); // 0x3A not in range
     }
 
     #[test]
     fn test_is_csi_intermediate_basic() {
-        assert!(is_csi_intermediate(' '));  // 0x20 lower bound
-        assert!(is_csi_intermediate('/'));  // 0x2F upper bound
-        assert!(is_csi_intermediate('#'));  // middle of range
+        assert!(is_csi_intermediate(' ')); // 0x20 lower bound
+        assert!(is_csi_intermediate('/')); // 0x2F upper bound
+        assert!(is_csi_intermediate('#')); // middle of range
     }
 
     #[test]
     fn test_is_csi_intermediate_boundary() {
-        assert!(is_csi_intermediate(' '));  // 0x20 lower bound
-        assert!(is_csi_intermediate('/'));  // 0x2F upper bound
-        assert!(!is_csi_intermediate('0'));  // 0x30 not in range
-        assert!(!is_csi_intermediate('@'));  // 0x40 not in range
+        assert!(is_csi_intermediate(' ')); // 0x20 lower bound
+        assert!(is_csi_intermediate('/')); // 0x2F upper bound
+        assert!(!is_csi_intermediate('0')); // 0x30 not in range
+        assert!(!is_csi_intermediate('@')); // 0x40 not in range
     }
 
     #[test]

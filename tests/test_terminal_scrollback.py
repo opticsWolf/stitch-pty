@@ -5,7 +5,6 @@ history, that the styled/plain views stay consistent with ``total_lines()``,
 that capacity limits are respected, and that resizing preserves content
 (shrink pushes the overflow into history; grow does not drain it).
 """
-import pytest
 from stitch_pty import TerminalState
 
 

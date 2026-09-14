@@ -72,18 +72,13 @@ impl From<PtyErrorKind> for PyErr {
             PtyErrorKind::OpenFailed(_)
             | PtyErrorKind::OperationFailed(_)
             | PtyErrorKind::Closed
-            | PtyErrorKind::PlatformNotSupported(_) => {
-                PtyError::new_err(err.to_string())
-            }
-            PtyErrorKind::ForkFailed(_)
-            | PtyErrorKind::ProcessNotRunning => {
+            | PtyErrorKind::PlatformNotSupported(_) => PtyError::new_err(err.to_string()),
+            PtyErrorKind::ForkFailed(_) | PtyErrorKind::ProcessNotRunning => {
                 ProcessError::new_err(err.to_string())
             }
             PtyErrorKind::InvalidHandle
             | PtyErrorKind::WinsizeFailed(_)
-            | PtyErrorKind::BufferOverflow { .. } => {
-                IOError::new_err(err.to_string())
-            }
+            | PtyErrorKind::BufferOverflow { .. } => IOError::new_err(err.to_string()),
             PtyErrorKind::Eof => {
                 // Stable, string-match-free contract for Python: a builtin
                 // OSError with errno 0 and a `kind == "eof"` attribute.
@@ -93,16 +88,11 @@ impl From<PtyErrorKind> for PyErr {
                 });
                 py_err
             }
-            PtyErrorKind::Timeout(_) => {
-                PtyError::new_err(err.to_string())
-            }
-            PtyErrorKind::SignalError(_)
-            | PtyErrorKind::WindowsError(_) => {
+            PtyErrorKind::Timeout(_) => PtyError::new_err(err.to_string()),
+            PtyErrorKind::SignalError(_) | PtyErrorKind::WindowsError(_) => {
                 PyOSError::new_err(err.to_string())
             }
-            PtyErrorKind::AsyncIo(_) => {
-                PyIOError::new_err(err.to_string())
-            }
+            PtyErrorKind::AsyncIo(_) => PyIOError::new_err(err.to_string()),
         }
     }
 }
@@ -216,7 +206,10 @@ mod tests {
     #[test]
     fn test_error_display_winsize_failed() {
         let err = PtyErrorKind::WinsizeFailed("ioctl failed".to_string());
-        assert_eq!(err.to_string(), "Window size operation failed: ioctl failed");
+        assert_eq!(
+            err.to_string(),
+            "Window size operation failed: ioctl failed"
+        );
     }
 
     #[test]
@@ -233,7 +226,10 @@ mod tests {
 
     #[test]
     fn test_error_display_buffer_overflow() {
-        let err = PtyErrorKind::BufferOverflow { requested: 1024, max: 512 };
+        let err = PtyErrorKind::BufferOverflow {
+            requested: 1024,
+            max: 512,
+        };
         assert_eq!(err.to_string(), "Buffer overflow: requested 1024, max 512");
     }
 
@@ -274,7 +270,7 @@ mod tests {
     #[test]
     fn test_result_type_alias() {
         let ok: PtyResult<i32> = Ok(42);
-        assert_eq!(ok.unwrap(), 42);
+        assert_eq!(ok, Ok(42));
     }
 
     #[test]
@@ -287,10 +283,7 @@ mod tests {
     fn test_from_read_error_eio_is_eof() {
         let eio = std::io::Error::from_raw_os_error(libc::EIO);
         assert!(is_eof_error(&eio));
-        assert_eq!(
-            PtyErrorKind::from_read_error(eio),
-            PtyErrorKind::Eof
-        );
+        assert_eq!(PtyErrorKind::from_read_error(eio), PtyErrorKind::Eof);
     }
 
     #[test]
@@ -311,7 +304,10 @@ mod tests {
             let value = py_err.value(py);
             assert!(value.is_instance_of::<PyOSError>());
             assert_eq!(value.getattr("errno").unwrap().extract::<i32>().unwrap(), 0);
-            assert_eq!(value.getattr("kind").unwrap().extract::<String>().unwrap(), "eof");
+            assert_eq!(
+                value.getattr("kind").unwrap().extract::<String>().unwrap(),
+                "eof"
+            );
         });
     }
 }

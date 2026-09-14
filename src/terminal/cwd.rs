@@ -32,11 +32,7 @@ pub fn parse_osc7(payload: &[u8]) -> Option<String> {
     }
     // `file:///C:/Users/x` → `C:/Users/x`.
     let bytes = path.as_bytes();
-    if bytes.len() >= 3
-        && bytes[0] == b'/'
-        && bytes[1].is_ascii_alphabetic()
-        && bytes[2] == b':'
-    {
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' {
         return Some(path[1..].to_string());
     }
     Some(path)

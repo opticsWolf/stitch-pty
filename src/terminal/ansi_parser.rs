@@ -85,7 +85,8 @@ pub trait Perform {
         _intermediates: &[u8],
         _ignore: bool,
         _action: char,
-    ) {}
+    ) {
+    }
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, _byte: u8) {}
     #[inline]
     fn terminated(&self) -> bool {
@@ -219,8 +220,7 @@ impl Parser {
     fn advance_partial_utf8<P: Perform>(&mut self, performer: &mut P, bytes: &[u8]) -> usize {
         let old_bytes = self.partial_utf8_len;
         let to_copy = bytes.len().min(self.partial_utf8.len() - old_bytes);
-        self.partial_utf8[old_bytes..old_bytes + to_copy]
-            .copy_from_slice(&bytes[..to_copy]);
+        self.partial_utf8[old_bytes..old_bytes + to_copy].copy_from_slice(&bytes[..to_copy]);
         self.partial_utf8_len += to_copy;
 
         match std::str::from_utf8(&self.partial_utf8[..self.partial_utf8_len]) {
@@ -233,7 +233,8 @@ impl Parser {
             Err(err) => {
                 let valid_bytes = err.valid_up_to();
                 if valid_bytes > 0 {
-                    let parsed = unsafe { std::str::from_utf8_unchecked(&self.partial_utf8[..valid_bytes]) };
+                    let parsed =
+                        unsafe { std::str::from_utf8_unchecked(&self.partial_utf8[..valid_bytes]) };
                     let c = parsed.chars().next().unwrap();
                     performer.print(c);
                     self.partial_utf8_len = 0;
@@ -254,11 +255,26 @@ impl Parser {
     fn advance_csi_entry<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
             0x00..=0x17 | 0x19 | 0x1C..=0x1F => performer.execute(byte),
-            0x20..=0x2F => { self.action_collect(byte); self.state = State::CsiIntermediate; }
-            0x30..=0x39 => { self.action_paramnext(byte); self.state = State::CsiParam; }
-            0x3A => { self.action_subparam(); self.state = State::CsiParam; }
-            0x3B => { self.action_param(); self.state = State::CsiParam; }
-            0x3C..=0x3F => { self.action_collect(byte); self.state = State::CsiParam; }
+            0x20..=0x2F => {
+                self.action_collect(byte);
+                self.state = State::CsiIntermediate;
+            }
+            0x30..=0x39 => {
+                self.action_paramnext(byte);
+                self.state = State::CsiParam;
+            }
+            0x3A => {
+                self.action_subparam();
+                self.state = State::CsiParam;
+            }
+            0x3B => {
+                self.action_param();
+                self.state = State::CsiParam;
+            }
+            0x3C..=0x3F => {
+                self.action_collect(byte);
+                self.state = State::CsiParam;
+            }
             0x40..=0x7E => self.action_csi_dispatch(performer, byte),
             _ => self.anywhere(performer, byte),
         }
@@ -287,7 +303,10 @@ impl Parser {
     fn advance_csi_param<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
             0x00..=0x17 | 0x19 | 0x1C..=0x1F => performer.execute(byte),
-            0x20..=0x2F => { self.action_collect(byte); self.state = State::CsiIntermediate; }
+            0x20..=0x2F => {
+                self.action_collect(byte);
+                self.state = State::CsiIntermediate;
+            }
             0x30..=0x39 => self.action_paramnext(byte),
             0x3A => self.action_subparam(),
             0x3B => self.action_param(),
@@ -303,11 +322,26 @@ impl Parser {
     fn advance_dcs_entry<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
             0x00..=0x17 | 0x19 | 0x1C..=0x1F => (),
-            0x20..=0x2F => { self.action_collect(byte); self.state = State::DcsIntermediate; }
-            0x30..=0x39 => { self.action_paramnext(byte); self.state = State::DcsParam; }
-            0x3A => { self.action_subparam(); self.state = State::DcsParam; }
-            0x3B => { self.action_param(); self.state = State::DcsParam; }
-            0x3C..=0x3F => { self.action_collect(byte); self.state = State::DcsParam; }
+            0x20..=0x2F => {
+                self.action_collect(byte);
+                self.state = State::DcsIntermediate;
+            }
+            0x30..=0x39 => {
+                self.action_paramnext(byte);
+                self.state = State::DcsParam;
+            }
+            0x3A => {
+                self.action_subparam();
+                self.state = State::DcsParam;
+            }
+            0x3B => {
+                self.action_param();
+                self.state = State::DcsParam;
+            }
+            0x3C..=0x3F => {
+                self.action_collect(byte);
+                self.state = State::DcsParam;
+            }
             0x40..=0x7E => self.action_hook(performer, byte),
             0x7F => (),
             _ => self.anywhere(performer, byte),
@@ -327,7 +361,10 @@ impl Parser {
     fn advance_dcs_param<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
             0x00..=0x17 | 0x19 | 0x1C..=0x1F => (),
-            0x20..=0x2F => { self.action_collect(byte); self.state = State::DcsIntermediate; }
+            0x20..=0x2F => {
+                self.action_collect(byte);
+                self.state = State::DcsIntermediate;
+            }
             0x30..=0x39 => self.action_paramnext(byte),
             0x3A => self.action_subparam(),
             0x3B => self.action_param(),
@@ -341,10 +378,21 @@ impl Parser {
     fn advance_dcs_passthrough<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
             0x00..=0x17 | 0x19 | 0x1C..=0x7E => performer.put(byte),
-            0x18 | 0x1A => { performer.unhook(); performer.execute(byte); self.state = State::Ground; }
-            0x1B => { performer.unhook(); self.reset_params(); self.state = State::Escape; }
+            0x18 | 0x1A => {
+                performer.unhook();
+                performer.execute(byte);
+                self.state = State::Ground;
+            }
+            0x1B => {
+                performer.unhook();
+                self.reset_params();
+                self.state = State::Escape;
+            }
             0x7F => (),
-            0x9C => { performer.unhook(); self.state = State::Ground; }
+            0x9C => {
+                performer.unhook();
+                self.state = State::Ground;
+            }
             _ => (),
         }
     }
@@ -352,18 +400,49 @@ impl Parser {
     fn advance_esc<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
             0x00..=0x17 | 0x19 | 0x1C..=0x1F => performer.execute(byte),
-            0x20..=0x2F => { self.action_collect(byte); self.state = State::EscapeIntermediate; }
-            0x30..=0x4F => { performer.esc_dispatch(self.intermediates(), self.ignoring, byte); self.state = State::Ground; }
-            0x50 => { self.reset_params(); self.state = State::DcsEntry; }
-            0x51..=0x57 => { performer.esc_dispatch(self.intermediates(), self.ignoring, byte); self.state = State::Ground; }
+            0x20..=0x2F => {
+                self.action_collect(byte);
+                self.state = State::EscapeIntermediate;
+            }
+            0x30..=0x4F => {
+                performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
+                self.state = State::Ground;
+            }
+            0x50 => {
+                self.reset_params();
+                self.state = State::DcsEntry;
+            }
+            0x51..=0x57 => {
+                performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
+                self.state = State::Ground;
+            }
             0x58 => self.state = State::SosPmApcString,
-            0x59..=0x5A => { performer.esc_dispatch(self.intermediates(), self.ignoring, byte); self.state = State::Ground; }
-            0x5B => { self.reset_params(); self.state = State::CsiEntry; }
-            0x5C => { performer.esc_dispatch(self.intermediates(), self.ignoring, byte); self.state = State::Ground; }
-            0x5D => { self.osc_raw.clear(); self.osc_num_params = 0; self.state = State::OscString; }
+            0x59..=0x5A => {
+                performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
+                self.state = State::Ground;
+            }
+            0x5B => {
+                self.reset_params();
+                self.state = State::CsiEntry;
+            }
+            0x5C => {
+                performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
+                self.state = State::Ground;
+            }
+            0x5D => {
+                self.osc_raw.clear();
+                self.osc_num_params = 0;
+                self.state = State::OscString;
+            }
             0x5E..=0x5F => self.state = State::SosPmApcString,
-            0x60..=0x7E => { performer.esc_dispatch(self.intermediates(), self.ignoring, byte); self.state = State::Ground; }
-            0x18 | 0x1A => { performer.execute(byte); self.state = State::Ground; }
+            0x60..=0x7E => {
+                performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
+                self.state = State::Ground;
+            }
+            0x18 | 0x1A => {
+                performer.execute(byte);
+                self.state = State::Ground;
+            }
             _ => (),
         }
     }
@@ -372,7 +451,10 @@ impl Parser {
         match byte {
             0x00..=0x17 | 0x19 | 0x1C..=0x1F => performer.execute(byte),
             0x20..=0x2F => self.action_collect(byte),
-            0x30..=0x7E => { performer.esc_dispatch(self.intermediates(), self.ignoring, byte); self.state = State::Ground; }
+            0x30..=0x7E => {
+                performer.esc_dispatch(self.intermediates(), self.ignoring, byte);
+                self.state = State::Ground;
+            }
             0x7F => (),
             _ => self.anywhere(performer, byte),
         }
@@ -381,9 +463,20 @@ impl Parser {
     fn advance_osc_string<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
             0x00..=0x06 | 0x08..=0x17 | 0x19 | 0x1C..=0x1F => (),
-            0x07 => { self.osc_end(performer, byte); self.state = State::Ground; }
-            0x18 | 0x1A => { self.osc_end(performer, byte); performer.execute(byte); self.state = State::Ground; }
-            0x1B => { self.osc_end(performer, byte); self.reset_params(); self.state = State::Escape; }
+            0x07 => {
+                self.osc_end(performer, byte);
+                self.state = State::Ground;
+            }
+            0x18 | 0x1A => {
+                self.osc_end(performer, byte);
+                performer.execute(byte);
+                self.state = State::Ground;
+            }
+            0x1B => {
+                self.osc_end(performer, byte);
+                self.reset_params();
+                self.state = State::Escape;
+            }
             0x3B => self.action_osc_put_param(),
             _ => self.action_osc_put(byte),
         }
@@ -391,28 +484,51 @@ impl Parser {
 
     fn anywhere<P: Perform>(&mut self, performer: &mut P, byte: u8) {
         match byte {
-            0x18 | 0x1A => { performer.execute(byte); self.state = State::Ground; }
-            0x1B => { self.reset_params(); self.state = State::Escape; }
+            0x18 | 0x1A => {
+                performer.execute(byte);
+                self.state = State::Ground;
+            }
+            0x1B => {
+                self.reset_params();
+                self.state = State::Escape;
+            }
             _ => (),
         }
     }
 
     fn action_csi_dispatch<P: Perform>(&mut self, performer: &mut P, byte: u8) {
-        if self.params.is_full() { self.ignoring = true; }
-        else {
-            if self.subparam_continuation { self.params.extend(self.param); }
-            else { self.params.push(self.param); }
+        if self.params.is_full() {
+            self.ignoring = true;
+        } else {
+            if self.subparam_continuation {
+                self.params.extend(self.param);
+            } else {
+                self.params.push(self.param);
+            }
         }
         self.param = 0;
         self.subparam_continuation = false;
-        performer.csi_dispatch(&self.params, self.intermediates(), self.ignoring, byte as char);
+        performer.csi_dispatch(
+            &self.params,
+            self.intermediates(),
+            self.ignoring,
+            byte as char,
+        );
         self.state = State::Ground;
     }
 
     fn action_hook<P: Perform>(&mut self, performer: &mut P, byte: u8) {
-        if self.params.is_full() { self.ignoring = true; }
-        else { self.params.push(self.param); }
-        performer.hook(&self.params, self.intermediates(), self.ignoring, byte as char);
+        if self.params.is_full() {
+            self.ignoring = true;
+        } else {
+            self.params.push(self.param);
+        }
+        performer.hook(
+            &self.params,
+            self.intermediates(),
+            self.ignoring,
+            byte as char,
+        );
         self.state = State::DcsPassthrough;
     }
 
@@ -420,20 +536,30 @@ impl Parser {
         if self.intermediate_idx < MAX_INTERMEDIATES {
             self.intermediates[self.intermediate_idx] = byte;
             self.intermediate_idx += 1;
-        } else { self.ignoring = true; }
+        } else {
+            self.ignoring = true;
+        }
     }
 
     fn action_subparam(&mut self) {
-        if self.params.is_full() { self.ignoring = true; }
-        else { self.params.extend(self.param); self.param = 0; }
+        if self.params.is_full() {
+            self.ignoring = true;
+        } else {
+            self.params.extend(self.param);
+            self.param = 0;
+        }
         self.subparam_continuation = true;
     }
 
     fn action_param(&mut self) {
-        if self.params.is_full() { self.ignoring = true; }
-        else {
-            if self.subparam_continuation { self.params.extend(self.param); }
-            else { self.params.push(self.param); }
+        if self.params.is_full() {
+            self.ignoring = true;
+        } else {
+            if self.subparam_continuation {
+                self.params.extend(self.param);
+            } else {
+                self.params.push(self.param);
+            }
         }
         self.param = 0;
         self.subparam_continuation = false;
@@ -447,16 +573,23 @@ impl Parser {
     fn action_osc_put_param(&mut self) {
         let idx = self.osc_raw.len();
         let param_idx = self.osc_num_params;
-        if param_idx >= MAX_OSC_PARAMS { return; }
+        if param_idx >= MAX_OSC_PARAMS {
+            return;
+        }
         match param_idx {
             0 => self.osc_params[0] = (0, idx),
-            _ => { let prev = self.osc_params[param_idx - 1]; self.osc_params[param_idx] = (prev.1, idx); }
+            _ => {
+                let prev = self.osc_params[param_idx - 1];
+                self.osc_params[param_idx] = (prev.1, idx);
+            }
         }
         self.osc_num_params += 1;
     }
 
     fn action_osc_put(&mut self, byte: u8) {
-        if self.osc_raw.len() < MAX_OSC_RAW { self.osc_raw.push(byte); }
+        if self.osc_raw.len() < MAX_OSC_RAW {
+            self.osc_raw.push(byte);
+        }
     }
 
     fn osc_end<P: Perform>(&mut self, performer: &mut P, byte: u8) {
@@ -511,7 +644,7 @@ mod tests {
         }
 
         fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
-            let params = params.subparams.iter().map(|sp| sp.clone()).collect();
+            let params = params.subparams.to_vec();
             self.dispatched
                 .push(Sequence::Csi(params, intermediates.to_vec(), ignore, c));
         }
@@ -522,7 +655,7 @@ mod tests {
         }
 
         fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
-            let params = params.subparams.iter().map(|sp| sp.clone()).collect();
+            let params = params.subparams.to_vec();
             self.dispatched
                 .push(Sequence::DcsHook(params, intermediates.to_vec(), ignore, c));
         }
@@ -788,7 +921,10 @@ mod tests {
         let mut parser = Parser::new();
         parser.advance(&mut dispatcher, b"\x1b[?2004l\x1b#8");
         assert_eq!(dispatcher.dispatched.len(), 2);
-        assert_eq!(dispatcher.dispatched[0], Sequence::Csi(vec![vec![2004]], vec![63], false, 'l'));
+        assert_eq!(
+            dispatcher.dispatched[0],
+            Sequence::Csi(vec![vec![2004]], vec![63], false, 'l')
+        );
         assert_eq!(dispatcher.dispatched[1], Sequence::Esc(vec![35], false, 56));
     }
 
@@ -852,9 +988,11 @@ mod tests {
 
     #[test]
     fn test_osc_with_utf8() {
-        let input: &[u8] = &[0x0D, 0x1B, 0x5D, 0x32, 0x3B, 0x65, 0x63, 0x68, 0x6F, 0x20, 0x27,
-            0xC2, 0xAF, 0x5C, 0x5F, 0x28, 0xE3, 0x83, 0x84, 0x29, 0x5F, 0x2F, 0xC2, 0xAF,
-            0x27, 0x20, 0x26, 0x26, 0x20, 0x73, 0x6C, 0x65, 0x65, 0x70, 0x20, 0x31, 0x07];
+        let input: &[u8] = &[
+            0x0D, 0x1B, 0x5D, 0x32, 0x3B, 0x65, 0x63, 0x68, 0x6F, 0x20, 0x27, 0xC2, 0xAF, 0x5C,
+            0x5F, 0x28, 0xE3, 0x83, 0x84, 0x29, 0x5F, 0x2F, 0xC2, 0xAF, 0x27, 0x20, 0x26, 0x26,
+            0x20, 0x73, 0x6C, 0x65, 0x65, 0x70, 0x20, 0x31, 0x07,
+        ];
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
         parser.advance(&mut dispatcher, input);
@@ -940,7 +1078,10 @@ mod tests {
         parser.advance(&mut dispatcher, b"\xD8\x1b012");
         assert_eq!(dispatcher.dispatched.len(), 4);
         assert_eq!(dispatcher.dispatched[0], Sequence::Print('\u{FFFD}'));
-        assert_eq!(dispatcher.dispatched[1], Sequence::Esc(Vec::new(), false, b'0'));
+        assert_eq!(
+            dispatcher.dispatched[1],
+            Sequence::Esc(Vec::new(), false, b'0')
+        );
         assert_eq!(dispatcher.dispatched[2], Sequence::Print('1'));
         assert_eq!(dispatcher.dispatched[3], Sequence::Print('2'));
     }
@@ -964,7 +1105,10 @@ mod tests {
         // "🎉_🦀🦀_🎉"
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
-        parser.advance(&mut dispatcher, b"\xF0\x9F\x8E\x89_\xF0\x9F\xA6\x80\xF0\x9F\xA6\x80_\xF0\x9F\x8E\x89");
+        parser.advance(
+            &mut dispatcher,
+            b"\xF0\x9F\x8E\x89_\xF0\x9F\xA6\x80\xF0\x9F\xA6\x80_\xF0\x9F\x8E\x89",
+        );
         assert_eq!(dispatcher.dispatched.len(), 6);
         assert_eq!(dispatcher.dispatched[0], Sequence::Print('\u{1F389}'));
         assert_eq!(dispatcher.dispatched[1], Sequence::Print('_'));
@@ -980,7 +1124,10 @@ mod tests {
     fn test_c1_full() {
         let mut dispatcher = Dispatcher::default();
         let mut parser = Parser::new();
-        parser.advance(&mut dispatcher, b"\x00\x1f\x80\x90\x98\x9b\x9c\x9d\x9e\x9fa");
+        parser.advance(
+            &mut dispatcher,
+            b"\x00\x1f\x80\x90\x98\x9b\x9c\x9d\x9e\x9fa",
+        );
         assert_eq!(dispatcher.dispatched.len(), 11);
         assert_eq!(dispatcher.dispatched[0], Sequence::Execute(0));
         assert_eq!(dispatcher.dispatched[1], Sequence::Execute(31));

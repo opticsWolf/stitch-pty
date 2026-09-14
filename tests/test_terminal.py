@@ -2,6 +2,7 @@
 
 import asyncio
 import platform
+
 import pytest
 from stitch_pty import spawn
 

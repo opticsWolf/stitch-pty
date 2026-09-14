@@ -30,9 +30,9 @@ mod terminal_api;
 pub mod winsize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
-#[cfg(feature = "python")]
 use pyo3::PyTypeInfo;
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
 
 /// Initialize the Python module
 #[cfg(feature = "python")]

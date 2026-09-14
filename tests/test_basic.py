@@ -1,11 +1,12 @@
 """Basic tests for stitch-pty PTY functionality."""
 
 import asyncio
+import contextlib
 import os
 import platform
-import pytest
-from stitch_pty import spawn, PtySession, PtyError
 
+import pytest
+from stitch_pty import PtyError, PtySession, spawn
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_UNIX = not IS_WINDOWS
@@ -23,7 +24,7 @@ async def read_all(session, timeout=3.0, chunk_size=4096):
             if not chunk:
                 break
             data += chunk
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
     return data
 
@@ -89,10 +90,8 @@ async def test_is_alive():
         session.kill()
         await asyncio.sleep(0.1)
     finally:
-        try:
+        with contextlib.suppress(Exception):
             session.kill()
-        except Exception:
-            pass
         await asyncio.sleep(0.1)
 
 
@@ -123,10 +122,8 @@ async def test_kill():
         session.kill()
         await asyncio.sleep(0.1)
     finally:
-        try:
+        with contextlib.suppress(Exception):
             session.kill()
-        except Exception:
-            pass
         await asyncio.sleep(0.1)
 
 
@@ -209,10 +206,8 @@ async def test_send_signal():
         session.send_signal(9)
         await asyncio.sleep(0.1)
     finally:
-        try:
+        with contextlib.suppress(Exception):
             session.kill()
-        except Exception:
-            pass
         await asyncio.sleep(0.1)
 
 
@@ -233,10 +228,8 @@ async def test_interrupt():
         session.interrupt()
         await asyncio.sleep(0.1)
     finally:
-        try:
+        with contextlib.suppress(Exception):
             session.kill()
-        except Exception:
-            pass
         await asyncio.sleep(0.1)
 
 
@@ -268,10 +261,8 @@ async def test_terminate_graceful():
     else:
         session = await spawn("bash", ["-c", "echo bye"])
 
-    try:
-        await session.terminate(1.0)
-    except Exception:
-        pass  # Process may have already exited
+    with contextlib.suppress(Exception):
+        await session.terminate(1.0)  # Process may have already exited
 
 
 @pytest.mark.asyncio

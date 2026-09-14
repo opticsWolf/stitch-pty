@@ -4,62 +4,106 @@ use std::sync::OnceLock;
 
 pub fn text_attr(code: i32) -> Option<TextAttr> {
     match code {
-        1 => Some(TextAttr::SetBold), 3 => Some(TextAttr::SetItalics),
-        4 => Some(TextAttr::SetUnderline), 5 => Some(TextAttr::SetBlink),
-        7 => Some(TextAttr::SetReverse), 9 => Some(TextAttr::SetStrikethrough),
-        22 => Some(TextAttr::ResetBold), 23 => Some(TextAttr::ResetItalics),
-        24 => Some(TextAttr::ResetUnderline), 25 => Some(TextAttr::ResetBlink),
-        27 => Some(TextAttr::ResetReverse), 29 => Some(TextAttr::ResetStrikethrough),
+        1 => Some(TextAttr::SetBold),
+        3 => Some(TextAttr::SetItalics),
+        4 => Some(TextAttr::SetUnderline),
+        5 => Some(TextAttr::SetBlink),
+        7 => Some(TextAttr::SetReverse),
+        9 => Some(TextAttr::SetStrikethrough),
+        22 => Some(TextAttr::ResetBold),
+        23 => Some(TextAttr::ResetItalics),
+        24 => Some(TextAttr::ResetUnderline),
+        25 => Some(TextAttr::ResetBlink),
+        27 => Some(TextAttr::ResetReverse),
+        29 => Some(TextAttr::ResetStrikethrough),
         _ => None,
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextAttr {
-    SetBold, ResetBold, SetItalics, ResetItalics,
-    SetUnderline, ResetUnderline, SetBlink, ResetBlink,
-    SetReverse, ResetReverse, SetStrikethrough, ResetStrikethrough,
+    SetBold,
+    ResetBold,
+    SetItalics,
+    ResetItalics,
+    SetUnderline,
+    ResetUnderline,
+    SetBlink,
+    ResetBlink,
+    SetReverse,
+    ResetReverse,
+    SetStrikethrough,
+    ResetStrikethrough,
 }
 
 impl TextAttr {
     pub fn is_set(&self) -> bool {
-        matches!(self, TextAttr::SetBold | TextAttr::SetItalics | TextAttr::SetUnderline
-            | TextAttr::SetBlink | TextAttr::SetReverse | TextAttr::SetStrikethrough)
+        matches!(
+            self,
+            TextAttr::SetBold
+                | TextAttr::SetItalics
+                | TextAttr::SetUnderline
+                | TextAttr::SetBlink
+                | TextAttr::SetReverse
+                | TextAttr::SetStrikethrough
+        )
     }
 }
 
 pub fn fg_ansi(code: i32) -> Option<&'static str> {
     match code {
-        30 => Some("black"), 31 => Some("red"), 32 => Some("green"),
-        33 => Some("brown"), 34 => Some("blue"), 35 => Some("magenta"),
-        36 => Some("cyan"), 37 => Some("white"), 39 => Some("default"),
+        30 => Some("black"),
+        31 => Some("red"),
+        32 => Some("green"),
+        33 => Some("brown"),
+        34 => Some("blue"),
+        35 => Some("magenta"),
+        36 => Some("cyan"),
+        37 => Some("white"),
+        39 => Some("default"),
         _ => None,
     }
 }
 
 pub fn fg_aixterm(code: i32) -> Option<&'static str> {
     match code {
-        90 => Some("brightblack"), 91 => Some("brightred"), 92 => Some("brightgreen"),
-        93 => Some("brightbrown"), 94 => Some("brightblue"), 95 => Some("brightmagenta"),
-        96 => Some("brightcyan"), 97 => Some("brightwhite"),
+        90 => Some("brightblack"),
+        91 => Some("brightred"),
+        92 => Some("brightgreen"),
+        93 => Some("brightbrown"),
+        94 => Some("brightblue"),
+        95 => Some("brightmagenta"),
+        96 => Some("brightcyan"),
+        97 => Some("brightwhite"),
         _ => None,
     }
 }
 
 pub fn bg_ansi(code: i32) -> Option<&'static str> {
     match code {
-        40 => Some("black"), 41 => Some("red"), 42 => Some("green"),
-        43 => Some("brown"), 44 => Some("blue"), 45 => Some("magenta"),
-        46 => Some("cyan"), 47 => Some("white"), 49 => Some("default"),
+        40 => Some("black"),
+        41 => Some("red"),
+        42 => Some("green"),
+        43 => Some("brown"),
+        44 => Some("blue"),
+        45 => Some("magenta"),
+        46 => Some("cyan"),
+        47 => Some("white"),
+        49 => Some("default"),
         _ => None,
     }
 }
 
 pub fn bg_aixterm(code: i32) -> Option<&'static str> {
     match code {
-        100 => Some("brightblack"), 101 => Some("brightred"), 102 => Some("brightgreen"),
-        103 => Some("brightbrown"), 104 => Some("brightblue"), 105 => Some("brightmagenta"),
-        106 => Some("brightcyan"), 107 => Some("brightwhite"),
+        100 => Some("brightblack"),
+        101 => Some("brightred"),
+        102 => Some("brightgreen"),
+        103 => Some("brightbrown"),
+        104 => Some("brightblue"),
+        105 => Some("brightmagenta"),
+        106 => Some("brightcyan"),
+        107 => Some("brightwhite"),
         _ => None,
     }
 }
@@ -72,11 +116,21 @@ fn get_256_palette() -> &'static [String] {
     PALETTE.get_or_init(|| {
         let mut palette = Vec::with_capacity(256);
         let standard = [
-            (0x00u8, 0x00u8, 0x00u8), (0xcd, 0x00, 0x00), (0x00, 0xcd, 0x00),
-            (0xcd, 0xcd, 0x00), (0x00, 0x00, 0xee), (0xcd, 0x00, 0xcd),
-            (0x00, 0xcd, 0xcd), (0xe5, 0xe5, 0xe5), (0x7f, 0x7f, 0x7f),
-            (0xff, 0x00, 0x00), (0x00, 0xff, 0x00), (0xff, 0xff, 0x00),
-            (0x5c, 0x5c, 0xff), (0xff, 0x00, 0xff), (0x00, 0xff, 0xff),
+            (0x00u8, 0x00u8, 0x00u8),
+            (0xcd, 0x00, 0x00),
+            (0x00, 0xcd, 0x00),
+            (0xcd, 0xcd, 0x00),
+            (0x00, 0x00, 0xee),
+            (0xcd, 0x00, 0xcd),
+            (0x00, 0xcd, 0xcd),
+            (0xe5, 0xe5, 0xe5),
+            (0x7f, 0x7f, 0x7f),
+            (0xff, 0x00, 0x00),
+            (0x00, 0xff, 0x00),
+            (0xff, 0xff, 0x00),
+            (0x5c, 0x5c, 0xff),
+            (0xff, 0x00, 0xff),
+            (0x00, 0xff, 0xff),
             (0xff, 0xff, 0xff),
         ];
         for &(r, g, b) in &standard {
@@ -102,20 +156,19 @@ pub fn fg_bg_256() -> &'static [String] {
     get_256_palette()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub enum Color {
+    #[default]
     Default,
     Named(&'static str),
     Indexed(u8),
     Rgb(String),
 }
 
-impl Default for Color {
-    fn default() -> Self { Color::Default }
-}
-
 impl Color {
-    pub fn is_default(&self) -> bool { matches!(self, Color::Default) }
+    pub fn is_default(&self) -> bool {
+        matches!(self, Color::Default)
+    }
 }
 
 #[cfg(test)]
@@ -334,7 +387,7 @@ mod tests {
     #[test]
     fn test_text_attr_clone() {
         let a1 = TextAttr::SetBold;
-        let a2 = a1.clone();
+        let a2 = a1;
         assert_eq!(a1, a2);
     }
 }

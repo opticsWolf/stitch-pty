@@ -8,7 +8,8 @@ pub async fn read_timeout(
     _buf: &mut [u8],
     timeout: Duration,
 ) -> Result<Option<usize>, crate::errors::PtyErrorKind> {
-    tokio::time::timeout(timeout, read_fn).await
+    tokio::time::timeout(timeout, read_fn)
+        .await
         .map_err(|_| crate::errors::PtyErrorKind::Timeout(timeout))?
         .map(Some)
         .map_err(crate::errors::PtyErrorKind::from_read_error)
@@ -46,7 +47,10 @@ mod tests {
     #[tokio::test]
     async fn test_read_timeout_expires() {
         let mut buf = [0u8; 10];
-        let slow = async { tokio::time::sleep(Duration::from_secs(10)).await; Ok::<usize, std::io::Error>(5) };
+        let slow = async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            Ok::<usize, std::io::Error>(5)
+        };
         let result = read_timeout(slow, &mut buf, Duration::from_millis(50)).await;
         match result {
             Err(PtyErrorKind::Timeout(d)) => assert_eq!(d, Duration::from_millis(50)),
@@ -57,7 +61,12 @@ mod tests {
     #[tokio::test]
     async fn test_read_timeout_io_error() {
         let mut buf = [0u8; 10];
-        let fail = async { Err::<usize, std::io::Error>(std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused")) };
+        let fail = async {
+            Err::<usize, std::io::Error>(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "refused",
+            ))
+        };
         let result = read_timeout(fail, &mut buf, Duration::from_secs(1)).await;
         match result {
             Err(PtyErrorKind::AsyncIo(msg)) => assert!(msg.contains("refused")),
@@ -68,7 +77,12 @@ mod tests {
     #[tokio::test]
     async fn test_read_timeout_io_error_kind() {
         let mut buf = [0u8; 10];
-        let fail = async { Err::<usize, std::io::Error>(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout")) };
+        let fail = async {
+            Err::<usize, std::io::Error>(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timeout",
+            ))
+        };
         let result = read_timeout(fail, &mut buf, Duration::from_secs(1)).await;
         match result {
             Err(PtyErrorKind::AsyncIo(msg)) => assert!(msg.contains("timeout")),
@@ -79,7 +93,12 @@ mod tests {
     #[tokio::test]
     async fn test_read_timeout_io_error_kind_permission() {
         let mut buf = [0u8; 10];
-        let fail = async { Err::<usize, std::io::Error>(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied")) };
+        let fail = async {
+            Err::<usize, std::io::Error>(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "denied",
+            ))
+        };
         let result = read_timeout(fail, &mut buf, Duration::from_secs(1)).await;
         match result {
             Err(PtyErrorKind::AsyncIo(msg)) => assert!(msg.contains("denied")),
@@ -99,7 +118,10 @@ mod tests {
     async fn test_read_timeout_buffer_not_modified_on_timeout() {
         let mut buf = [0u8; 10];
         buf[0] = 0xAA;
-        let slow = async { tokio::time::sleep(Duration::from_secs(10)).await; Ok::<usize, std::io::Error>(5) };
+        let slow = async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            Ok::<usize, std::io::Error>(5)
+        };
         let result = read_timeout(slow, &mut buf, Duration::from_millis(50)).await;
         assert!(result.is_err());
         // Buffer should be unchanged on timeout

@@ -10,11 +10,11 @@ Validates the integrated terminal emulation layer against:
 - Edge cases (empty output, carriage returns, line wrapping)
 """
 
-import asyncio
+import contextlib
 import platform
-import pytest
-from stitch_pty import spawn, TerminalState, Winsize
 
+import pytest
+from stitch_pty import TerminalState, spawn
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -209,13 +209,15 @@ async def test_pty_cursor_position_after_output():
 async def test_pty_scrollback_after_multiline():
     """Multi-line output from a real process creates scrollback."""
     if IS_WINDOWS:
-        session = await spawn("cmd.exe", ["/c", "(echo line1 & echo line2 & echo line3 & echo line4 & echo line5 & echo line6 & echo line7 & echo line8 & echo line9 & echo line10 & echo line11 & echo line12 & echo line13 & echo line14 & echo line15 & echo line16 & echo line17 & echo line18 & echo line19 & echo line20)"])
+        cmd = "(" + " & ".join(f"echo line{i}" for i in range(1, 21)) + ")"
+        session = await spawn("cmd.exe", ["/c", cmd])
     else:
-        session = await spawn("bash", ["-c", "printf 'line%d\\n' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20"])
+        nums = " ".join(str(i) for i in range(1, 21))
+        session = await spawn("bash", ["-c", "printf 'line%d\\n' " + nums])
 
     try:
         _ = await session.read_all(timeout=3.0)
-        scrollback = session.scrollback
+        _ = session.scrollback
         full = session.full_display
         visible = session.display
 
@@ -358,10 +360,8 @@ async def test_terminal_multiple_reads_accumulate():
         session.terminal.feed(b"\r\npart2\r\n")
 
         # Second read (may be empty since process already exited)
-        try:
+        with contextlib.suppress(Exception):
             _ = await session.read_timeout(4096, 0.5)
-        except Exception:
-            pass
 
         # Manually fed text should be in terminal state
         full_text = "\n".join(session.full_display)

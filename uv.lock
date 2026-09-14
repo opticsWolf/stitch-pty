@@ -294,7 +294,7 @@ wheels = [
 
 [[package]]
 name = "stitch-pty"
-version = "0.7.2"
+version = "0.7.3"
 source = { editable = "." }
 
 [package.optional-dependencies]

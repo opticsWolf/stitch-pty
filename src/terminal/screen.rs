@@ -1,5 +1,4 @@
 /// Terminal screen buffer with cursor management, margins, and dirty tracking.
-
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use unicode_width::UnicodeWidthChar;
@@ -28,19 +27,37 @@ pub struct Char {
 
 impl Char {
     pub fn new(data: impl Into<String>) -> Self {
-        Self { data: data.into(), ..Self::default() }
+        Self {
+            data: data.into(),
+            ..Self::default()
+        }
     }
     pub fn blank() -> Self {
-        Self { data: " ".to_string(), fg: "default".to_string(), bg: "default".to_string(), ..Self::default() }
+        Self {
+            data: " ".to_string(),
+            fg: "default".to_string(),
+            bg: "default".to_string(),
+            ..Self::default()
+        }
     }
     pub fn is_blank(&self) -> bool {
-        self.data == " " && !self.bold && !self.dim && !self.italics
-            && !self.underscore && !self.blink && !self.reverse
-            && !self.hidden && !self.strikethrough
-            && self.fg == "default" && self.bg == "default"
+        self.data == " "
+            && !self.bold
+            && !self.dim
+            && !self.italics
+            && !self.underscore
+            && !self.blink
+            && !self.reverse
+            && !self.hidden
+            && !self.strikethrough
+            && self.fg == "default"
+            && self.bg == "default"
     }
     pub fn width(&self) -> usize {
-        self.data.chars().next().map_or(0, |c| c.width().unwrap_or(1))
+        self.data
+            .chars()
+            .next()
+            .map_or(0, |c| c.width().unwrap_or(1))
     }
 }
 
@@ -63,7 +80,13 @@ pub struct Cursor {
 
 impl Default for Cursor {
     fn default() -> Self {
-        Self { x: 0, y: 0, attrs: Char::blank(), hidden: false, stack: Vec::new() }
+        Self {
+            x: 0,
+            y: 0,
+            attrs: Char::blank(),
+            hidden: false,
+            stack: Vec::new(),
+        }
     }
 }
 
@@ -77,7 +100,11 @@ pub struct Margins {
 
 impl Margins {
     pub fn height(&self) -> usize {
-        if self.bottom >= self.top { self.bottom - self.top + 1 } else { 0 }
+        if self.bottom >= self.top {
+            self.bottom - self.top + 1
+        } else {
+            0
+        }
     }
 }
 
@@ -85,7 +112,8 @@ impl Margins {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorStyle {
-    #[default] Default,
+    #[default]
+    Default,
     Block,
     Underline,
     Beam,
@@ -93,7 +121,8 @@ pub enum CursorStyle {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum KeyboardApplyBehavior {
-    #[default] Replace,
+    #[default]
+    Replace,
     Union,
     Difference,
 }
@@ -145,18 +174,39 @@ impl Screen {
         let default_char = Char::blank();
         let buffer = vec![vec![default_char.clone(); columns]; lines];
         let mut tabstops = HashSet::new();
-        for col in (8..columns).step_by(8) { tabstops.insert(col); }
+        for col in (8..columns).step_by(8) {
+            tabstops.insert(col);
+        }
         let mode = Modes::new();
         let mut screen = Self {
-            columns, lines, buffer, cursor: Cursor::default(), default_char, mode,
-            margins: None, tabstops, g0_charset: CharsetRef::Ascii, g1_charset: CharsetRef::Ascii,
-            charset: CharsetRef::Ascii, charset_index: 0, dirty: BTreeSet::new(),
-            icon_name: String::new(), title: String::new(), cwd: None, events: Vec::new(), bell_pending: false,
-            write_process_input: Box::new(|_: &str| {}) as Box<dyn FnMut(&str) + Send + Sync + 'static>, cursor_style: CursorStyle::Default,
+            columns,
+            lines,
+            buffer,
+            cursor: Cursor::default(),
+            default_char,
+            mode,
+            margins: None,
+            tabstops,
+            g0_charset: CharsetRef::Ascii,
+            g1_charset: CharsetRef::Ascii,
+            charset: CharsetRef::Ascii,
+            charset_index: 0,
+            dirty: BTreeSet::new(),
+            icon_name: String::new(),
+            title: String::new(),
+            cwd: None,
+            events: Vec::new(),
+            bell_pending: false,
+            write_process_input: Box::new(|_: &str| {})
+                as Box<dyn FnMut(&str) + Send + Sync + 'static>,
+            cursor_style: CursorStyle::Default,
             cursor_blink: true,
-            keyboard_mode: 0, keyboard_mode_stack: Vec::new(),
+            keyboard_mode: 0,
+            keyboard_mode_stack: Vec::new(),
             scrolled_off: Vec::new(),
-            alt_screen: false, saved_buffer: None, alt_saved_cursor: None,
+            alt_screen: false,
+            saved_buffer: None,
+            alt_saved_cursor: None,
         };
         screen.init_tabstops();
         screen
@@ -164,89 +214,202 @@ impl Screen {
 
     fn init_tabstops(&mut self) {
         self.tabstops.clear();
-        for col in (8..self.columns).step_by(8) { self.tabstops.insert(col); }
+        for col in (8..self.columns).step_by(8) {
+            self.tabstops.insert(col);
+        }
     }
 
     pub fn display(&self) -> Vec<String> {
-        self.buffer.iter().map(|line| line.iter().map(|c| c.data.as_str()).collect()).collect()
+        self.buffer
+            .iter()
+            .map(|line| line.iter().map(|c| c.data.as_str()).collect())
+            .collect()
     }
 
     pub fn reset(&mut self) {
-        self.mode = Modes::new(); self.margins = None; self.cursor = Cursor::default();
-        self.g0_charset = CharsetRef::Ascii; self.g1_charset = CharsetRef::Ascii;
-        self.charset = CharsetRef::Ascii; self.charset_index = 0;
+        self.mode = Modes::new();
+        self.margins = None;
+        self.cursor = Cursor::default();
+        self.g0_charset = CharsetRef::Ascii;
+        self.g1_charset = CharsetRef::Ascii;
+        self.charset = CharsetRef::Ascii;
+        self.charset_index = 0;
         // NOTE: `cwd` is deliberately NOT cleared here — it describes the
         // shell, not the screen, and survives RIS/reset like a real terminal.
         // Pending events ARE dropped: they describe pre-reset state, and the
         // bell flag below is cleared too, so both bell paths stay in agreement.
         self.events.clear();
-        self.icon_name.clear(); self.title.clear(); self.bell_pending = false; self.cursor_style = CursorStyle::Default; self.cursor_blink = true;
-        self.keyboard_mode = 0; self.keyboard_mode_stack.clear(); self.init_tabstops();
+        self.icon_name.clear();
+        self.title.clear();
+        self.bell_pending = false;
+        self.cursor_style = CursorStyle::Default;
+        self.cursor_blink = true;
+        self.keyboard_mode = 0;
+        self.keyboard_mode_stack.clear();
+        self.init_tabstops();
         self.scrolled_off.clear();
-        self.alt_screen = false; self.saved_buffer = None; self.alt_saved_cursor = None;
+        self.alt_screen = false;
+        self.saved_buffer = None;
+        self.alt_saved_cursor = None;
         self.dirty.clear();
-        for line in &mut self.buffer { for ch in line { *ch = self.default_char.clone(); } }
+        for line in &mut self.buffer {
+            for ch in line {
+                *ch = self.default_char.clone();
+            }
+        }
         self.mark_all_dirty();
     }
 
     pub fn resize(&mut self, lines: usize, columns: usize) {
-        if self.lines == lines && self.columns == columns { return; }
-        let old_buffer = self.buffer.drain(..).map(|line| {
-            line.into_iter().take(columns).chain(std::iter::repeat(self.default_char.clone()))
-                .take(columns).collect::<Vec<_>>()
-        }).take(lines).collect::<Vec<_>>();
+        if self.lines == lines && self.columns == columns {
+            return;
+        }
+        let old_buffer = self
+            .buffer
+            .drain(..)
+            .map(|line| {
+                line.into_iter()
+                    .take(columns)
+                    .chain(std::iter::repeat(self.default_char.clone()))
+                    .take(columns)
+                    .collect::<Vec<_>>()
+            })
+            .take(lines)
+            .collect::<Vec<_>>();
         let default_line = vec![self.default_char.clone(); columns];
-        self.buffer = old_buffer.into_iter().chain(std::iter::repeat(default_line)).take(lines).collect();
-        self.lines = lines; self.columns = columns; self.margins = None;
-        self.dirty.clear(); self.init_tabstops();
+        self.buffer = old_buffer
+            .into_iter()
+            .chain(std::iter::repeat(default_line))
+            .take(lines)
+            .collect();
+        self.lines = lines;
+        self.columns = columns;
+        self.margins = None;
+        self.dirty.clear();
+        self.init_tabstops();
         self.mark_all_dirty();
         self.cursor.x = self.cursor.x.min(self.columns.saturating_sub(1));
         self.cursor.y = self.cursor.y.min(self.lines.saturating_sub(1));
         // Keep the parked primary buffer in sync so it restores cleanly on exit.
         if let Some(saved) = self.saved_buffer.take() {
-            self.saved_buffer = Some(Self::conform_buffer(saved, lines, columns, &self.default_char));
+            self.saved_buffer = Some(Self::conform_buffer(
+                saved,
+                lines,
+                columns,
+                &self.default_char,
+            ));
         }
     }
 
     // ── Mode Management ──────────────────────────────────────────
     pub fn set_mode(&mut self, mode: u16, private: bool) {
-        if private { self.set_private_mode(mode); } else { self.set_public_mode(mode); }
+        if private {
+            self.set_private_mode(mode);
+        } else {
+            self.set_public_mode(mode);
+        }
     }
     pub fn reset_mode(&mut self, mode: u16, private: bool) {
-        if private { self.reset_private_mode(mode); } else { self.reset_public_mode(mode); }
+        if private {
+            self.reset_private_mode(mode);
+        } else {
+            self.reset_public_mode(mode);
+        }
     }
-    fn set_public_mode(&mut self, mode: u16) { self.mode.set_public(mode); }
-    fn reset_public_mode(&mut self, mode: u16) { self.mode.clear_public(mode); }
+    fn set_public_mode(&mut self, mode: u16) {
+        self.mode.set_public(mode);
+    }
+    fn reset_public_mode(&mut self, mode: u16) {
+        self.mode.clear_public(mode);
+    }
 
     pub fn set_private_mode(&mut self, mode: u16) {
         match mode {
-            mo::DECCOLM => { self.save_columns(); self.columns = 132; self.clear_buffer(); self.margins = None; self.cursor = Cursor::default(); self.mode.set_private(mode); self.init_tabstops(); }
-            mo::DECOM => { self.mode.set_private(mode); self.cursor.x = 0; self.cursor.y = 0; }
-            mo::DECSCNM => { self.mode.set_private(mode); self.default_char.reverse = true; self.apply_reverse_to_buffer(true); }
-            mo::DECTCEM => { self.mode.set_private(mode); self.cursor.hidden = false; }
-            mo::DECAWM => { self.mode.set_private(mode); }
-            mo::ALT_SCREEN_47 | mo::ALT_SCREEN_1047 => { self.enter_alt_screen(false); self.mode.set_private(mode); }
-            mo::ALT_SCREEN_1049 => { self.enter_alt_screen(true); self.mode.set_private(mode); }
-            _ => { self.mode.set_private(mode); }
+            mo::DECCOLM => {
+                self.save_columns();
+                self.columns = 132;
+                self.clear_buffer();
+                self.margins = None;
+                self.cursor = Cursor::default();
+                self.mode.set_private(mode);
+                self.init_tabstops();
+            }
+            mo::DECOM => {
+                self.mode.set_private(mode);
+                self.cursor.x = 0;
+                self.cursor.y = 0;
+            }
+            mo::DECSCNM => {
+                self.mode.set_private(mode);
+                self.default_char.reverse = true;
+                self.apply_reverse_to_buffer(true);
+            }
+            mo::DECTCEM => {
+                self.mode.set_private(mode);
+                self.cursor.hidden = false;
+            }
+            mo::DECAWM => {
+                self.mode.set_private(mode);
+            }
+            mo::ALT_SCREEN_47 | mo::ALT_SCREEN_1047 => {
+                self.enter_alt_screen(false);
+                self.mode.set_private(mode);
+            }
+            mo::ALT_SCREEN_1049 => {
+                self.enter_alt_screen(true);
+                self.mode.set_private(mode);
+            }
+            _ => {
+                self.mode.set_private(mode);
+            }
         }
     }
 
     pub fn reset_private_mode(&mut self, mode: u16) {
         match mode {
-            mo::DECCOLM => { self.columns = 80; self.margins = None; self.cursor = Cursor::default(); self.mode.clear_private(mode); self.init_tabstops(); }
-            mo::DECOM => { self.mode.clear_private(mode); }
-            mo::DECSCNM => { self.mode.clear_private(mode); self.default_char.reverse = false; self.apply_reverse_to_buffer(false); }
-            mo::DECTCEM => { self.mode.clear_private(mode); self.cursor.hidden = true; }
-            mo::DECAWM => { self.mode.clear_private(mode); }
-            mo::ALT_SCREEN_47 | mo::ALT_SCREEN_1047 => { self.exit_alt_screen(false); self.mode.clear_private(mode); }
-            mo::ALT_SCREEN_1049 => { self.exit_alt_screen(true); self.mode.clear_private(mode); }
-            _ => { self.mode.clear_private(mode); }
+            mo::DECCOLM => {
+                self.columns = 80;
+                self.margins = None;
+                self.cursor = Cursor::default();
+                self.mode.clear_private(mode);
+                self.init_tabstops();
+            }
+            mo::DECOM => {
+                self.mode.clear_private(mode);
+            }
+            mo::DECSCNM => {
+                self.mode.clear_private(mode);
+                self.default_char.reverse = false;
+                self.apply_reverse_to_buffer(false);
+            }
+            mo::DECTCEM => {
+                self.mode.clear_private(mode);
+                self.cursor.hidden = true;
+            }
+            mo::DECAWM => {
+                self.mode.clear_private(mode);
+            }
+            mo::ALT_SCREEN_47 | mo::ALT_SCREEN_1047 => {
+                self.exit_alt_screen(false);
+                self.mode.clear_private(mode);
+            }
+            mo::ALT_SCREEN_1049 => {
+                self.exit_alt_screen(true);
+                self.mode.clear_private(mode);
+            }
+            _ => {
+                self.mode.clear_private(mode);
+            }
         }
     }
 
     fn save_columns(&mut self) {}
     fn clear_buffer(&mut self) {
-        for line in &mut self.buffer { for ch in line { *ch = self.default_char.clone(); } }
+        for line in &mut self.buffer {
+            for ch in line {
+                *ch = self.default_char.clone();
+            }
+        }
         self.dirty.clear();
         self.mark_all_dirty();
     }
@@ -260,60 +423,95 @@ impl Screen {
     // fresh one is created each entry), which is the common case for `?47`.
 
     pub fn enter_alt_screen(&mut self, save_cursor: bool) {
-        if self.alt_screen { return; }
-        if save_cursor { self.alt_saved_cursor = Some(self.cursor.clone()); }
+        if self.alt_screen {
+            return;
+        }
+        if save_cursor {
+            self.alt_saved_cursor = Some(self.cursor.clone());
+        }
         let fresh = vec![vec![self.default_char.clone(); self.columns]; self.lines];
         self.saved_buffer = Some(std::mem::replace(&mut self.buffer, fresh));
         self.alt_screen = true;
-        self.events.push(super::events::TermEvent::AltScreen { entered: true });
+        self.events
+            .push(super::events::TermEvent::AltScreen { entered: true });
         self.mark_all_dirty();
     }
 
     pub fn exit_alt_screen(&mut self, restore_cursor: bool) {
-        if !self.alt_screen { return; }
+        if !self.alt_screen {
+            return;
+        }
         if let Some(buf) = self.saved_buffer.take() {
             self.buffer = Self::conform_buffer(buf, self.lines, self.columns, &self.default_char);
         }
         self.alt_screen = false;
         if restore_cursor {
-            if let Some(c) = self.alt_saved_cursor.take() { self.cursor = c; }
+            if let Some(c) = self.alt_saved_cursor.take() {
+                self.cursor = c;
+            }
         } else {
             self.alt_saved_cursor = None;
         }
         self.cursor.x = self.cursor.x.min(self.columns.saturating_sub(1));
         self.cursor.y = self.cursor.y.min(self.lines.saturating_sub(1));
-        self.events.push(super::events::TermEvent::AltScreen { entered: false });
+        self.events
+            .push(super::events::TermEvent::AltScreen { entered: false });
         self.mark_all_dirty();
     }
 
-    fn conform_buffer(buf: Vec<Vec<Char>>, lines: usize, columns: usize,
-                      default: &Char) -> Vec<Vec<Char>> {
-        let mut out: Vec<Vec<Char>> = buf.into_iter().map(|line| {
-            let mut row: Vec<Char> = line.into_iter().take(columns).collect();
-            while row.len() < columns { row.push(default.clone()); }
-            row
-        }).take(lines).collect();
-        while out.len() < lines { out.push(vec![default.clone(); columns]); }
+    fn conform_buffer(
+        buf: Vec<Vec<Char>>,
+        lines: usize,
+        columns: usize,
+        default: &Char,
+    ) -> Vec<Vec<Char>> {
+        let mut out: Vec<Vec<Char>> = buf
+            .into_iter()
+            .map(|line| {
+                let mut row: Vec<Char> = line.into_iter().take(columns).collect();
+                while row.len() < columns {
+                    row.push(default.clone());
+                }
+                row
+            })
+            .take(lines)
+            .collect();
+        while out.len() < lines {
+            out.push(vec![default.clone(); columns]);
+        }
         out
     }
 
     fn mark_all_dirty(&mut self) {
-        for y in 0..self.lines { self.dirty.insert(y); }
+        for y in 0..self.lines {
+            self.dirty.insert(y);
+        }
     }
 
     fn apply_reverse_to_buffer(&mut self, reverse: bool) {
-        for line in &mut self.buffer { for ch in line { ch.reverse = reverse; } }
+        for line in &mut self.buffer {
+            for ch in line {
+                ch.reverse = reverse;
+            }
+        }
     }
 
     // ── Margins ──────────────────────────────────────────────────
     pub fn set_margins(&mut self, top: Option<usize>, bottom: Option<usize>) {
         let top = top.unwrap_or(1).saturating_sub(1);
         let bottom = bottom.unwrap_or(self.lines).saturating_sub(1);
-        if top < bottom && bottom < self.lines { self.margins = Some(Margins { top, bottom }); }
+        if top < bottom && bottom < self.lines {
+            self.margins = Some(Margins { top, bottom });
+        }
     }
-    pub fn clear_margins(&mut self) { self.margins = None; }
+    pub fn clear_margins(&mut self) {
+        self.margins = None;
+    }
     fn scroll_region(&self) -> (usize, usize) {
-        match self.margins { Some(m) => (m.top, m.bottom), None => (0, self.lines - 1), }
+        match self.margins {
+            Some(m) => (m.top, m.bottom),
+            None => (0, self.lines - 1),
+        }
     }
 
     // ── Cursor Movement ──────────────────────────────────────────
@@ -329,8 +527,12 @@ impl Screen {
             self.cursor.x = (col - 1).min(self.columns - 1);
         }
     }
-    pub fn cursor_to_line(&mut self, row: usize) { self.cursor_position(row, self.cursor.x + 1); }
-    pub fn cursor_to_column(&mut self, col: usize) { self.cursor_position(self.cursor.y + 1, col); }
+    pub fn cursor_to_line(&mut self, row: usize) {
+        self.cursor_position(row, self.cursor.x + 1);
+    }
+    pub fn cursor_to_column(&mut self, col: usize) {
+        self.cursor_position(self.cursor.y + 1, col);
+    }
     pub fn cursor_up(&mut self, rows: usize) {
         let (top, _) = self.scroll_region();
         self.cursor.y = self.cursor.y.saturating_sub(rows).max(top);
@@ -339,46 +541,99 @@ impl Screen {
         let (_, bottom) = self.scroll_region();
         self.cursor.y = (self.cursor.y + rows).min(bottom);
     }
-    pub fn cursor_forward(&mut self, cols: usize) { self.cursor.x = (self.cursor.x + cols).min(self.columns - 1); }
-    pub fn cursor_back(&mut self, cols: usize) { self.cursor.x = self.cursor.x.saturating_sub(cols); }
-    pub fn carriage_return(&mut self) { self.cursor.x = 0; }
+    pub fn cursor_forward(&mut self, cols: usize) {
+        self.cursor.x = (self.cursor.x + cols).min(self.columns - 1);
+    }
+    pub fn cursor_back(&mut self, cols: usize) {
+        self.cursor.x = self.cursor.x.saturating_sub(cols);
+    }
+    pub fn carriage_return(&mut self) {
+        self.cursor.x = 0;
+    }
     pub fn linefeed(&mut self) {
         let (_, bottom) = self.scroll_region();
-        if self.cursor.y < bottom { self.cursor.y += 1; } else { self.scroll_up(1); }
-        if self.mode.has_public(mo::LNM) { self.cursor.x = 0; }
+        if self.cursor.y < bottom {
+            self.cursor.y += 1;
+        } else {
+            self.scroll_up(1);
+        }
+        if self.mode.has_public(mo::LNM) {
+            self.cursor.x = 0;
+        }
     }
     pub fn index(&mut self) {
         let (_, bottom) = self.scroll_region();
-        if self.cursor.y < bottom { self.cursor.y += 1; self.cursor.x = 0; } else { self.scroll_up(1); }
+        if self.cursor.y < bottom {
+            self.cursor.y += 1;
+            self.cursor.x = 0;
+        } else {
+            self.scroll_up(1);
+        }
     }
     pub fn reverse_index(&mut self) {
         let (top, _) = self.scroll_region();
-        if self.cursor.y > top { self.cursor.y -= 1; self.cursor.x = 0; } else { self.scroll_down(1); }
+        if self.cursor.y > top {
+            self.cursor.y -= 1;
+            self.cursor.x = 0;
+        } else {
+            self.scroll_down(1);
+        }
     }
-    pub fn backspace(&mut self) { self.cursor.x = self.cursor.x.saturating_sub(1); }
+    pub fn backspace(&mut self) {
+        self.cursor.x = self.cursor.x.saturating_sub(1);
+    }
     pub fn tab(&mut self) {
         let mut next = self.cursor.x + 1;
-        while next < self.columns { if self.tabstops.contains(&next) { self.cursor.x = next; return; } next += 1; }
+        while next < self.columns {
+            if self.tabstops.contains(&next) {
+                self.cursor.x = next;
+                return;
+            }
+            next += 1;
+        }
         self.cursor.x = self.columns - 1;
     }
-    pub fn set_tab_stop(&mut self) { self.tabstops.insert(self.cursor.x); }
+    pub fn set_tab_stop(&mut self) {
+        self.tabstops.insert(self.cursor.x);
+    }
     pub fn clear_tab_stop(&mut self, mode: u16) {
-        match mode { 0 => { self.tabstops.remove(&self.cursor.x); } 3 => { self.tabstops.clear(); } _ => {} }
+        match mode {
+            0 => {
+                self.tabstops.remove(&self.cursor.x);
+            }
+            3 => {
+                self.tabstops.clear();
+            }
+            _ => {}
+        }
     }
     pub fn save_cursor(&mut self) {
-        self.cursor.stack.push((self.cursor.x, self.cursor.y, self.cursor.attrs.clone(), self.mode.clone()));
+        self.cursor.stack.push((
+            self.cursor.x,
+            self.cursor.y,
+            self.cursor.attrs.clone(),
+            self.mode.clone(),
+        ));
     }
     pub fn restore_cursor(&mut self) {
         if let Some((x, y, attrs, mode)) = self.cursor.stack.pop() {
             let (top, bottom) = self.scroll_region();
             self.cursor.x = x.min(self.columns - 1);
             self.cursor.y = y.max(top).min(bottom);
-            self.cursor.attrs = attrs; self.mode = mode;
-        } else { self.cursor.x = 0; self.cursor.y = 0; }
+            self.cursor.attrs = attrs;
+            self.mode = mode;
+        } else {
+            self.cursor.x = 0;
+            self.cursor.y = 0;
+        }
     }
 
     // ── Drawing ──────────────────────────────────────────────────
-    pub fn draw(&mut self, data: &str) { for ch in data.chars() { self.draw_char(ch); } }
+    pub fn draw(&mut self, data: &str) {
+        for ch in data.chars() {
+            self.draw_char(ch);
+        }
+    }
 
     fn draw_char(&mut self, ch: char) {
         let width = ch.width().unwrap_or(1);
@@ -391,29 +646,46 @@ impl Screen {
         }
         if width >= 2 && self.cursor.x >= self.columns {
             self.cursor.x = 0;
-            if self.cursor.y < self.lines - 1 { self.cursor.y += 1; }
+            if self.cursor.y < self.lines - 1 {
+                self.cursor.y += 1;
+            }
         }
         if self.cursor.x >= self.columns {
             if self.mode.has_private(mo::DECAWM) {
                 self.cursor.x = 0;
-                if self.cursor.y < self.lines - 1 { self.cursor.y += 1; }
-                else if self.cursor.y < self.scroll_region().1 { self.scroll_up(1); }
+                if self.cursor.y < self.lines - 1 {
+                    self.cursor.y += 1;
+                } else if self.cursor.y < self.scroll_region().1 {
+                    self.scroll_up(1);
+                }
             } else if self.cursor.x == self.columns {
                 self.cursor.x = 0;
-                if self.cursor.y < self.lines - 1 { self.cursor.y += 1; }
-            } else { self.cursor.x = 0; }
+                if self.cursor.y < self.lines - 1 {
+                    self.cursor.y += 1;
+                }
+            } else {
+                self.cursor.x = 0;
+            }
         }
-        if self.mode.has_public(mo::IRM) && width == 1 { self.insert_characters(1); }
+        if self.mode.has_public(mo::IRM) && width == 1 {
+            self.insert_characters(1);
+        }
         if self.cursor.x < self.columns && self.cursor.y < self.lines {
             let cell = &mut self.buffer[self.cursor.y][self.cursor.x];
-            *cell = self.cursor.attrs.clone(); cell.data = ch.to_string();
+            *cell = self.cursor.attrs.clone();
+            cell.data = ch.to_string();
             if width >= 2 && self.cursor.x + 1 < self.columns {
                 self.buffer[self.cursor.y][self.cursor.x + 1] = self.default_char.clone();
             }
             self.dirty.insert(self.cursor.y);
         }
-        if width == 1 { self.cursor.x += 1; }
-        else { if self.cursor.x >= self.columns { self.cursor.x = self.columns; } }
+        if width == 1 {
+            self.cursor.x += 1;
+        } else {
+            if self.cursor.x >= self.columns {
+                self.cursor.x = self.columns;
+            }
+        }
         if !self.mode.has_private(mo::DECAWM) && width == 1 {
             self.cursor.x = self.cursor.x.min(self.columns - 1);
         }
@@ -421,95 +693,163 @@ impl Screen {
 
     // ── Erase / Delete ──────────────────────────────────────────
     pub fn erase_characters(&mut self, count: usize) {
-        let count = count.max(1); let x = self.cursor.x; let end = (x + count).min(self.columns);
-        for i in x..end { self.buffer[self.cursor.y][i] = self.default_char.clone(); }
+        let count = count.max(1);
+        let x = self.cursor.x;
+        let end = (x + count).min(self.columns);
+        for i in x..end {
+            self.buffer[self.cursor.y][i] = self.default_char.clone();
+        }
         self.dirty.insert(self.cursor.y);
     }
     pub fn delete_characters(&mut self, count: usize) {
-        let count = count.max(1); let x = self.cursor.x; let end = (x + count).min(self.columns);
-        for i in x..self.columns - (end - x) { self.buffer[self.cursor.y][i] = self.buffer[self.cursor.y][end + (i - x)].clone(); }
-        for i in self.columns - (end - x)..self.columns { self.buffer[self.cursor.y][i] = self.default_char.clone(); }
+        let count = count.max(1);
+        let x = self.cursor.x;
+        let end = (x + count).min(self.columns);
+        for i in x..self.columns - (end - x) {
+            self.buffer[self.cursor.y][i] = self.buffer[self.cursor.y][end + (i - x)].clone();
+        }
+        for i in self.columns - (end - x)..self.columns {
+            self.buffer[self.cursor.y][i] = self.default_char.clone();
+        }
         self.dirty.insert(self.cursor.y);
     }
     pub fn insert_characters(&mut self, count: usize) {
-        let count = count.max(1); let x = self.cursor.x;
+        let count = count.max(1);
+        let x = self.cursor.x;
         for i in (x..self.columns.saturating_sub(count)).rev() {
             self.buffer[self.cursor.y][i + count] = self.buffer[self.cursor.y][i].clone();
         }
-        for i in x..(x + count).min(self.columns) { self.buffer[self.cursor.y][i] = self.default_char.clone(); }
+        for i in x..(x + count).min(self.columns) {
+            self.buffer[self.cursor.y][i] = self.default_char.clone();
+        }
         self.dirty.insert(self.cursor.y);
     }
     pub fn erase_in_line(&mut self, mode: usize) {
         match mode {
-            0 => { for i in self.cursor.x..self.columns { self.buffer[self.cursor.y][i] = self.default_char.clone(); } }
+            0 => {
+                for i in self.cursor.x..self.columns {
+                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                }
+            }
             // Clamped: cursor.x == columns is the legal pending-wrap state
             // (printed exactly to the margin); without the min this indexes
             // buffer[y][columns] — out of bounds. Cf. erase_in_display below.
-            1 => { for i in 0..=self.cursor.x.min(self.columns - 1) { self.buffer[self.cursor.y][i] = self.default_char.clone(); } }
-            _ => { for i in 0..self.columns { self.buffer[self.cursor.y][i] = self.default_char.clone(); } }
+            1 => {
+                for i in 0..=self.cursor.x.min(self.columns - 1) {
+                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                }
+            }
+            _ => {
+                for i in 0..self.columns {
+                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                }
+            }
         }
         self.dirty.insert(self.cursor.y);
-        if mode == 0 { self.cursor.x = self.cursor.x.min(self.columns - 1); }
+        if mode == 0 {
+            self.cursor.x = self.cursor.x.min(self.columns - 1);
+        }
     }
     pub fn erase_in_display(&mut self, mode: usize) {
         let (top, bottom) = self.scroll_region();
         match mode {
             0 => {
-                for i in self.cursor.x..self.columns { self.buffer[self.cursor.y][i] = self.default_char.clone(); }
+                for i in self.cursor.x..self.columns {
+                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                }
                 self.dirty.insert(self.cursor.y);
                 for y in (self.cursor.y + 1)..=bottom {
-                    for x in 0..self.columns { self.buffer[y][x] = self.default_char.clone(); } self.dirty.insert(y);
+                    for x in 0..self.columns {
+                        self.buffer[y][x] = self.default_char.clone();
+                    }
+                    self.dirty.insert(y);
                 }
             }
             1 => {
-                for y in top..self.cursor.y { for x in 0..self.columns { self.buffer[y][x] = self.default_char.clone(); } self.dirty.insert(y); }
-                for i in 0..=self.cursor.x.min(self.columns - 1) { self.buffer[self.cursor.y][i] = self.default_char.clone(); }
+                for y in top..self.cursor.y {
+                    for x in 0..self.columns {
+                        self.buffer[y][x] = self.default_char.clone();
+                    }
+                    self.dirty.insert(y);
+                }
+                for i in 0..=self.cursor.x.min(self.columns - 1) {
+                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                }
                 self.dirty.insert(self.cursor.y);
             }
             2 | 3 => {
-                for y in top..=bottom { for x in 0..self.columns { self.buffer[y][x] = self.default_char.clone(); } self.dirty.insert(y); }
+                for y in top..=bottom {
+                    for x in 0..self.columns {
+                        self.buffer[y][x] = self.default_char.clone();
+                    }
+                    self.dirty.insert(y);
+                }
             }
             _ => {}
         }
     }
     pub fn insert_lines(&mut self, count: usize) {
-        let count = count.max(1); let (top, bottom) = self.scroll_region();
-        if self.cursor.y < top || self.cursor.y > bottom { return; }
-        let n = count.min(bottom - self.cursor.y); let default_line = vec![self.default_char.clone(); self.columns];
+        let count = count.max(1);
+        let (top, bottom) = self.scroll_region();
+        if self.cursor.y < top || self.cursor.y > bottom {
+            return;
+        }
+        let n = count.min(bottom - self.cursor.y);
+        let default_line = vec![self.default_char.clone(); self.columns];
         for _ in 0..n {
-            for y in (self.cursor.y + 1..=bottom).rev() { self.buffer[y] = self.buffer[y - 1].clone(); }
-            self.buffer[self.cursor.y] = default_line.clone(); self.dirty.insert(self.cursor.y);
+            for y in (self.cursor.y + 1..=bottom).rev() {
+                self.buffer[y] = self.buffer[y - 1].clone();
+            }
+            self.buffer[self.cursor.y] = default_line.clone();
+            self.dirty.insert(self.cursor.y);
         }
         self.cursor.x = 0;
     }
     pub fn delete_lines(&mut self, count: usize) {
-        let count = count.max(1); let (top, bottom) = self.scroll_region();
-        if self.cursor.y < top || self.cursor.y > bottom { return; }
-        let n = count.min(bottom - self.cursor.y); let default_line = vec![self.default_char.clone(); self.columns];
+        let count = count.max(1);
+        let (top, bottom) = self.scroll_region();
+        if self.cursor.y < top || self.cursor.y > bottom {
+            return;
+        }
+        let n = count.min(bottom - self.cursor.y);
+        let default_line = vec![self.default_char.clone(); self.columns];
         for _ in 0..n {
-            for y in self.cursor.y..bottom { self.buffer[y] = std::mem::replace(&mut self.buffer[y + 1], default_line.clone()); }
-            self.buffer[bottom] = default_line.clone(); self.dirty.insert(self.cursor.y);
+            for y in self.cursor.y..bottom {
+                self.buffer[y] = std::mem::replace(&mut self.buffer[y + 1], default_line.clone());
+            }
+            self.buffer[bottom] = default_line.clone();
+            self.dirty.insert(self.cursor.y);
         }
         self.cursor.x = 0;
     }
     pub fn scroll_up(&mut self, rows: usize) {
-        let (top, bottom) = self.scroll_region(); let default_line = vec![self.default_char.clone(); self.columns];
+        let (top, bottom) = self.scroll_region();
+        let default_line = vec![self.default_char.clone(); self.columns];
         let rows = rows.min(bottom - top + 1);
         // Only a full-screen scroll on the primary buffer feeds the scrollback;
         // alt-screen scrolls and margin-region scrolls (pagers) must not.
         let to_history = self.margins.is_none() && !self.alt_screen;
         for _ in 0..rows {
-            if to_history { self.scrolled_off.push(self.buffer[top].clone()); }
-            for y in top..bottom { self.buffer[y] = std::mem::replace(&mut self.buffer[y + 1], default_line.clone()); }
-            self.buffer[bottom] = default_line.clone(); self.dirty.insert(bottom);
+            if to_history {
+                self.scrolled_off.push(self.buffer[top].clone());
+            }
+            for y in top..bottom {
+                self.buffer[y] = std::mem::replace(&mut self.buffer[y + 1], default_line.clone());
+            }
+            self.buffer[bottom] = default_line.clone();
+            self.dirty.insert(bottom);
         }
     }
     pub fn scroll_down(&mut self, rows: usize) {
-        let (top, bottom) = self.scroll_region(); let default_line = vec![self.default_char.clone(); self.columns];
+        let (top, bottom) = self.scroll_region();
+        let default_line = vec![self.default_char.clone(); self.columns];
         let rows = rows.min(bottom - top + 1);
         for _ in 0..rows {
-            for y in (top + 1)..=bottom { self.buffer[y] = std::mem::replace(&mut self.buffer[y - 1], default_line.clone()); }
-            self.buffer[top] = default_line.clone(); self.dirty.insert(top);
+            for y in (top + 1)..=bottom {
+                self.buffer[y] = std::mem::replace(&mut self.buffer[y - 1], default_line.clone());
+            }
+            self.buffer[top] = default_line.clone();
+            self.dirty.insert(top);
         }
     }
 
@@ -518,43 +858,82 @@ impl Screen {
         let mut i = 0;
         while i < params.len() {
             match params[i] {
-                0 => { self.cursor.attrs = self.default_char.clone(); if self.mode.has_private(mo::DECSCNM) { self.cursor.attrs.reverse = true; } }
-                1 => self.cursor.attrs.bold = true, 2 => self.cursor.attrs.dim = true,
-                3 => self.cursor.attrs.italics = true, 4 => self.cursor.attrs.underscore = true,
-                5 => self.cursor.attrs.blink = true, 7 => self.cursor.attrs.reverse = true,
-                8 => self.cursor.attrs.hidden = true, 9 => self.cursor.attrs.strikethrough = true,
-                22 => { self.cursor.attrs.bold = false; self.cursor.attrs.dim = false; }
-                23 => self.cursor.attrs.italics = false, 24 => self.cursor.attrs.underscore = false,
-                25 => self.cursor.attrs.blink = false, 27 => self.cursor.attrs.reverse = false,
-                28 => self.cursor.attrs.hidden = false, 29 => self.cursor.attrs.strikethrough = false,
+                0 => {
+                    self.cursor.attrs = self.default_char.clone();
+                    if self.mode.has_private(mo::DECSCNM) {
+                        self.cursor.attrs.reverse = true;
+                    }
+                }
+                1 => self.cursor.attrs.bold = true,
+                2 => self.cursor.attrs.dim = true,
+                3 => self.cursor.attrs.italics = true,
+                4 => self.cursor.attrs.underscore = true,
+                5 => self.cursor.attrs.blink = true,
+                7 => self.cursor.attrs.reverse = true,
+                8 => self.cursor.attrs.hidden = true,
+                9 => self.cursor.attrs.strikethrough = true,
+                22 => {
+                    self.cursor.attrs.bold = false;
+                    self.cursor.attrs.dim = false;
+                }
+                23 => self.cursor.attrs.italics = false,
+                24 => self.cursor.attrs.underscore = false,
+                25 => self.cursor.attrs.blink = false,
+                27 => self.cursor.attrs.reverse = false,
+                28 => self.cursor.attrs.hidden = false,
+                29 => self.cursor.attrs.strikethrough = false,
                 39 => self.cursor.attrs.fg = "default".to_string(),
                 49 => self.cursor.attrs.bg = "default".to_string(),
-                30..=37 => { if let Some(name) = g::fg_ansi(params[i] as i32) { self.cursor.attrs.fg = name.to_string(); } }
-                90..=97 => { if let Some(name) = g::fg_aixterm(params[i] as i32) { self.cursor.attrs.fg = name.to_string(); } }
-                40..=47 => { if let Some(name) = g::bg_ansi(params[i] as i32) { self.cursor.attrs.bg = name.to_string(); } }
-                100..=107 => { if let Some(name) = g::bg_aixterm(params[i] as i32) { self.cursor.attrs.bg = name.to_string(); } }
+                30..=37 => {
+                    if let Some(name) = g::fg_ansi(params[i] as i32) {
+                        self.cursor.attrs.fg = name.to_string();
+                    }
+                }
+                90..=97 => {
+                    if let Some(name) = g::fg_aixterm(params[i] as i32) {
+                        self.cursor.attrs.fg = name.to_string();
+                    }
+                }
+                40..=47 => {
+                    if let Some(name) = g::bg_ansi(params[i] as i32) {
+                        self.cursor.attrs.bg = name.to_string();
+                    }
+                }
+                100..=107 => {
+                    if let Some(name) = g::bg_aixterm(params[i] as i32) {
+                        self.cursor.attrs.bg = name.to_string();
+                    }
+                }
                 g::FG_256 => {
-                    if i + 1 < params.len() && params[i + 1] == 5 {
-                        if i + 2 < params.len() && params[i + 2] < 256 {
-                            self.cursor.attrs.fg = g::fg_bg_256()[params[i + 2] as usize].clone(); i += 2;
-                        }
-                    } else if i + 1 < params.len() && params[i + 1] == 2 {
-                        if i + 4 < params.len() {
-                            let r = params[i + 2] as u8; let g = params[i + 3] as u8; let b = params[i + 4] as u8;
-                            self.cursor.attrs.fg = format!("{:02x}{:02x}{:02x}", r, g, b); i += 4;
-                        }
+                    if i + 1 < params.len()
+                        && params[i + 1] == 5
+                        && i + 2 < params.len()
+                        && params[i + 2] < 256
+                    {
+                        self.cursor.attrs.fg = g::fg_bg_256()[params[i + 2] as usize].clone();
+                        i += 2;
+                    } else if i + 1 < params.len() && params[i + 1] == 2 && i + 4 < params.len() {
+                        let r = params[i + 2] as u8;
+                        let g = params[i + 3] as u8;
+                        let b = params[i + 4] as u8;
+                        self.cursor.attrs.fg = format!("{:02x}{:02x}{:02x}", r, g, b);
+                        i += 4;
                     }
                 }
                 g::BG_256 => {
-                    if i + 1 < params.len() && params[i + 1] == 5 {
-                        if i + 2 < params.len() && params[i + 2] < 256 {
-                            self.cursor.attrs.bg = g::fg_bg_256()[params[i + 2] as usize].clone(); i += 2;
-                        }
-                    } else if i + 1 < params.len() && params[i + 1] == 2 {
-                        if i + 4 < params.len() {
-                            let r = params[i + 2] as u8; let g = params[i + 3] as u8; let b = params[i + 4] as u8;
-                            self.cursor.attrs.bg = format!("{:02x}{:02x}{:02x}", r, g, b); i += 4;
-                        }
+                    if i + 1 < params.len()
+                        && params[i + 1] == 5
+                        && i + 2 < params.len()
+                        && params[i + 2] < 256
+                    {
+                        self.cursor.attrs.bg = g::fg_bg_256()[params[i + 2] as usize].clone();
+                        i += 2;
+                    } else if i + 1 < params.len() && params[i + 1] == 2 && i + 4 < params.len() {
+                        let r = params[i + 2] as u8;
+                        let g = params[i + 3] as u8;
+                        let b = params[i + 4] as u8;
+                        self.cursor.attrs.bg = format!("{:02x}{:02x}{:02x}", r, g, b);
+                        i += 4;
                     }
                 }
                 _ => {}
@@ -565,8 +944,15 @@ impl Screen {
 
     // ── Alignment Display ────────────────────────────────────────
     pub fn alignment_display(&mut self) {
-        for y in 0..self.lines { for x in 0..self.columns { self.buffer[y][x] = self.default_char.clone(); self.buffer[y][x].data = "E".to_string(); } self.dirty.insert(y); }
-        self.cursor.x = 0; self.cursor.y = 0;
+        for y in 0..self.lines {
+            for x in 0..self.columns {
+                self.buffer[y][x] = self.default_char.clone();
+                self.buffer[y][x].data = "E".to_string();
+            }
+            self.dirty.insert(y);
+        }
+        self.cursor.x = 0;
+        self.cursor.y = 0;
     }
 
     // ── Device Status ────────────────────────────────────────────
@@ -576,11 +962,17 @@ impl Screen {
     }
     pub fn report_device_status(&mut self, param: usize) {
         match param {
-            5 => { let response = format!("{}[0n", control::ESC); (self.write_process_input)(&response); }
+            5 => {
+                let response = format!("{}[0n", control::ESC);
+                (self.write_process_input)(&response);
+            }
             6 => {
                 let (row, col) = if self.mode.has_private(mo::DECOM) {
-                    let (top, _) = self.scroll_region(); (self.cursor.y - top + 1, self.cursor.x + 1)
-                } else { (self.cursor.y + 1, self.cursor.x + 1) };
+                    let (top, _) = self.scroll_region();
+                    (self.cursor.y - top + 1, self.cursor.x + 1)
+                } else {
+                    (self.cursor.y + 1, self.cursor.x + 1)
+                };
                 let response = format!("{}{}{};{}R", control::ESC, '[', row, col);
                 (self.write_process_input)(&response);
             }
@@ -593,8 +985,10 @@ impl Screen {
     }
     pub fn set_cursor_style(&mut self, style_id: u16) {
         self.cursor_style = match style_id {
-            0 => CursorStyle::Default, 1 | 2 => CursorStyle::Block,
-            3 | 4 => CursorStyle::Underline, 5 | 6 => CursorStyle::Beam,
+            0 => CursorStyle::Default,
+            1 | 2 => CursorStyle::Block,
+            3 | 4 => CursorStyle::Underline,
+            5 | 6 => CursorStyle::Beam,
             _ => CursorStyle::Default,
         };
         // DECSCUSR: 0 and odd ids blink; even non-zero ids are steady.
@@ -607,10 +1001,16 @@ impl Screen {
             KeyboardApplyBehavior::Difference => self.keyboard_mode & !mode,
         };
     }
-    pub fn push_keyboard_mode(&mut self, mode: u16) { self.keyboard_mode_stack.push(mode); }
+    pub fn push_keyboard_mode(&mut self, mode: u16) {
+        self.keyboard_mode_stack.push(mode);
+    }
     pub fn pop_keyboard_modes(&mut self, count: usize) {
         let to_pop = count.min(self.keyboard_mode_stack.len());
-        for _ in 0..to_pop { if let Some(mode) = self.keyboard_mode_stack.pop() { self.keyboard_mode = mode; } }
+        for _ in 0..to_pop {
+            if let Some(mode) = self.keyboard_mode_stack.pop() {
+                self.keyboard_mode = mode;
+            }
+        }
     }
     pub fn report_keyboard_mode(&mut self) {
         let response = format!("{}[{};1;0 u", control::ESC, self.keyboard_mode);
@@ -620,7 +1020,9 @@ impl Screen {
     // ── Title / Icon ─────────────────────────────────────────────
     pub fn set_icon_name(&mut self, name: &str) {
         self.icon_name = name.to_string();
-        self.events.push(super::events::TermEvent::IconChanged(self.icon_name.clone()));
+        self.events.push(super::events::TermEvent::IconChanged(
+            self.icon_name.clone(),
+        ));
     }
     /// Mark a BEL arrival. Coalescing (not counted): frontends poll, so "rang
     /// since last check" is the whole contract — a counter would just
@@ -637,7 +1039,8 @@ impl Screen {
     pub fn take_bell(&mut self) -> bool {
         let had = std::mem::replace(&mut self.bell_pending, false);
         if had {
-            self.events.retain(|e| !matches!(e, super::events::TermEvent::Bell));
+            self.events
+                .retain(|e| !matches!(e, super::events::TermEvent::Bell));
         }
         had
     }
@@ -646,7 +1049,10 @@ impl Screen {
     /// flag when a `Bell` is drained, so `take_bell()` afterwards is `false`.
     pub fn take_events(&mut self) -> Vec<super::events::TermEvent> {
         let events = std::mem::take(&mut self.events);
-        if events.iter().any(|e| matches!(e, super::events::TermEvent::Bell)) {
+        if events
+            .iter()
+            .any(|e| matches!(e, super::events::TermEvent::Bell))
+        {
             self.bell_pending = false;
         }
         events
@@ -661,7 +1067,8 @@ impl Screen {
 
     pub fn set_title(&mut self, title: &str) {
         self.title = title.to_string();
-        self.events.push(super::events::TermEvent::TitleChanged(self.title.clone()));
+        self.events
+            .push(super::events::TermEvent::TitleChanged(self.title.clone()));
     }
 
     /// Record the shell working directory (OSC 7 / OSC 9;9).
@@ -671,61 +1078,182 @@ impl Screen {
     }
 
     /// Shell working directory, if the shell has reported one yet.
-    pub fn cwd(&self) -> Option<&str> { self.cwd.as_deref() }
+    pub fn cwd(&self) -> Option<&str> {
+        self.cwd.as_deref()
+    }
 
     // ── Charset ──────────────────────────────────────────────────
     pub fn define_charset(&mut self, designator: &str, target: char) {
         let charset = CharsetRef::from_designation(designator.chars().next().unwrap_or('B'));
         if let Some(cs) = charset {
-            match target { '(' => self.g0_charset = cs, ')' => self.g1_charset = cs, _ => {} }
-            if target == '(' { self.charset = cs; }
+            match target {
+                '(' => self.g0_charset = cs,
+                ')' => self.g1_charset = cs,
+                _ => {}
+            }
+            if target == '(' {
+                self.charset = cs;
+            }
         }
     }
-    pub fn shift_in(&mut self) { self.charset = self.g0_charset; }
-    pub fn shift_out(&mut self) { self.charset = self.g1_charset; }
+    pub fn shift_in(&mut self) {
+        self.charset = self.g0_charset;
+    }
+    pub fn shift_out(&mut self) {
+        self.charset = self.g1_charset;
+    }
 
     // ── CSI Dispatch ─────────────────────────────────────────────
     pub fn csi_dispatch(&mut self, params: &[u16], intermediates: &[u8], action: char) {
         match action {
-            'A' => { let count = params.first().copied().unwrap_or(1) as usize; self.cursor_up(count); }
-            'B' | 'e' => { let count = params.first().copied().unwrap_or(1) as usize; self.cursor_down(count); }
-            'C' | 'a' => { let count = params.first().copied().unwrap_or(1) as usize; self.cursor_forward(count); }
-            'D' => { let count = params.first().copied().unwrap_or(1) as usize; self.cursor_back(count); }
-            'E' => { let count = params.first().copied().unwrap_or(1) as usize; self.cursor_down(count); self.cursor.x = 0; }
-            'F' => { let count = params.first().copied().unwrap_or(1) as usize; self.cursor_up(count); self.cursor.x = 0; }
-            'G' => { let col = params.first().copied().unwrap_or(1) as usize; self.cursor_to_column(col); }
-            'H' | 'f' => { let row = params.first().copied().unwrap_or(1) as usize; let col = params.get(1).copied().unwrap_or(1) as usize; self.cursor_position(row, col); }
-            'd' => { let row = params.first().copied().unwrap_or(1) as usize; self.cursor_to_line(row); }
-            'J' => { let mode = params.first().copied().unwrap_or(0) as usize; self.erase_in_display(mode); }
-            'K' => { let mode = params.first().copied().unwrap_or(0) as usize; self.erase_in_line(mode); }
-            'X' => { let count = params.first().copied().unwrap_or(1) as usize; self.erase_characters(count); }
-            'P' => { let count = params.first().copied().unwrap_or(1) as usize; self.delete_characters(count); }
-            '@' => { let count = params.first().copied().unwrap_or(1) as usize; self.insert_characters(count); }
-            'L' => { let count = params.first().copied().unwrap_or(1) as usize; self.insert_lines(count); }
-            'M' => { let count = params.first().copied().unwrap_or(1) as usize; self.delete_lines(count); }
-            'S' => { let count = params.first().copied().unwrap_or(1) as usize; self.scroll_up(count); }
-            'T' => { let count = params.first().copied().unwrap_or(1) as usize; self.scroll_down(count); }
-            'm' => { self.select_graphic_rendition(params); }
-            'h' if intermediates == [b'?'] => { for &mode in params { self.set_mode(mode, true); } }
-            'h' => { for &mode in params { self.set_mode(mode, false); } }
-            'l' if intermediates == [b'?'] => { for &mode in params { self.reset_mode(mode, true); } }
-            'l' => { for &mode in params { self.reset_mode(mode, false); } }
-            'r' => { let top = params.first().copied().map(|v| v as usize); let bottom = params.get(1).copied().map(|v| v as usize); self.set_margins(top, bottom); self.cursor_position(1, 1); }
-            's' => { self.save_cursor(); }
-            'u' if intermediates == [b'?'] => { self.report_keyboard_mode(); }
-            'u' if intermediates == [b'>'] => { let mode = params.first().copied().unwrap_or(0) as u16; self.push_keyboard_mode(mode); }
-            'u' if intermediates == [b'<'] => { let count = params.first().copied().unwrap_or(1) as usize; self.pop_keyboard_modes(count); }
+            'A' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.cursor_up(count);
+            }
+            'B' | 'e' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.cursor_down(count);
+            }
+            'C' | 'a' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.cursor_forward(count);
+            }
+            'D' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.cursor_back(count);
+            }
+            'E' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.cursor_down(count);
+                self.cursor.x = 0;
+            }
+            'F' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.cursor_up(count);
+                self.cursor.x = 0;
+            }
+            'G' => {
+                let col = params.first().copied().unwrap_or(1) as usize;
+                self.cursor_to_column(col);
+            }
+            'H' | 'f' => {
+                let row = params.first().copied().unwrap_or(1) as usize;
+                let col = params.get(1).copied().unwrap_or(1) as usize;
+                self.cursor_position(row, col);
+            }
+            'd' => {
+                let row = params.first().copied().unwrap_or(1) as usize;
+                self.cursor_to_line(row);
+            }
+            'J' => {
+                let mode = params.first().copied().unwrap_or(0) as usize;
+                self.erase_in_display(mode);
+            }
+            'K' => {
+                let mode = params.first().copied().unwrap_or(0) as usize;
+                self.erase_in_line(mode);
+            }
+            'X' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.erase_characters(count);
+            }
+            'P' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.delete_characters(count);
+            }
+            '@' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.insert_characters(count);
+            }
+            'L' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.insert_lines(count);
+            }
+            'M' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.delete_lines(count);
+            }
+            'S' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.scroll_up(count);
+            }
+            'T' => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.scroll_down(count);
+            }
+            'm' => {
+                self.select_graphic_rendition(params);
+            }
+            'h' if intermediates == *b"?" => {
+                for &mode in params {
+                    self.set_mode(mode, true);
+                }
+            }
+            'h' => {
+                for &mode in params {
+                    self.set_mode(mode, false);
+                }
+            }
+            'l' if intermediates == *b"?" => {
+                for &mode in params {
+                    self.reset_mode(mode, true);
+                }
+            }
+            'l' => {
+                for &mode in params {
+                    self.reset_mode(mode, false);
+                }
+            }
+            'r' => {
+                let top = params.first().copied().map(|v| v as usize);
+                let bottom = params.get(1).copied().map(|v| v as usize);
+                self.set_margins(top, bottom);
+                self.cursor_position(1, 1);
+            }
+            's' => {
+                self.save_cursor();
+            }
+            'u' if intermediates == *b"?" => {
+                self.report_keyboard_mode();
+            }
+            'u' if intermediates == *b">" => {
+                let mode = params.first().copied().unwrap_or(0);
+                self.push_keyboard_mode(mode);
+            }
+            'u' if intermediates == *b"<" => {
+                let count = params.first().copied().unwrap_or(1) as usize;
+                self.pop_keyboard_modes(count);
+            }
             'u' if intermediates.is_empty() && params.len() >= 2 && params[1] == 0 => {
-                let mode = params[0] as u16;
-                let behavior = match params.get(2).copied().unwrap_or(0) { 3 => KeyboardApplyBehavior::Difference, 2 => KeyboardApplyBehavior::Union, _ => KeyboardApplyBehavior::Replace };
+                let mode = params[0];
+                let behavior = match params.get(2).copied().unwrap_or(0) {
+                    3 => KeyboardApplyBehavior::Difference,
+                    2 => KeyboardApplyBehavior::Union,
+                    _ => KeyboardApplyBehavior::Replace,
+                };
                 self.set_keyboard_mode(mode, behavior);
             }
-            'u' => { self.restore_cursor(); }
-            'g' => { let mode = params.first().copied().unwrap_or(0); self.clear_tab_stop(mode); }
-            'n' => { let param = params.first().copied().unwrap_or(0) as usize; self.report_device_status(param); }
-            '8' => { self.alignment_display(); }
-            'c' => { self.identify_terminal_primary(); }
-            'q' if intermediates == [b' '] => { let style_id = params.first().copied().unwrap_or(0) as u16; self.set_cursor_style(style_id); }
+            'u' => {
+                self.restore_cursor();
+            }
+            'g' => {
+                let mode = params.first().copied().unwrap_or(0);
+                self.clear_tab_stop(mode);
+            }
+            'n' => {
+                let param = params.first().copied().unwrap_or(0) as usize;
+                self.report_device_status(param);
+            }
+            '8' => {
+                self.alignment_display();
+            }
+            'c' => {
+                self.identify_terminal_primary();
+            }
+            'q' if intermediates == *b" " => {
+                let style_id = params.first().copied().unwrap_or(0);
+                self.set_cursor_style(style_id);
+            }
             _ => {}
         }
     }
@@ -1446,7 +1974,7 @@ mod tests {
         let mut s = make_screen(5, 1);
         s.draw("🎉x");
         let display = s.display();
-        assert!(display[0].len() > 0);
+        assert!(!display[0].is_empty());
     }
 
     #[test]
@@ -1492,8 +2020,8 @@ mod tests {
         let mut s = make_screen(10, 1);
         s.select_graphic_rendition(&[1, 4, 31]); // bold + underline + red
         s.draw("x");
-        assert_eq!(s.buffer[0][0].bold, true);
-        assert_eq!(s.buffer[0][0].underscore, true);
+        assert!(s.buffer[0][0].bold);
+        assert!(s.buffer[0][0].underscore);
         assert_eq!(s.buffer[0][0].fg, "red");
     }
 
@@ -1502,7 +2030,7 @@ mod tests {
         let mut s = make_screen(10, 1);
         s.select_graphic_rendition(&[5]);
         s.draw("x");
-        assert_eq!(s.buffer[0][0].blink, true);
+        assert!(s.buffer[0][0].blink);
     }
 
     #[test]

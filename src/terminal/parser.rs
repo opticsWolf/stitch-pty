@@ -41,13 +41,17 @@ impl<'a> Perform for Performer<'a> {
     fn unhook(&mut self) {}
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
-        if params.is_empty() { return; }
+        if params.is_empty() {
+            return;
+        }
         let param_str = params[0];
         match param_str {
             b"0" | b"1" | b"2" => {
                 let title_bytes: Vec<u8> = if params.len() > 1 {
                     params[1..].iter().copied().flatten().cloned().collect()
-                } else { Vec::new() };
+                } else {
+                    Vec::new()
+                };
                 let title = String::from_utf8_lossy(&title_bytes).to_string();
                 if param_str == b"0" {
                     self.screen.set_icon_name(&title);
@@ -78,11 +82,11 @@ impl<'a> Perform for Performer<'a> {
             b"9" => {
                 // ConPTY: OSC 9;9 ; raw path. Rejoin on ';' — unlike URIs,
                 // Windows paths may legally contain semicolons.
-                if params.len() > 2 && params[1] == b"9" {
-                    let payload: Vec<u8> = params[2..].join(&b";"[..]);
-                    if let Some(path) = super::cwd::parse_osc9_9(&payload) {
-                        self.screen.set_cwd(path);
-                    }
+                if params.len() > 2
+                    && params[1] == b"9"
+                    && let Some(path) = super::cwd::parse_osc9_9(&params[2..].join(&b";"[..]))
+                {
+                    self.screen.set_cwd(path);
                 }
             }
             _ => {}
@@ -90,8 +94,11 @@ impl<'a> Perform for Performer<'a> {
     }
 
     fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
-        let params_vec: Vec<u16> = params.subparams.iter()
-            .flat_map(|sp| sp.iter().copied()).collect();
+        let params_vec: Vec<u16> = params
+            .subparams
+            .iter()
+            .flat_map(|sp| sp.iter().copied())
+            .collect();
         self.screen.csi_dispatch(&params_vec, intermediates, action);
     }
 
@@ -103,7 +110,10 @@ impl<'a> Perform for Performer<'a> {
             (b'7', []) => self.screen.save_cursor(),
             (b'8', []) => self.screen.restore_cursor(),
             (b'D', []) => self.screen.linefeed(),
-            (b'E', []) => { self.screen.carriage_return(); self.screen.linefeed(); }
+            (b'E', []) => {
+                self.screen.carriage_return();
+                self.screen.linefeed();
+            }
             (b'M', []) => self.screen.reverse_index(),
             (_, intermediates) if intermediates.len() == 1 => {
                 let target = intermediates[0] as char;
@@ -124,7 +134,9 @@ pub struct Parser {
 
 impl Parser {
     pub fn new() -> Self {
-        Self { inner: ansi_parser::Parser::new() }
+        Self {
+            inner: ansi_parser::Parser::new(),
+        }
     }
 
     pub fn feed(&mut self, screen: &mut Screen, data: &[u8]) {
@@ -142,7 +154,9 @@ impl Parser {
 }
 
 impl Default for Parser {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// High-level ANSI stream handler (equivalent to `pyte.Stream`).
@@ -153,7 +167,10 @@ pub struct Stream {
 
 impl Stream {
     pub fn new() -> Self {
-        Self { parser: Parser::new(), screen: None }
+        Self {
+            parser: Parser::new(),
+            screen: None,
+        }
     }
 
     pub fn attach(&mut self, screen: Screen) {
@@ -180,13 +197,15 @@ impl Stream {
 }
 
 impl Default for Stream {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::modes as mo;
+    use super::*;
 
     fn make_screen(cols: usize, lines: usize) -> Screen {
         Screen::new(cols, lines)
@@ -281,14 +300,14 @@ mod tests {
     #[test]
     fn test_csi_set_private_mode() {
         let mut s = make_screen(10, 10);
-        s.csi_dispatch(&[mo::DECAWM], &[b'?'], 'h');
+        s.csi_dispatch(&[mo::DECAWM], b"?", 'h');
         assert!(s.mode.has_private(mo::DECAWM));
     }
 
     #[test]
     fn test_csi_reset_private_mode() {
         let mut s = make_screen(10, 10);
-        s.csi_dispatch(&[mo::DECAWM], &[b'?'], 'l');
+        s.csi_dispatch(&[mo::DECAWM], b"?", 'l');
         assert!(!s.mode.has_private(mo::DECAWM));
     }
 
@@ -312,7 +331,10 @@ mod tests {
     fn test_csi_scroll_region() {
         let mut s = make_screen(10, 24);
         s.csi_dispatch(&[1, 10], &[], 'r');
-        assert_eq!(s.margins, Some(super::super::screen::Margins { top: 0, bottom: 9 }));
+        assert_eq!(
+            s.margins,
+            Some(super::super::screen::Margins { top: 0, bottom: 9 })
+        );
     }
 
     // ── Save/Restore Cursor ────────────────────────────────────────────
@@ -398,13 +420,36 @@ mod tests {
     /// Byte fragments covering CSI/OSC/ESC/C0, UTF-8 multibyte, lone high
     /// bytes, and plain text — spliced into hostile streams below.
     const PROP_FRAGMENTS: &[&[u8]] = &[
-        b"\x1b[38;5;196m", b"\x1b[0m", b"\x1b[2J", b"\x1b[H", b"\x1b[1;1H",
-        b"\x1b[?1049h", b"\x1b[?1049l", b"\x1b[?25l", b"\x1b[?25h",
-        b"\x1b]0;title\x07", b"\x1b]2;t\x07", b"\x1b]7;file:///x\x07",
-        b"\x1bM", b"\x1b7", b"\x1b8", b"\x1bD", b"\x1bE",
-        b"\x07", b"\x08", b"\r", b"\n", b"\t",
-        "\u{20ac}".as_bytes(), "\u{4e2d}".as_bytes(), "\u{1f389}".as_bytes(),
-        b"\xff", b"\xfe\x80", b"\xc3", b"hello", b" ",
+        b"\x1b[38;5;196m",
+        b"\x1b[0m",
+        b"\x1b[2J",
+        b"\x1b[H",
+        b"\x1b[1;1H",
+        b"\x1b[?1049h",
+        b"\x1b[?1049l",
+        b"\x1b[?25l",
+        b"\x1b[?25h",
+        b"\x1b]0;title\x07",
+        b"\x1b]2;t\x07",
+        b"\x1b]7;file:///x\x07",
+        b"\x1bM",
+        b"\x1b7",
+        b"\x1b8",
+        b"\x1bD",
+        b"\x1bE",
+        b"\x07",
+        b"\x08",
+        b"\r",
+        b"\n",
+        b"\t",
+        "\u{20ac}".as_bytes(),
+        "\u{4e2d}".as_bytes(),
+        "\u{1f389}".as_bytes(),
+        b"\xff",
+        b"\xfe\x80",
+        b"\xc3",
+        b"hello",
+        b" ",
     ];
 
     fn arb_mixed_stream() -> impl Strategy<Value = Vec<u8>> {
@@ -417,8 +462,10 @@ mod tests {
     /// straddling feed boundaries).
     fn feed_screen_chunked(s: &mut Screen, data: &[u8], cuts: &[u8]) {
         use super::ansi_parser::Parser as AnsiParser;
-        let mut points: Vec<usize> =
-            cuts.iter().map(|&b| b as usize % (data.len() + 1)).collect();
+        let mut points: Vec<usize> = cuts
+            .iter()
+            .map(|&b| b as usize % (data.len() + 1))
+            .collect();
         points.sort_unstable();
         let mut start = 0;
         for &p in &points {
@@ -645,28 +692,28 @@ mod tests {
     #[test]
     fn test_cursor_style_block() {
         let mut s = make_screen(10, 10);
-        s.csi_dispatch(&[1], &[b' '], 'q');
+        s.csi_dispatch(&[1], b" ", 'q');
         assert_eq!(s.cursor_style, super::super::screen::CursorStyle::Block);
     }
 
     #[test]
     fn test_cursor_style_underline() {
         let mut s = make_screen(10, 10);
-        s.csi_dispatch(&[3], &[b' '], 'q');
+        s.csi_dispatch(&[3], b" ", 'q');
         assert_eq!(s.cursor_style, super::super::screen::CursorStyle::Underline);
     }
 
     #[test]
     fn test_cursor_style_beam() {
         let mut s = make_screen(10, 10);
-        s.csi_dispatch(&[5], &[b' '], 'q');
+        s.csi_dispatch(&[5], b" ", 'q');
         assert_eq!(s.cursor_style, super::super::screen::CursorStyle::Beam);
     }
 
     #[test]
     fn test_cursor_style_default() {
         let mut s = make_screen(10, 10);
-        s.csi_dispatch(&[0], &[b' '], 'q');
+        s.csi_dispatch(&[0], b" ", 'q');
         assert_eq!(s.cursor_style, super::super::screen::CursorStyle::Default);
     }
 
@@ -684,7 +731,7 @@ mod tests {
     #[test]
     fn test_push_keyboard_mode() {
         let mut s = make_screen(10, 10);
-        s.csi_dispatch(&[1], &[b'>'], 'u');
+        s.csi_dispatch(&[1], b">", 'u');
         assert_eq!(s.keyboard_mode_stack, vec![1]);
     }
 
@@ -692,7 +739,7 @@ mod tests {
     fn test_pop_keyboard_modes() {
         let mut s = make_screen(10, 10);
         s.keyboard_mode_stack = vec![1, 2, 3];
-        s.csi_dispatch(&[1], &[b'<'], 'u');
+        s.csi_dispatch(&[1], b"<", 'u');
         // Pop 1 from [1, 2, 3] → stack = [1, 2], popped value 3 becomes active
         assert_eq!(s.keyboard_mode_stack, vec![1, 2]);
         assert_eq!(s.keyboard_mode, 3);
@@ -857,7 +904,7 @@ mod tests {
         let mut parser = Parser::new();
         parser.feed(&mut s, b"\x1b[4;m");
         s.draw("x");
-        assert_eq!(s.buffer[0][0].underscore, false); // 0 resets
+        assert!(!s.buffer[0][0].underscore); // 0 resets
     }
 
     #[test]
@@ -867,7 +914,7 @@ mod tests {
         let mut parser = Parser::new();
         parser.feed(&mut s, b"\x1b[;4m");
         s.draw("x");
-        assert_eq!(s.buffer[0][0].underscore, true);
+        assert!(s.buffer[0][0].underscore);
     }
 
     #[test]
@@ -887,7 +934,7 @@ mod tests {
         let mut parser = Parser::new();
         parser.feed(&mut s, b"\x1b[3;1\x1b[1m");
         s.draw("x");
-        assert_eq!(s.buffer[0][0].bold, true);
+        assert!(s.buffer[0][0].bold);
     }
 
     #[test]
@@ -973,7 +1020,10 @@ mod tests {
         parser.feed(&mut s, b"hello");
         let rows = s.take_dirty_rows();
         assert_eq!(rows, vec![0], "writes to row 0 dirty only row 0");
-        assert!(s.take_dirty_rows().is_empty(), "edge-triggered: drain leaves it empty");
+        assert!(
+            s.take_dirty_rows().is_empty(),
+            "edge-triggered: drain leaves it empty"
+        );
     }
 
     #[test]
@@ -1033,7 +1083,10 @@ mod tests {
         let mut s = make_screen(10, 10);
         let mut parser = Parser::new();
         parser.feed(&mut s, b"\x1b[3;7r"); // CSI 3;7 r
-        assert_eq!(s.margins, Some(super::super::screen::Margins { top: 2, bottom: 6 }));
+        assert_eq!(
+            s.margins,
+            Some(super::super::screen::Margins { top: 2, bottom: 6 })
+        );
     }
 
     #[test]

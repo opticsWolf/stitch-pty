@@ -5,12 +5,12 @@ the raw_output buffer, wait() exit codes, env passing, concurrent and repeated
 spawning, and that read() output is parsed into the terminal.
 """
 import asyncio
+import contextlib
 import re
 import sys
 
 import pytest
-from stitch_pty import spawn, PtySession, PtyError, Winsize, ExitStatus, ExpectResult
-
+from stitch_pty import ExitStatus, ExpectResult, PtyError, PtySession, Winsize, spawn
 
 # ── spawning ──────────────────────────────────────────────────────
 
@@ -481,10 +481,8 @@ async def test_wait_returns_exit_info(shell):
 async def test_terminate_graceful(shell):
     prog, args = shell("echo bye")
     session = await spawn(prog, args)
-    try:
-        await session.terminate(1.0)
-    except Exception:
-        pass     # may already have exited
+    with contextlib.suppress(Exception):
+        await session.terminate(1.0)  # may already have exited
 
 
 @pytest.mark.asyncio

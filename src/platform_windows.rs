@@ -11,26 +11,28 @@ use crate::platform::{ChildBackend, ChildKiller, ProcessExit, PtyBackend};
 use crate::winsize::Winsize;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use tokio::sync::Mutex;
 
-use windows::core::{PCSTR, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
+use windows::Win32::Foundation::{
+    CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
+};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows::Win32::System::Console::{COORD, PSEUDOCONSOLE_INHERIT_CURSOR};
 use windows::Win32::System::Threading::{
-    CreateProcessW, GetExitCodeProcess, GetProcessId, TerminateProcess,
-    CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, PROCESS_INFORMATION,
-    STARTUPINFOEXW, STARTUPINFOW_FLAGS, LPPROC_THREAD_ATTRIBUTE_LIST,
-    InitializeProcThreadAttributeList, UpdateProcThreadAttribute, DeleteProcThreadAttributeList,
+    CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
+    EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess, GetProcessId,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
+    STARTUPINFOEXW, STARTUPINFOW_FLAGS, TerminateProcess, UpdateProcThreadAttribute,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+use windows::core::{PCSTR, PCWSTR, PWSTR};
 
 // ConPTY function pointers (loaded dynamically)
 type PfnCreatePseudoConsole = extern "system" fn(
@@ -86,21 +88,30 @@ fn load_conpty_api() -> Result<(), PtyErrorKind> {
                 "ConPTY not available on this Windows version".to_string(),
             ));
         }
-        CREATE_PSEUDO_CONSOLE = Some(std::mem::transmute(create_ptr.unwrap()));
+        CREATE_PSEUDO_CONSOLE = Some(std::mem::transmute::<
+            unsafe extern "system" fn() -> isize,
+            PfnCreatePseudoConsole,
+        >(create_ptr.unwrap()));
 
         let resize_name = b"ResizePseudoConsole\0";
         if let Some(ptr) = windows::Win32::System::LibraryLoader::GetProcAddress(
             kernel32,
             PCSTR::from_raw(resize_name.as_ptr()),
         ) {
-            RESIZE_PSEUDO_CONSOLE = Some(std::mem::transmute(ptr));
+            RESIZE_PSEUDO_CONSOLE = Some(std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                PfnResizePseudoConsole,
+            >(ptr));
         }
         let close_name = b"ClosePseudoConsole\0";
         if let Some(ptr) = windows::Win32::System::LibraryLoader::GetProcAddress(
             kernel32,
             PCSTR::from_raw(close_name.as_ptr()),
         ) {
-            CLOSE_PSEUDO_CONSOLE = Some(std::mem::transmute(ptr));
+            CLOSE_PSEUDO_CONSOLE = Some(std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                PfnClosePseudoConsole,
+            >(ptr));
         }
 
         CONPTY_LOADED = true;
@@ -251,7 +262,9 @@ impl ChildBackend for WinChildProcess {
                     windows::Win32::System::Console::CTRL_C_EVENT,
                     0,
                 )
-                .map_err(|e| PtyErrorKind::SignalError(format!("GenerateConsoleCtrlEvent: {:?}", e)))
+                .map_err(|e| {
+                    PtyErrorKind::SignalError(format!("GenerateConsoleCtrlEvent: {:?}", e))
+                })
             },
             9 | 15 => self.do_kill(),
             _ => Err(PtyErrorKind::SignalError(format!(
@@ -290,7 +303,7 @@ pub struct WinPtyBackend {
 
 impl Clone for WinPtyBackend {
     fn clone(&self) -> Self {
-        let size = self.size.lock().unwrap().clone();
+        let size = *self.size.lock().unwrap();
         WinPtyBackend {
             conpty_handle: self.conpty_handle.clone(),
             input_async: self.input_async.clone(),
@@ -368,7 +381,7 @@ impl PtyBackend for WinPtyBackend {
     }
 
     fn raw_handle(&self) -> *mut std::ffi::c_void {
-        self.conpty_handle.0.0 as *mut std::ffi::c_void
+        self.conpty_handle.0.0
     }
 
     fn is_open(&self) -> bool {
@@ -412,7 +425,9 @@ async fn create_conpty_pipe_pair() -> Result<(NamedPipeServer, SendSyncHandle), 
 
     // Call connect() on the server to arm mio's IOCP read/write pump.
     // The client (CreateFileW) is already attached, so this returns immediately.
-    server.connect().await
+    server
+        .connect()
+        .await
         .map_err(|e| PtyErrorKind::OpenFailed(format!("server connect: {}", e)))?;
 
     Ok((server, client_handle))
@@ -422,7 +437,9 @@ async fn create_conpty_pipe_pair() -> Result<(NamedPipeServer, SendSyncHandle), 
 // Platform spawn / open_pty functions (async — callers must be in tokio runtime)
 // ============================================================================
 
-pub async fn open_pty(winsize: Option<Winsize>) -> Result<std::sync::Arc<dyn PtyBackend>, PtyErrorKind> {
+pub async fn open_pty(
+    winsize: Option<Winsize>,
+) -> Result<std::sync::Arc<dyn PtyBackend>, PtyErrorKind> {
     load_conpty_api()?;
 
     let ws = winsize.unwrap_or(Winsize {
@@ -442,8 +459,8 @@ pub async fn open_pty(winsize: Option<Winsize>) -> Result<std::sync::Arc<dyn Pty
                 X: ws.cols as i16,
                 Y: ws.rows as i16,
             },
-            stdin_handle.0.0 as *mut std::ffi::c_void,
-            stdout_handle.0.0 as *mut std::ffi::c_void,
+            stdin_handle.0.0,
+            stdout_handle.0.0,
             PSEUDOCONSOLE_INHERIT_CURSOR,
             &mut conpty,
         );
@@ -492,8 +509,8 @@ pub async fn spawn(
                     X: ws.cols as i16,
                     Y: ws.rows as i16,
                 },
-                stdin_handle.0.0 as *mut std::ffi::c_void,
-                stdout_handle.0.0 as *mut std::ffi::c_void,
+                stdin_handle.0.0,
+                stdout_handle.0.0,
                 PSEUDOCONSOLE_INHERIT_CURSOR,
                 &mut conpty,
             );
@@ -556,13 +573,10 @@ pub async fn spawn(
         let attr_list = unsafe {
             let ptr = attr_list_buf.as_mut_ptr() as *mut std::ffi::c_void;
             let typed_ptr = LPPROC_THREAD_ATTRIBUTE_LIST(ptr);
-            InitializeProcThreadAttributeList(
-                Some(typed_ptr),
-                1,
-                Some(0),
-                &mut attr_list_size,
-            )
-            .map_err(|e| PtyErrorKind::ForkFailed(format!("InitializeProcThreadAttributeList: {:?}", e)))?;
+            InitializeProcThreadAttributeList(Some(typed_ptr), 1, Some(0), &mut attr_list_size)
+                .map_err(|e| {
+                    PtyErrorKind::ForkFailed(format!("InitializeProcThreadAttributeList: {:?}", e))
+                })?;
             typed_ptr
         };
 
@@ -572,7 +586,7 @@ pub async fn spawn(
                 attr_list,
                 0,
                 PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-                Some(conpty.0 as *mut std::ffi::c_void),
+                Some(conpty.0),
                 std::mem::size_of::<HANDLE>(),
                 None,
                 None,
@@ -601,8 +615,11 @@ pub async fn spawn(
                 } else {
                     Some(env_block.as_ptr() as *mut std::ffi::c_void)
                 },
-                cwd_wide.as_ref().map(|w| PCWSTR(w.as_ptr())).unwrap_or(PCWSTR::null()),
-                &mut startup_info.StartupInfo,
+                cwd_wide
+                    .as_ref()
+                    .map(|w| PCWSTR(w.as_ptr()))
+                    .unwrap_or(PCWSTR::null()),
+                &startup_info.StartupInfo,
                 &mut process_info,
             )
         };
@@ -613,7 +630,10 @@ pub async fn spawn(
         }
 
         if let Err(e) = success {
-            return Err(PtyErrorKind::ForkFailed(format!("CreateProcessW failed: {:?}", e)));
+            return Err(PtyErrorKind::ForkFailed(format!(
+                "CreateProcessW failed: {:?}",
+                e
+            )));
         }
 
         // Extract Send-safe values before the block ends (drops all non-Send locals)

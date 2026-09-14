@@ -44,7 +44,7 @@ async def read_all():
                 if not chunk:
                     break
                 data += chunk
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
         return data
     return _read_all

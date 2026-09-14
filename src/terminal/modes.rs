@@ -83,11 +83,19 @@ impl Modes {
     }
 
     pub fn set_public(&mut self, mode: u16) {
-        match mode { IRM => self.public.insert(PublicModes::IRM), LNM => self.public.insert(PublicModes::LNM), _ => {} }
+        match mode {
+            IRM => self.public.insert(PublicModes::IRM),
+            LNM => self.public.insert(PublicModes::LNM),
+            _ => {}
+        }
     }
 
     pub fn clear_public(&mut self, mode: u16) {
-        match mode { IRM => self.public.remove(PublicModes::IRM), LNM => self.public.remove(PublicModes::LNM), _ => {} }
+        match mode {
+            IRM => self.public.remove(PublicModes::IRM),
+            LNM => self.public.remove(PublicModes::LNM),
+            _ => {}
+        }
     }
 
     pub fn set_private(&mut self, mode: u16) {
@@ -98,7 +106,9 @@ impl Modes {
             DECAWM => self.private.insert(PrivateModes::DECAWM),
             DECTCEM => self.private.insert(PrivateModes::DECTCEM),
             DECSCNM => self.private.insert(PrivateModes::DECSCNM),
-            _ => { self.extended.insert(mode); }
+            _ => {
+                self.extended.insert(mode);
+            }
         }
     }
 
@@ -110,7 +120,9 @@ impl Modes {
             DECAWM => self.private.remove(PrivateModes::DECAWM),
             DECTCEM => self.private.remove(PrivateModes::DECTCEM),
             DECSCNM => self.private.remove(PrivateModes::DECSCNM),
-            _ => { self.extended.remove(&mode); }
+            _ => {
+                self.extended.remove(&mode);
+            }
         }
     }
 

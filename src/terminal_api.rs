@@ -122,13 +122,14 @@ impl TerminalState {
                     TermEvent::Bell => py.None().into_any(),
                     TermEvent::TitleChanged(t)
                     | TermEvent::IconChanged(t)
-                    | TermEvent::CwdChanged(t) => {
-                        t.into_pyobject(py).unwrap().into_any().unbind()
-                    }
+                    | TermEvent::CwdChanged(t) => t.into_pyobject(py).unwrap().into_any().unbind(),
                     // `bool` converts to a borrowed reference: own it first.
-                    TermEvent::AltScreen { entered } => {
-                        entered.into_pyobject(py).unwrap().to_owned().into_any().unbind()
-                    }
+                    TermEvent::AltScreen { entered } => entered
+                        .into_pyobject(py)
+                        .unwrap()
+                        .to_owned()
+                        .into_any()
+                        .unbind(),
                     TermEvent::ScrollbackGrew(n) => {
                         n.into_pyobject(py).unwrap().into_any().unbind()
                     }
@@ -163,8 +164,11 @@ impl TerminalState {
     /// Styled cells for absolute rows ``[start, start + count)``, clamped to the
     /// buffer. Serializes only the on-screen window instead of the whole
     /// scrollback — O(window) rather than O(total_lines) per frame.
-    pub fn styled_range(&self, start: usize, count: usize)
-            -> Vec<Vec<(String, String, String, u8)>> {
+    pub fn styled_range(
+        &self,
+        start: usize,
+        count: usize,
+    ) -> Vec<Vec<(String, String, String, u8)>> {
         self.screen.styled_range(start, count)
     }
 

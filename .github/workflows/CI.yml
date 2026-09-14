@@ -39,6 +39,13 @@ jobs:
           cache: pip
       - name: Install maturin
         run: pip install maturin
+      - name: Lint (fmt, clippy, ruff, mypy)
+        run: |
+          cargo fmt --all --check
+          cargo clippy --all-targets -- -D warnings
+          pip install ruff mypy
+          ruff check python/ tests/
+          mypy python/stitch_pty/
       - name: Rust test
         env:
           PROPTEST_CASES: "256"

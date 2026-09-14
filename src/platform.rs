@@ -156,6 +156,7 @@ pub trait ChildBackend: ChildKiller + Send + Sync {
 // ── Platform Dispatch ─────────────────────────────────────────────
 
 /// Validate `cwd` in the parent before spawning: it must be an existing directory.
+#[cfg_attr(not(unix), allow(dead_code))] // used by platform_unix::spawn only
 ///
 /// Used by the Unix backend to turn the common typo case into a `ForkFailed`
 /// spawn error instead of a silently dead child. (Windows relies on
@@ -165,8 +166,14 @@ pub trait ChildBackend: ChildKiller + Send + Sync {
 pub(crate) fn validate_cwd(cwd: &str) -> PtyResult<()> {
     match std::fs::metadata(cwd) {
         Ok(m) if m.is_dir() => Ok(()),
-        Ok(_) => Err(PtyErrorKind::ForkFailed(format!("cwd is not a directory: {:?}", cwd))),
-        Err(e) => Err(PtyErrorKind::ForkFailed(format!("invalid cwd {:?}: {}", cwd, e))),
+        Ok(_) => Err(PtyErrorKind::ForkFailed(format!(
+            "cwd is not a directory: {:?}",
+            cwd
+        ))),
+        Err(e) => Err(PtyErrorKind::ForkFailed(format!(
+            "invalid cwd {:?}: {}",
+            cwd, e
+        ))),
     }
 }
 
@@ -182,11 +189,17 @@ pub async fn spawn_platform(
     env: &[(String, String)],
     winsize: Option<Winsize>,
     cwd: Option<&str>,
-) -> PtyResult<(std::sync::Arc<dyn PtyBackend>, std::sync::Arc<dyn ChildBackend>)> {
+) -> PtyResult<(
+    std::sync::Arc<dyn PtyBackend>,
+    std::sync::Arc<dyn ChildBackend>,
+)> {
     #[cfg(unix)]
     {
         let (pty, child) = crate::platform_unix::spawn(program, args, env, winsize, cwd)?;
-        Ok((std::sync::Arc::new(pty), std::sync::Arc::new(child) as std::sync::Arc<dyn ChildBackend>))
+        Ok((
+            std::sync::Arc::new(pty),
+            std::sync::Arc::new(child) as std::sync::Arc<dyn ChildBackend>,
+        ))
     }
 
     #[cfg(windows)]
@@ -199,7 +212,9 @@ pub async fn spawn_platform(
 /// Open a PTY pair without spawning a child.
 ///
 /// Windows: async for the same IOCP pump reason as `spawn_platform`.
-pub async fn open_pty_platform(winsize: Option<Winsize>) -> PtyResult<std::sync::Arc<dyn PtyBackend>> {
+pub async fn open_pty_platform(
+    winsize: Option<Winsize>,
+) -> PtyResult<std::sync::Arc<dyn PtyBackend>> {
     #[cfg(unix)]
     {
         let pty = crate::platform_unix::open_pty(winsize)?;
@@ -288,7 +303,11 @@ mod tests {
 
     #[test]
     fn test_process_exit_to_exit_status_code() {
-        let pe = ProcessExit { pid: 1234, exit_code: Some(0), signal: None };
+        let pe = ProcessExit {
+            pid: 1234,
+            exit_code: Some(0),
+            signal: None,
+        };
         let es = pe.to_exit_status();
         assert!(es.success());
         assert_eq!(es.exit_code(), 0);
@@ -296,7 +315,11 @@ mod tests {
 
     #[test]
     fn test_process_exit_to_exit_status_failure() {
-        let pe = ProcessExit { pid: 1234, exit_code: Some(1), signal: None };
+        let pe = ProcessExit {
+            pid: 1234,
+            exit_code: Some(1),
+            signal: None,
+        };
         let es = pe.to_exit_status();
         assert!(!es.success());
         assert_eq!(es.exit_code(), 1);
@@ -304,7 +327,11 @@ mod tests {
 
     #[test]
     fn test_process_exit_to_exit_status_signal() {
-        let pe = ProcessExit { pid: 1234, exit_code: None, signal: Some(9) };
+        let pe = ProcessExit {
+            pid: 1234,
+            exit_code: None,
+            signal: Some(9),
+        };
         let es = pe.to_exit_status();
         assert!(!es.success());
         assert_eq!(es.signal(), Some("SIG9"));
@@ -312,7 +339,11 @@ mod tests {
 
     #[test]
     fn test_process_exit_to_exit_status_both_none() {
-        let pe = ProcessExit { pid: 1234, exit_code: None, signal: None };
+        let pe = ProcessExit {
+            pid: 1234,
+            exit_code: None,
+            signal: None,
+        };
         let es = pe.to_exit_status();
         assert!(!es.success());
         assert_eq!(es.exit_code(), 1);
@@ -320,14 +351,22 @@ mod tests {
 
     #[test]
     fn test_process_exit_debug() {
-        let pe = ProcessExit { pid: 42, exit_code: Some(0), signal: None };
+        let pe = ProcessExit {
+            pid: 42,
+            exit_code: Some(0),
+            signal: None,
+        };
         let debug = format!("{:?}", pe);
         assert!(debug.contains("42"));
     }
 
     #[test]
     fn test_process_exit_clone() {
-        let pe1 = ProcessExit { pid: 42, exit_code: Some(0), signal: None };
+        let pe1 = ProcessExit {
+            pid: 42,
+            exit_code: Some(0),
+            signal: None,
+        };
         let pe2 = pe1.clone();
         assert_eq!(pe1.pid, pe2.pid);
         assert_eq!(pe1.exit_code, pe2.exit_code);
@@ -387,5 +426,8 @@ mod tests {
         async fn check_open() {
             let _f = open_pty_platform(None);
         }
+        // Invoke so the checks count as used; the futures are lazy and
+        // never polled, so no PTY is actually opened here.
+        let _ = (check_spawn(), check_open());
     }
 }

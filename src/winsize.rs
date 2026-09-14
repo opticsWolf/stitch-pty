@@ -5,10 +5,14 @@ use pyo3::prelude::*;
 #[pyclass(from_py_object)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Winsize {
-    #[pyo3(get, set)] pub rows: u16,
-    #[pyo3(get, set)] pub cols: u16,
-    #[pyo3(get, set)] pub xpixel: u16,
-    #[pyo3(get, set)] pub ypixel: u16,
+    #[pyo3(get, set)]
+    pub rows: u16,
+    #[pyo3(get, set)]
+    pub cols: u16,
+    #[pyo3(get, set)]
+    pub xpixel: u16,
+    #[pyo3(get, set)]
+    pub ypixel: u16,
 }
 
 #[cfg(not(feature = "python"))]
@@ -22,7 +26,12 @@ pub struct Winsize {
 
 impl Winsize {
     pub fn new(rows: u16, cols: u16, xpixel: u16, ypixel: u16) -> Self {
-        Winsize { rows, cols, xpixel, ypixel }
+        Winsize {
+            rows,
+            cols,
+            xpixel,
+            ypixel,
+        }
     }
 }
 
@@ -36,13 +45,17 @@ impl Winsize {
     }
 
     fn __repr__(&self) -> String {
-        format!("Winsize(rows={}, cols={}, xpixel={}, ypixel={})",
-            self.rows, self.cols, self.xpixel, self.ypixel)
+        format!(
+            "Winsize(rows={}, cols={}, xpixel={}, ypixel={})",
+            self.rows, self.cols, self.xpixel, self.ypixel
+        )
     }
 
     fn __eq__(&self, other: &Winsize) -> bool {
-        self.rows == other.rows && self.cols == other.cols
-            && self.xpixel == other.xpixel && self.ypixel == other.ypixel
+        self.rows == other.rows
+            && self.cols == other.cols
+            && self.xpixel == other.xpixel
+            && self.ypixel == other.ypixel
     }
 }
 
@@ -50,8 +63,10 @@ impl Winsize {
 impl From<Winsize> for nix::pty::Winsize {
     fn from(w: Winsize) -> Self {
         nix::pty::Winsize {
-            ws_row: w.rows, ws_col: w.cols,
-            ws_xpixel: w.xpixel, ws_ypixel: w.ypixel,
+            ws_row: w.rows,
+            ws_col: w.cols,
+            ws_xpixel: w.xpixel,
+            ws_ypixel: w.ypixel,
         }
     }
 }
@@ -60,8 +75,10 @@ impl From<Winsize> for nix::pty::Winsize {
 impl From<nix::pty::Winsize> for Winsize {
     fn from(w: nix::pty::Winsize) -> Self {
         Winsize {
-            rows: w.ws_row, cols: w.ws_col,
-            xpixel: w.ws_xpixel, ypixel: w.ws_ypixel,
+            rows: w.ws_row,
+            cols: w.ws_col,
+            xpixel: w.ws_xpixel,
+            ypixel: w.ws_ypixel,
         }
     }
 }
@@ -70,7 +87,8 @@ impl From<nix::pty::Winsize> for Winsize {
 impl From<Winsize> for windows::Win32::System::Console::COORD {
     fn from(w: Winsize) -> Self {
         windows::Win32::System::Console::COORD {
-            X: w.cols as i16, Y: w.rows as i16,
+            X: w.cols as i16,
+            Y: w.rows as i16,
         }
     }
 }
@@ -148,7 +166,7 @@ mod tests {
     #[test]
     fn test_winsize_clone() {
         let ws1 = Winsize::new(24, 80, 100, 200);
-        let ws2 = ws1.clone();
+        let ws2 = ws1;
         assert_eq!(ws1, ws2);
     }
 
