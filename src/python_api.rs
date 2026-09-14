@@ -222,13 +222,14 @@ pub fn open_pty(py: Python<'_>, winsize: Option<Winsize>) -> PyResult<Bound<'_, 
 }
 
 #[pyfunction]
-#[pyo3(signature = (program, args=None, env=None, winsize=None))]
+#[pyo3(signature = (program, args=None, env=None, winsize=None, cwd=None))]
 pub fn spawn<'py>(
     py: Python<'py>,
     program: &str,
     args: Option<Vec<String>>,
     env: Option<std::collections::HashMap<String, String>>,
     winsize: Option<Winsize>,
+    cwd: Option<String>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let program = program.to_string();
     let args = args.unwrap_or_default();
@@ -238,7 +239,7 @@ pub fn spawn<'py>(
         .collect();
     let winsize = winsize;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
-        let (pty_backend, child_backend) = spawn_platform(&program, &args, &env, winsize)
+        let (pty_backend, child_backend) = spawn_platform(&program, &args, &env, winsize, cwd.as_deref())
             .await
             .map_err(|e| PtyErrorKind::ForkFailed(e.to_string()))?;
         let session = PtySession {

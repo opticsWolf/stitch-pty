@@ -476,6 +476,7 @@ unsafe fn child_setup(
     slave_fd: RawFd,
     master_fd: RawFd,
     cmd: &PreparedCommand,
+    cwd: Option<&CString>,
 ) -> ! {
     // Reset signal dispositions to defaults.
     for signo in &[
@@ -519,6 +520,14 @@ unsafe fn child_setup(
     unsafe { libc::close(slave_fd); }
     unsafe { libc::close(master_fd); }
 
+    // chdir before exec (async-signal-safe: no allocation, raw pointer).
+    // 127 distinguishes it from exec failure (126) and setup failures (1).
+    if let Some(dir) = cwd {
+        if unsafe { libc::chdir(dir.as_ptr()) } != 0 {
+            unsafe { libc::_exit(127); }
+        }
+    }
+
     // exec with prepared argv and envp (raw pointers, no allocation).
     #[cfg(target_os = "linux")]
     unsafe {
@@ -547,16 +556,22 @@ fn fork_pty(
     program: &str,
     args: &[String],
     env: &[(String, String)],
+    cwd: Option<&str>,
 ) -> PtyResult<Pid> {
     // Prepare all allocations in the parent process before fork().
     // This is critical for fork-safety on macOS where malloc locks
     // held by other threads would cause deadlocks in the child.
     let resolved = resolve_executable(program);
     let cmd = PreparedCommand::new(&resolved, args, env)?;
+    // The chdir target is prepared here too: the child must not allocate.
+    let cwd_cstr = cwd
+        .map(|dir| CString::new(dir))
+        .transpose()
+        .map_err(|_| PtyErrorKind::ForkFailed("cwd contains NUL byte".into()))?;
 
     match unsafe { fork() } {
         Ok(ForkResult::Child) => {
-            unsafe { child_setup(pty.slave_fd, pty.master_fd, &cmd); }
+            unsafe { child_setup(pty.slave_fd, pty.master_fd, &cmd, cwd_cstr.as_ref()); }
         }
         Ok(ForkResult::Parent { child }) => {
             let _ = close(pty.slave_fd);
@@ -593,9 +608,13 @@ pub fn spawn(
     args: &[String],
     env: &[(String, String)],
     winsize: Option<Winsize>,
+    cwd: Option<&str>,
 ) -> PtyResult<(UnixPtyMaster, UnixChildProcess)> {
+    if let Some(dir) = cwd {
+        crate::platform::validate_cwd(dir)?;
+    }
     let pair = PtyPair::open(winsize)?;
-    let pid = fork_pty(&pair, program, args, env)?;
+    let pid = fork_pty(&pair, program, args, env, cwd)?;
     let master_fd = pair.master_fd;
     std::mem::forget(pair);
 

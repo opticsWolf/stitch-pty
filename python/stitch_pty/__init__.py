@@ -58,7 +58,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.5.13"
+__version__ = "0.6.0"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -541,6 +541,7 @@ async def spawn(
     winsize: Winsize | None = None,
     scrollback: int = 1000,
     raw_output_cap: int | None = 1_048_576,
+    cwd: str | None = None,
 ) -> PtySession:
     """Spawn a program in a PTY and return a session handle.
 
@@ -552,6 +553,8 @@ async def spawn(
         scrollback: Terminal scrollback capacity in lines.
         raw_output_cap: Max bytes retained in ``session.raw_output``
             (sliding window). None = unbounded.
+        cwd: Working directory for the child. None inherits the parent's.
+            A missing/non-directory path raises ``PtyError`` at spawn.
 
     Returns:
         A PtySession for I/O and process management.
@@ -576,5 +579,5 @@ async def spawn(
         except OSError:
             winsize = Winsize(24, 80, 0, 0)
 
-    inner = await _spawn(program, args or [], env, winsize)
+    inner = await _spawn(program, args or [], env, winsize, cwd)
     return PtySession(inner, scrollback=scrollback, raw_output_cap=raw_output_cap)

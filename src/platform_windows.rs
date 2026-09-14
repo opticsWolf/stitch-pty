@@ -468,6 +468,7 @@ pub async fn spawn(
     args: &[String],
     env: &[(String, String)],
     winsize: Option<Winsize>,
+    cwd: Option<&str>,
 ) -> Result<(Arc<dyn PtyBackend>, Arc<dyn ChildBackend>), PtyErrorKind> {
     let ws = winsize.unwrap_or(Winsize {
         rows: 24,
@@ -514,6 +515,15 @@ pub async fn spawn(
             append_quoted_wide(OsStr::new(arg.as_str()), &mut cmdline);
         }
         cmdline.push(0);
+
+        // Child working directory (NUL-terminated wide string for lpCurrentDirectory).
+        // None inherits the parent's directory, as before.
+        let cwd_wide: Option<Vec<u16>> = cwd.map(|dir| {
+            OsStr::new(dir)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect()
+        });
 
         // Build environment block
         let mut env_block: Vec<u16> = Vec::new();
@@ -591,7 +601,7 @@ pub async fn spawn(
                 } else {
                     Some(env_block.as_ptr() as *mut std::ffi::c_void)
                 },
-                None,
+                cwd_wide.as_ref().map(|w| PCWSTR(w.as_ptr())).unwrap_or(PCWSTR::null()),
                 &mut startup_info.StartupInfo,
                 &mut process_info,
             )
@@ -602,8 +612,8 @@ pub async fn spawn(
             DeleteProcThreadAttributeList(attr_list);
         }
 
-        if success.is_err() {
-            return Err(PtyErrorKind::ForkFailed("CreateProcessW failed".to_string()));
+        if let Err(e) = success {
+            return Err(PtyErrorKind::ForkFailed(format!("CreateProcessW failed: {:?}", e)));
         }
 
         // Extract Send-safe values before the block ends (drops all non-Send locals)

@@ -197,6 +197,28 @@ async def test_spawn_forwards_raw_output_cap(shell, read_all):
 
 
 @pytest.mark.asyncio
+async def test_spawn_with_cwd(tmp_path, read_all):
+    import os
+    session = await spawn(
+        sys.executable,
+        ["-c", "import os;print(os.getcwd())"],
+        cwd=str(tmp_path),
+    )
+    try:
+        output = await read_all(session)
+        # normcase: Windows drive-letter case differs between APIs.
+        assert os.path.normcase(str(tmp_path)) in os.path.normcase(output.decode(errors="ignore"))
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_spawn_with_missing_cwd_raises():
+    with pytest.raises(PtyError):
+        await spawn(sys.executable, ["-c", "pass"], cwd="Z:/definitely/missing")
+
+
+@pytest.mark.asyncio
 async def test_typed_eof_branch(shell):
     """An OSError with kind=="eof" (the Rust EOF contract) maps to b""."""
     prog, args = shell("echo hi")

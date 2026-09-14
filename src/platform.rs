@@ -5,7 +5,7 @@
 //! - `ExitStatus` struct with `success()`, `exit_code()`, `signal()`
 //! - Clean platform dispatch via `spawn_platform` and `open_pty_platform`
 
-use crate::errors::PtyResult;
+use crate::errors::{PtyErrorKind, PtyResult};
 use crate::winsize::Winsize;
 
 // ── Exit Status (from portable-pty) ───────────────────────────────
@@ -155,25 +155,43 @@ pub trait ChildBackend: ChildKiller + Send + Sync {
 
 // ── Platform Dispatch ─────────────────────────────────────────────
 
+/// Validate `cwd` in the parent before spawning: it must be an existing directory.
+///
+/// Used by the Unix backend to turn the common typo case into a `ForkFailed`
+/// spawn error instead of a silently dead child. (Windows relies on
+/// `CreateProcessW` failing with the OS error instead.) The Unix child still
+/// performs its own `chdir` (exiting 127 on failure), so a directory deleted
+/// between this check and the fork cannot cause silent misbehavior.
+pub(crate) fn validate_cwd(cwd: &str) -> PtyResult<()> {
+    match std::fs::metadata(cwd) {
+        Ok(m) if m.is_dir() => Ok(()),
+        Ok(_) => Err(PtyErrorKind::ForkFailed(format!("cwd is not a directory: {:?}", cwd))),
+        Err(e) => Err(PtyErrorKind::ForkFailed(format!("invalid cwd {:?}: {}", cwd, e))),
+    }
+}
+
 /// Spawn a program in a PTY using the platform-specific backend.
 ///
 /// Windows: async because `NamedPipeServer::connect()` must run in a tokio
 /// runtime to arm mio's IOCP pump. Unix: sync wrapped in async (no await).
+/// `cwd` only selects the child's working directory; it changes nothing about
+/// the async/IOCP plumbing on either platform.
 pub async fn spawn_platform(
     program: &str,
     args: &[String],
     env: &[(String, String)],
     winsize: Option<Winsize>,
+    cwd: Option<&str>,
 ) -> PtyResult<(std::sync::Arc<dyn PtyBackend>, std::sync::Arc<dyn ChildBackend>)> {
     #[cfg(unix)]
     {
-        let (pty, child) = crate::platform_unix::spawn(program, args, env, winsize)?;
+        let (pty, child) = crate::platform_unix::spawn(program, args, env, winsize, cwd)?;
         Ok((std::sync::Arc::new(pty), std::sync::Arc::new(child) as std::sync::Arc<dyn ChildBackend>))
     }
 
     #[cfg(windows)]
     {
-        let (pty, child) = crate::platform_windows::spawn(program, args, env, winsize).await?;
+        let (pty, child) = crate::platform_windows::spawn(program, args, env, winsize, cwd).await?;
         Ok((pty, child as std::sync::Arc<dyn ChildBackend>))
     }
 }
@@ -336,12 +354,35 @@ mod tests {
     // ── spawn_platform / open_pty_platform concept Tests ──────────
 
     #[test]
+    fn test_validate_cwd_accepts_dirs() {
+        assert!(validate_cwd(std::env::temp_dir().to_str().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn test_validate_cwd_rejects_missing() {
+        match validate_cwd("Z:/definitely/missing/stitch-pty-test") {
+            Err(PtyErrorKind::ForkFailed(msg)) => assert!(msg.contains("invalid cwd")),
+            _ => panic!("expected ForkFailed"),
+        }
+    }
+
+    #[test]
+    fn test_validate_cwd_rejects_file() {
+        // The current test executable exists but is not a directory.
+        let exe = std::env::current_exe().unwrap();
+        match validate_cwd(exe.to_str().unwrap()) {
+            Err(PtyErrorKind::ForkFailed(msg)) => assert!(msg.contains("not a directory")),
+            _ => panic!("expected ForkFailed"),
+        }
+    }
+
+    #[test]
     fn test_platform_dispatch_returns_result() {
         // These functions are async, so we can only check their existence
         // at the type level via a future. The actual calls would need a runtime.
         // This is a compile-time check that the functions exist with the right signature.
         async fn check_spawn() {
-            let _f = spawn_platform("", &[], &[], None);
+            let _f = spawn_platform("", &[], &[], None, None);
         }
         async fn check_open() {
             let _f = open_pty_platform(None);

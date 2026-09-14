@@ -6,6 +6,14 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+## [0.6.0] — `cwd` on `spawn()`
+
+### Added
+- `spawn(..., cwd=...)`: working directory for the child (Unix: `chdir`
+  after fork; Windows: `lpCurrentDirectory`). `None` inherits the parent's.
+- A missing path or non-directory raises `PtyError` (`ForkFailed`) at spawn
+  instead of producing a silently dead child.
+
 ## [0.5.13] — Repo hygiene, release process
 
 ### Added
