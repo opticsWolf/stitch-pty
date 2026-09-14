@@ -58,7 +58,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.5.9"
+__version__ = "0.5.10"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -444,10 +444,10 @@ class PtySession:
         Raises TimeoutError if pattern not found within timeout.
         """
         buffer = bytearray()
-        deadline = asyncio.get_event_loop().time() + timeout
+        deadline = asyncio.get_running_loop().time() + timeout
 
         while True:
-            remaining = deadline - asyncio.get_event_loop().time()
+            remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 raise TimeoutError(f"Pattern {pattern!r} not found within {timeout}s")
 

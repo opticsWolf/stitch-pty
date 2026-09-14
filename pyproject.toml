@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "stitch-pty"
-version = "0.5.9"
+version = "0.5.10"
 description = "Cross-platform async PTY with integrated terminal emulation for Python"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
@@ -52,6 +52,7 @@ compatibility = "manylinux_2_28"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["error::DeprecationWarning"]
 
 [tool.ruff]
 line-length = 100

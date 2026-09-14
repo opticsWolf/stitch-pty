@@ -15,9 +15,9 @@ IS_CI = os.environ.get("CI", "") == "true"
 async def read_all(session, timeout=3.0, chunk_size=4096):
     """Read all available output from session within timeout."""
     data = b''
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
-        remaining = deadline - asyncio.get_event_loop().time()
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        remaining = deadline - asyncio.get_running_loop().time()
         try:
             chunk = await asyncio.wait_for(session.read(chunk_size), timeout=remaining)
             if not chunk:
