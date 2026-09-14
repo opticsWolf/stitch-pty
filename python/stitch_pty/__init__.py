@@ -58,7 +58,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.5.10"
+__version__ = "0.5.11"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -539,6 +539,8 @@ async def spawn(
     args: list[str] | None = None,
     env: dict[str, str] | None = None,
     winsize: Winsize | None = None,
+    scrollback: int = 1000,
+    raw_output_cap: int | None = 1_048_576,
 ) -> PtySession:
     """Spawn a program in a PTY and return a session handle.
 
@@ -547,6 +549,9 @@ async def spawn(
         args: Command-line arguments.
         env: Environment variables. If None, inherits from parent.
         winsize: Initial terminal size. Defaults to 24x80.
+        scrollback: Terminal scrollback capacity in lines.
+        raw_output_cap: Max bytes retained in ``session.raw_output``
+            (sliding window). None = unbounded.
 
     Returns:
         A PtySession for I/O and process management.
@@ -572,4 +577,4 @@ async def spawn(
             winsize = Winsize(24, 80, 0, 0)
 
     inner = await _spawn(program, args or [], env, winsize)
-    return PtySession(inner)
+    return PtySession(inner, scrollback=scrollback, raw_output_cap=raw_output_cap)

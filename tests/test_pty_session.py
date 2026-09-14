@@ -5,6 +5,7 @@ the raw_output buffer, wait() exit codes, env passing, concurrent and repeated
 spawning, and that read() output is parsed into the terminal.
 """
 import asyncio
+import sys
 
 import pytest
 from stitch_pty import spawn, PtySession, PtyError, Winsize, ExitStatus
@@ -165,6 +166,32 @@ async def test_eof_drain_returns_empty(shell, read_all):
         assert await _drain_once() == b""
         # Second read after EOF: still clean b"", never raises.
         assert await _drain_once() == b""
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_spawn_forwards_scrollback(shell, read_all):
+    if sys.platform == "win32":
+        prog, args = shell("for /L %i in (1,1,200) do @echo line%i")
+    else:
+        prog, args = shell("for i in $(seq 1 200); do echo line$i; done")
+    session = await spawn(prog, args, scrollback=50)
+    try:
+        assert session.terminal.scrollback_lines == 50
+        await read_all(session)
+        assert len(session.scrollback) == 50
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_spawn_forwards_raw_output_cap(shell, read_all):
+    prog, args = shell("echo " + "z" * 500)
+    session = await spawn(prog, args, raw_output_cap=64)
+    try:
+        await read_all(session)
+        assert len(session.raw_output) <= 64
     finally:
         await session.terminate()
 

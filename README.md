@@ -124,7 +124,7 @@ pip install stitch-pty
 
 ### Core Functions
 
-#### `spawn(program, args=None, env=None, winsize=None) → PtySession`
+#### `spawn(program, args=None, env=None, winsize=None, scrollback=1000, raw_output_cap=1_048_576) → PtySession`
 
 Spawn a program in a PTY and return a session handle.
 
@@ -134,6 +134,8 @@ Spawn a program in a PTY and return a session handle.
 | `args` | `list[str]` | `[]` | Command-line arguments |
 | `env` | `dict[str, str]` | `None` | Environment variables (inherits from parent if `None`) |
 | `winsize` | `Winsize \| None` | Auto-detected | Initial terminal size (defaults to 24×80) |
+| `scrollback` | `int` | `1000` | Terminal scrollback capacity in lines |
+| `raw_output_cap` | `int \| None` | `1_048_576` | Max bytes retained in `session.raw_output` (`None` = unbounded) |
 
 **Returns:** `PtySession` — a combined PTY I/O + child process manager with integrated terminal emulation.
 
