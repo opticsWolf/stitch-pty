@@ -322,7 +322,7 @@ dependencies = [
 
 [[package]]
 name = "stitch-pty"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "async-trait",
  "bitflags",
