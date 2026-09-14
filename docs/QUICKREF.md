@@ -167,6 +167,7 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `cursor_y` | Cursor row (0-indexed, visible area) |
 | `title` | Window title (from OSC sequences) |
 | `cwd` | Shell cwd from OSC 7 / OSC 9;9, or `None` until reported |
+| `visible_lines` / `visible_columns` | Visible grid geometry, O(1) — prefer over `len(visible_display())` |
 | `history_size` | Current scrollback line count |
 | `scrollback_lines` | Scrollback capacity |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
@@ -177,7 +178,7 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 |-----------|----------|----|
 | `PtyError` | `Exception` | PTY open/operation failures |
 | `ProcessError` | `PtyError` | Spawn/kill failures |
-| `IOError` | `PtyError` | I/O errors, timeouts, winsize failures |
+| `IOError` | `PtyError` | I/O errors, winsize failures (timeouts raise `PtyError`) |
 
 These are the native exception classes registered by the Rust core and
 re-exported from `stitch_pty`, so `except stitch_pty.IOError` / `ProcessError`

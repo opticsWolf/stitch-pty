@@ -297,6 +297,9 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `total_lines` | `total_lines() → int` | Total lines = history + visible |
 | `absolute_cursor` | `absolute_cursor() → tuple[int, int]` | `(x, history_len + on_screen_y)` |
 | `dirty` | `dirty() → list[int]` | Modified row indices |
+| `take_dirty_rows` | `take_dirty_rows() → list[int]` | Drain dirty rows (sorted, empty afterwards) |
+| `take_bell` | `take_bell() → bool` | Edge-triggered BEL check (resets the flag) |
+| `poll_events` | `poll_events() → list[tuple[str, object]]` | Drain ordered events (log capped at 1024, drop-oldest) |
 | `resize` | `resize(lines, cols) → None` | Resize screen buffer |
 | `reset` | `reset() → None` | Reset terminal + clear history |
 
@@ -305,6 +308,7 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `cursor_x` | `int` | Cursor column (0-indexed, visible area) |
 | `cursor_y` | `int` | Cursor row (0-indexed, visible area) |
 | `title` | `str` | Window title (from OSC sequences) |
+| `cwd` | `str \| None` | Shell cwd from OSC 7 / OSC 9;9, `None` until reported |
 | `visible_lines` | `int` | Visible height in rows, O(1) (prefer over `len(display)`) |
 | `visible_columns` | `int` | Visible width in columns, O(1) |
 | `history_size` | `int` | Current scrollback line count |

@@ -6,6 +6,13 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+### Changed
+- Docs consistency sweep: README `TerminalState` table gained the
+  `take_bell`/`take_dirty_rows`/`poll_events`/`cwd` rows it was missing;
+  QUICKREF `TerminalState` properties gained `visible_lines`/
+  `visible_columns` and its error table no longer attributes timeouts to
+  `IOError`; ARCHITECTURE wrapper paragraph mentions the geometry getters.
+
 ## [0.8.0] — Cheap geometry getters, bounded event log
 
 ### Added

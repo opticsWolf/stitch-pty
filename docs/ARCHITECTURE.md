@@ -510,8 +510,9 @@ Delegates to `PtyMaster` + `PtyChild`. Adds:
 `TerminalState` with `terminal`, `display`, `scrollback`, `full_display`, and
 `raw_output` properties (data read via `read`/`read_timeout` is auto-fed
 through the emulator); `interact()`, `read_all()`, and `expect()` helpers;
-per-frame drains — `poll_events()`, `take_bell()`, `take_dirty_rows()` — and
-the `cwd` property; `spawn(..., scrollback=..., raw_output_cap=..., cwd=...)`
+per-frame drains — `poll_events()`, `take_bell()`, `take_dirty_rows()` — the
+`cwd` property, O(1) `visible_lines`/`visible_columns` geometry (prefer over
+`len(display)`); `spawn(..., scrollback=..., raw_output_cap=..., cwd=...)`
 forwarding; `__aenter__`/`__aexit__` async context management; and `wait()`
 returning `ExitStatus | None`.
 
