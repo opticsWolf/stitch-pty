@@ -32,6 +32,7 @@ import os
 import signal
 import struct
 import sys
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,7 +58,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.5.0"
+__version__ = "0.5.8"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -227,11 +228,36 @@ class PtySession:
     escape sequences and maintains screen state.
     """
 
-    def __init__(self, inner: _PtySession, scrollback: int = 1000) -> None:
+    def __init__(
+        self,
+        inner: _PtySession,
+        scrollback: int = 1000,
+        raw_output_cap: int | None = 1_048_576,
+    ) -> None:
+        """Args:
+            inner: The Rust session handle.
+            scrollback: Terminal scrollback capacity in lines.
+            raw_output_cap: Max bytes retained in :attr:`raw_output` (sliding
+                window). ``None`` retains everything (legacy, unbounded).
+        """
         self._inner = inner
         winsize = inner.get_winsize()
         self._terminal = _TerminalState(winsize.cols, winsize.rows, scrollback)
-        self._raw_output: list[bytes] = []
+        self._raw_chunks: deque[bytes] = deque()
+        self._raw_bytes = 0
+        self._raw_cap = raw_output_cap
+
+    def _record_raw(self, data: bytes) -> None:
+        """Append a read chunk to the bounded raw-output window."""
+        if self._raw_cap is not None:
+            self._raw_chunks.append(data)
+            self._raw_bytes += len(data)
+            while self._raw_chunks and self._raw_bytes > self._raw_cap:
+                self._raw_bytes -= len(self._raw_chunks.popleft())
+        else:
+            # Unbounded legacy mode: raw_output_cap=None.
+            self._raw_chunks.append(data)
+            self._raw_bytes += len(data)
 
     @property
     def is_alive(self) -> bool:
@@ -254,7 +280,7 @@ class PtySession:
             raise
         if data:
             self._terminal.feed(data)
-            self._raw_output.append(data)
+            self._record_raw(data)
         return data
 
     async def read_timeout(self, size: int, timeout: float) -> bytes:
@@ -274,7 +300,7 @@ class PtySession:
             raise
         if data:
             self._terminal.feed(data)
-            self._raw_output.append(data)
+            self._record_raw(data)
         return data
 
     async def write(self, data: bytes) -> int:
@@ -454,8 +480,13 @@ class PtySession:
 
     @property
     def raw_output(self) -> bytes:
-        """Get all raw bytes read from the PTY (unparsed)."""
-        return b"".join(self._raw_output)
+        """Get the last N raw bytes read from the PTY (unparsed).
+
+        Bounded by ``raw_output_cap`` (default 1 MiB) — this is the tail of
+        the session output, not the full session log. Pass
+        ``raw_output_cap=None`` at construction for the legacy unbounded mode.
+        """
+        return b"".join(self._raw_chunks)
 
     def take_bell(self) -> bool:
         """Whether a BEL (0x07) arrived since the last call, then reset it.

@@ -122,6 +122,60 @@ async def test_raw_output_accumulates(shell, read_all):
         await session.terminate()
 
 
+@pytest.mark.asyncio
+async def test_raw_output_cap_bounds(shell, read_all):
+    prog, args = shell("echo " + "x" * 500)
+    session = await spawn(prog, args)
+    try:
+        session._raw_cap = 64
+        await read_all(session)
+        assert len(session.raw_output) <= 64
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_raw_output_cap_none_unbounded(shell, read_all):
+    prog, args = shell("echo " + "y" * 500)
+    session = await spawn(prog, args)
+    try:
+        session._raw_cap = None
+        await read_all(session)
+        assert len(session.raw_output) >= 500
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_raw_output_window_slides(idle):
+    """Direct-feed unit check of the sliding window (idle child: no PTY noise)."""
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        session._raw_cap = 64
+        session._record_raw(b"a" * 50)
+        session._record_raw(b"b" * 50)
+        raw = session.raw_output
+        assert len(raw) == 50
+        assert raw == b"b" * 50
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_session_init_positional_inner(shell):
+    """PtySession(inner) positional construction still works (compat)."""
+    prog, args = shell("echo compat")
+    session = await spawn(prog, args)
+    try:
+        clone = PtySession(session._inner)
+        assert isinstance(clone.raw_output, (bytes, bytearray))
+    finally:
+        await session.terminate()
+
+
 # ── writing ───────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
