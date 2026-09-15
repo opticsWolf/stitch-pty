@@ -471,6 +471,7 @@ ECMA-48 state machine with 10 states:
 | **Kitty Keyboard Protocol** | Mode push/pop/replace |
 | **Shell cwd** | OSC 7 / OSC 9;9 tracking, survives alt-screen and reset |
 | **Dirty tracking** | `BTreeSet<usize>` peek (`dirty()`) + drain (`take_dirty_rows()`) + ordered event log (`poll_events()`) + bell flag (`take_bell()`) |
+| **Background color erase** | Erased cells keep the current SGR (EL/ED/ECH/ICH/DCH/IL/DL, scrolling); full reset and DECALN still use defaults |
 
 #### Scrollback (`history.rs`)
 

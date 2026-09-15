@@ -937,6 +937,23 @@ mod tests {
     }
 
     #[test]
+    fn test_bce_replays_conpty_colored_block() {
+        // Exactly what ConPTY hands back for a colored block: it trims the
+        // trailing whitespace and emits EL / ECH with the block's SGR still
+        // active (captured on Windows 11). With BCE the whole block keeps
+        // its background instead of only the visible characters.
+        let mut hs = HistoryScreen::new(20, 2, 0);
+        hs.feed(b"\x1b[48;2;45;27;61m hello\x1b[K\r\n");
+        hs.feed(b"\x1b[m\x1b[48;2;45;27;61m hello\x1b[20X");
+        let cells = hs.styled_range(0, 2);
+        for (row, line) in cells.iter().enumerate() {
+            assert!(
+                line.iter().all(|cell| cell.2 == "2d1b3d"),
+                "row {row} lost the block background: {line:?}"
+            );
+        }
+    }
+    #[test]
     fn test_scrollback_grew_trails() {
         use crate::terminal::events::TermEvent;
         let mut hs = make_history(80, 3, 100);

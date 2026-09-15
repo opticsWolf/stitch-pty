@@ -13,6 +13,21 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `visible_columns` and its error table no longer attributes timeouts to
   `IOError`; ARCHITECTURE wrapper paragraph mentions the geometry getters.
 
+## [0.8.1] — Background color erase (BCE)
+
+### Fixed
+- Erased cells now keep the current SGR state (background color erase)
+  instead of reverting to screen defaults. A tool that paints a background
+  and then pads or clears (`ESC[K`, `ESC[20X`, `ESC[2J`) keeps its block —
+  matching xterm, VTE, kitty, Alacritty, and Windows Terminal. This also
+  repairs ConPTY output: ConPTY trims trailing whitespace per row and
+  re-emits the padding as EL/ECH with the block's SGR still active, which
+  previously came back uncolored. Covers EL/ED/ECH/ICH/DCH/IL/DL, scrolling,
+  and wide-char continuations; full reset and DECALN still use defaults.
+- Erase and draw agree under reverse video: the template (including SGR
+  reverse as-is) is copied verbatim with no DECSCNM adjustment, since the
+  render path consumes the cell bits raw.
+
 ## [0.8.0] — Cheap geometry getters, bounded event log
 
 ### Added

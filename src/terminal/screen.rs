@@ -503,6 +503,29 @@ impl Screen {
         }
     }
 
+    /// Blank cell for erase/insert operations — background color erase (BCE).
+    ///
+    /// Erased cells keep the *current* SGR state instead of reverting to the
+    /// screen defaults, so a tool that paints a background and then pads or
+    /// clears (`ESC[K`, `ESC[20X`, `ESC[2J`) keeps its block. Every modern
+    /// terminal does this (Windows Terminal, kitty, Alacritty, VTE) and
+    /// ConPTY *relies* on it: it trims trailing whitespace from each rendered
+    /// row and hands the padding back as EL/ECH with the block's SGR still
+    /// active, e.g. `ESC[48;2;45;27;61m hello ESC[K`.
+    ///
+    /// The template is copied verbatim — including SGR reverse as-is, with
+    /// no DECSCNM adjustment. `draw()` stores `cursor.attrs` the same way
+    /// and the render path consumes the cell bits raw, so erase and draw
+    /// always agree; adjusting here would open a seam in reverse-video
+    /// screens (drawn cells keep the template bit, erased cells would not).
+    /// DECSCNM retargets the whole buffer separately via
+    /// `apply_reverse_to_buffer`.
+    fn erase_cell(&self) -> Char {
+        let mut cell = self.cursor.attrs.clone();
+        cell.data = " ".to_string();
+        cell
+    }
+
     // ── Margins ──────────────────────────────────────────────────
     pub fn set_margins(&mut self, top: Option<usize>, bottom: Option<usize>) {
         let top = top.unwrap_or(1).saturating_sub(1);
@@ -682,7 +705,7 @@ impl Screen {
             *cell = self.cursor.attrs.clone();
             cell.data = ch.to_string();
             if width >= 2 && self.cursor.x + 1 < self.columns {
-                self.buffer[self.cursor.y][self.cursor.x + 1] = self.default_char.clone();
+                self.buffer[self.cursor.y][self.cursor.x + 1] = self.erase_cell();
             }
             self.dirty.insert(self.cursor.y);
         }
@@ -703,8 +726,9 @@ impl Screen {
         let count = count.max(1);
         let x = self.cursor.x;
         let end = (x + count).min(self.columns);
+        let blank = self.erase_cell();
         for i in x..end {
-            self.buffer[self.cursor.y][i] = self.default_char.clone();
+            self.buffer[self.cursor.y][i] = blank.clone();
         }
         self.dirty.insert(self.cursor.y);
     }
@@ -715,8 +739,9 @@ impl Screen {
         for i in x..self.columns - (end - x) {
             self.buffer[self.cursor.y][i] = self.buffer[self.cursor.y][end + (i - x)].clone();
         }
+        let blank = self.erase_cell();
         for i in self.columns - (end - x)..self.columns {
-            self.buffer[self.cursor.y][i] = self.default_char.clone();
+            self.buffer[self.cursor.y][i] = blank.clone();
         }
         self.dirty.insert(self.cursor.y);
     }
@@ -726,16 +751,18 @@ impl Screen {
         for i in (x..self.columns.saturating_sub(count)).rev() {
             self.buffer[self.cursor.y][i + count] = self.buffer[self.cursor.y][i].clone();
         }
+        let blank = self.erase_cell();
         for i in x..(x + count).min(self.columns) {
-            self.buffer[self.cursor.y][i] = self.default_char.clone();
+            self.buffer[self.cursor.y][i] = blank.clone();
         }
         self.dirty.insert(self.cursor.y);
     }
     pub fn erase_in_line(&mut self, mode: usize) {
+        let blank = self.erase_cell();
         match mode {
             0 => {
                 for i in self.cursor.x..self.columns {
-                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                    self.buffer[self.cursor.y][i] = blank.clone();
                 }
             }
             // Clamped: cursor.x == columns is the legal pending-wrap state
@@ -743,12 +770,12 @@ impl Screen {
             // buffer[y][columns] — out of bounds. Cf. erase_in_display below.
             1 => {
                 for i in 0..=self.cursor.x.min(self.columns - 1) {
-                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                    self.buffer[self.cursor.y][i] = blank.clone();
                 }
             }
             _ => {
                 for i in 0..self.columns {
-                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                    self.buffer[self.cursor.y][i] = blank.clone();
                 }
             }
         }
@@ -759,15 +786,16 @@ impl Screen {
     }
     pub fn erase_in_display(&mut self, mode: usize) {
         let (top, bottom) = self.scroll_region();
+        let blank = self.erase_cell();
         match mode {
             0 => {
                 for i in self.cursor.x..self.columns {
-                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                    self.buffer[self.cursor.y][i] = blank.clone();
                 }
                 self.dirty.insert(self.cursor.y);
                 for y in (self.cursor.y + 1)..=bottom {
                     for x in 0..self.columns {
-                        self.buffer[y][x] = self.default_char.clone();
+                        self.buffer[y][x] = blank.clone();
                     }
                     self.dirty.insert(y);
                 }
@@ -775,19 +803,19 @@ impl Screen {
             1 => {
                 for y in top..self.cursor.y {
                     for x in 0..self.columns {
-                        self.buffer[y][x] = self.default_char.clone();
+                        self.buffer[y][x] = blank.clone();
                     }
                     self.dirty.insert(y);
                 }
                 for i in 0..=self.cursor.x.min(self.columns - 1) {
-                    self.buffer[self.cursor.y][i] = self.default_char.clone();
+                    self.buffer[self.cursor.y][i] = blank.clone();
                 }
                 self.dirty.insert(self.cursor.y);
             }
             2 | 3 => {
                 for y in top..=bottom {
                     for x in 0..self.columns {
-                        self.buffer[y][x] = self.default_char.clone();
+                        self.buffer[y][x] = blank.clone();
                     }
                     self.dirty.insert(y);
                 }
@@ -802,7 +830,7 @@ impl Screen {
             return;
         }
         let n = count.min(bottom - self.cursor.y);
-        let default_line = vec![self.default_char.clone(); self.columns];
+        let default_line = vec![self.erase_cell(); self.columns];
         for _ in 0..n {
             for y in (self.cursor.y + 1..=bottom).rev() {
                 self.buffer[y] = self.buffer[y - 1].clone();
@@ -819,7 +847,7 @@ impl Screen {
             return;
         }
         let n = count.min(bottom - self.cursor.y);
-        let default_line = vec![self.default_char.clone(); self.columns];
+        let default_line = vec![self.erase_cell(); self.columns];
         for _ in 0..n {
             for y in self.cursor.y..bottom {
                 self.buffer[y] = std::mem::replace(&mut self.buffer[y + 1], default_line.clone());
@@ -831,7 +859,7 @@ impl Screen {
     }
     pub fn scroll_up(&mut self, rows: usize) {
         let (top, bottom) = self.scroll_region();
-        let default_line = vec![self.default_char.clone(); self.columns];
+        let default_line = vec![self.erase_cell(); self.columns];
         let rows = rows.min(bottom - top + 1);
         // Only a full-screen scroll on the primary buffer feeds the scrollback;
         // alt-screen scrolls and margin-region scrolls (pagers) must not.
@@ -849,7 +877,7 @@ impl Screen {
     }
     pub fn scroll_down(&mut self, rows: usize) {
         let (top, bottom) = self.scroll_region();
-        let default_line = vec![self.default_char.clone(); self.columns];
+        let default_line = vec![self.erase_cell(); self.columns];
         let rows = rows.min(bottom - top + 1);
         for _ in 0..rows {
             for y in (top + 1)..=bottom {
@@ -1509,6 +1537,92 @@ mod tests {
     }
 
     // ── Margins ─────────────────────────────────────────────────────────
+
+    // ── Background color erase (BCE) ──────────────────
+
+    #[test]
+    fn test_bce_erase_keeps_the_block_background() {
+        // A tool paints a background, writes its text and pads/clears the
+        // rest of the block (ESC[K, ESC[20X, ESC[2J): the erased cells keep
+        // the current SGR instead of reverting to the screen defaults.
+        let mut s = make_screen(12, 3);
+        s.select_graphic_rendition(&[48, 2, 45, 27, 61]);
+        s.draw("hi");
+        s.erase_in_line(0); // EL: ConPTY's trimmed tail
+        assert!(
+            s.buffer[0].iter().all(|c| c.bg == "2d1b3d"),
+            "EL lost the block: {:?}",
+            s.buffer[0]
+        );
+        s.cursor.y = 1; // ConPTY writes each row on its own line
+        s.cursor.x = 0;
+        s.erase_characters(20); // ECH: ConPTY's run-of-spaces case
+        assert!(
+            s.buffer[1].iter().all(|c| c.bg == "2d1b3d"),
+            "ECH lost the block: {:?}",
+            s.buffer[1]
+        );
+        s.cursor.y = 2;
+        s.erase_in_display(2); // clear keeps the background too
+        assert!(s.buffer[2].iter().all(|c| c.bg == "2d1b3d"));
+        // Erased cells are blanks, and a reset hands the template back.
+        assert_eq!(s.buffer[0][8].data, " ");
+        s.select_graphic_rendition(&[0]);
+        s.erase_in_line(0); // erases the cursor's line (row 2) onwards
+        assert!(s.buffer[2][2..].iter().all(|c| c.bg == "default"));
+    }
+
+    #[test]
+    fn test_bce_insert_delete_and_scroll_follow_the_background() {
+        let mut s = make_screen(6, 2);
+        s.select_graphic_rendition(&[48, 2, 45, 27, 61]);
+        s.draw("abcd");
+        s.cursor.x = 1;
+        s.insert_characters(2); // ICH: inserted blanks keep the bg
+        assert!(s.buffer[0].iter().all(|c| c.bg == "2d1b3d"));
+        s.delete_characters(2); // DCH: vacated cells too
+        assert!(s.buffer[0].iter().all(|c| c.bg == "2d1b3d"));
+        s.scroll_up(1); // a line scrolled in is part of the colored surface
+        assert!(s.buffer[1].iter().all(|c| c.bg == "2d1b3d"));
+    }
+
+    #[test]
+    fn test_bce_erase_matches_draw_under_decscnm() {
+        // The render path consumes the reverse bit raw and draw() stores the
+        // cursor template verbatim, so erase must copy it verbatim too — no
+        // DECSCNM adjustment — or reverse-video screens get a seam.
+        let mut s = make_screen(6, 2);
+        s.set_private_mode(mo::DECSCNM);
+        s.select_graphic_rendition(&[0]);
+        s.draw("ab");
+        s.erase_in_line(0);
+        assert!(
+            s.buffer[0].iter().all(|c| c.reverse),
+            "EL disagreed with drawn cells under DECSCNM: {:?}",
+            s.buffer[0]
+        );
+        // Same agreement with SGR reverse explicitly cleared.
+        s.cursor.y = 1;
+        s.cursor.x = 0;
+        s.select_graphic_rendition(&[27]);
+        s.draw("cd");
+        s.erase_in_line(0);
+        assert!(
+            s.buffer[1].iter().all(|c| !c.reverse),
+            "EL disagreed with drawn cells after SGR 27: {:?}",
+            s.buffer[1]
+        );
+    }
+
+    #[test]
+    fn test_bce_wide_char_continuation_follows_its_glyph() {
+        // Half a wide glyph painted with a background must not leave a gap.
+        let mut s = make_screen(4, 1);
+        s.select_graphic_rendition(&[48, 2, 45, 27, 61]);
+        s.draw("中"); // two columns wide
+        assert_eq!(s.buffer[0][0].bg, "2d1b3d");
+        assert_eq!(s.buffer[0][1].bg, "2d1b3d");
+    }
 
     #[test]
     fn test_set_margins() {

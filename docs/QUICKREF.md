@@ -205,6 +205,11 @@ branch on the attribute, not on string matching.
 
 ## Terminal Emulation (pyte_rs)
 
+**Background color erase (BCE):** erase and insert operations (`CSI J/K`,
+`CSI X`, `CSI @/P`, `CSI L/M`, scrolling) fill with the *current SGR state*
+— a painted background survives padding and clears, as in xterm/VTE/kitty.
+Full reset (`RIS`) and DECALN still use defaults.
+
 ### Character Cell (`Char`)
 
 | Field | Type |

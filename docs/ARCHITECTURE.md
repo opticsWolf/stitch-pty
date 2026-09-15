@@ -264,6 +264,10 @@ scroll margins, and dirty tracking. Supports:
 - **Unicode**: width-1 and width-2 characters, combining marks, CJK, emoji
 - **Shell cwd**: OSC 7 (`file://host/path`) / OSC 9;9 raw-path tracking
   (`terminal/cwd.rs`), surviving alt-screen switches and RIS
+- **Background color erase**: `Screen::erase_cell()` funnels every erase /
+  insert path (EL/ED/ECH/ICH/DCH/IL/DL, scrolling, wide continuations), so
+  erased cells keep the current SGR instead of screen defaults — matching
+  xterm/VTE/kitty and repairing ConPTY's trimmed-tail re-emits
 - **Drain APIs**: `take_bell()` (coalescing bit), `take_dirty_rows()`
   (sorted, emptied set), `take_events()` (ordered log — see below)
 
