@@ -20,7 +20,7 @@ with scrollback history.
 |---------|-----------|-------------|-----------|
 | Cross-platform | ✅ Linux / macOS / Windows | ❌ POSIX only | ❌ POSIX only |
 | Async I/O | ✅ Native `asyncio` | ❌ Blocking | ❌ Blocking |
-| Zero GIL contention | ✅ PyO3 native async | ✅ | ✅ |
+| GIL released during I/O | ✅ Tokio `.await` | ✅ blocking read | ✅ blocking read |
 | Terminal emulation | ✅ Built-in (scrollback + styled viewport) | ❌ | ❌ |
 | No zombie processes | ✅ Background reaping (50ms polling) | ⚠️ Manual | ⚠️ Manual |
 | Type-safe Python API | ✅ Full mypy support | ✅ | ✅ |
@@ -212,7 +212,7 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `read_timeout` | `await read_timeout(size, timeout) → bytes` | Read with timeout (raises `PtyError` on timeout; `b""` on EOF) |
 | `write` | `await write(data) → int` | Write bytes to PTY, returns bytes written |
 | `write_all` | `await write_all(data) → None` | Write all bytes (handles partial writes) |
-| `resize` | `resize(rows, cols) → None` | Resize terminal (forwards to PTY backend) |
+| `resize` | `resize(rows, cols) → None` | Resize PTY backend (pair with `terminal.resize()` to update the emulator) |
 | `wait` | `await wait() → ExitStatus \| None` | Wait for child exit; returns `ExitStatus` or `None` if already reaped |
 | `terminate` | `await terminate(grace_period=5.0) → None` | SIGTERM → wait → SIGKILL fallback |
 | `kill` | `kill() → None` | Force kill immediately |
@@ -262,7 +262,7 @@ Raw PTY I/O without terminal emulation or child management.
 | `write_all` | `await write_all(data) → None` | Write all bytes |
 | `set_winsize` | `set_winsize(rows, cols, xpixel=0, ypixel=0) → None` | Set window size |
 | `get_winsize` | `get_winsize() → Winsize` | Get current size |
-| `fd` | `property → int` | Raw file descriptor (Unix) / `-1` (Windows) |
+| `raw_fd` | `raw_fd() → int` | Raw file descriptor (Unix) / `-1` (Windows) |
 | `is_open` | `property → bool` | PTY still open? |
 
 ---
@@ -302,6 +302,7 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `poll_events` | `poll_events() → list[tuple[str, object]]` | Drain ordered events (log capped at 1024, drop-oldest) |
 | `resize` | `resize(lines, cols) → None` | Resize screen buffer (column change reflows; zero clamps to 1) |
 | `reset` | `reset() → None` | Reset terminal + clear history |
+| `set_scrollback_lines` | `set_scrollback_lines(n) → None` | Set capacity (trims excess) |
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -313,7 +314,6 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `visible_columns` | `int` | Visible width in columns, O(1) |
 | `history_size` | `int` | Current scrollback line count |
 | `scrollback_lines` | `int` | Scrollback capacity |
-| `set_scrollback_lines` | `set_scrollback_lines(n) → None` | Set capacity (trims excess) |
 
 **Styled Viewport Cell Layout:**
 
@@ -400,7 +400,7 @@ as an `OSError` with `errno == 0` and a stable `kind == "eof"` attribute.
 | **Signal delivery** | All signals sent to process group (`-pgid`) via `nix::sys::signal` |
 | **Resize** | `TIOCSWINSZ` ioctl + `SIGWINCH` to process group via `tcgetpgrp` |
 | **FD leak fix** | `close_random_fds()` closes FDs > 2 via `/dev/fd` (critical for macOS Big Sur) |
-| **Signal reset** | Pre-exec: resets `SIGCHLD`, `SIGHUP`, `SIGINT`, `SIGTERM`, `SIGALRM` to `SIG_DFL` |
+| **Signal reset** | Pre-exec: resets `SIGCHLD`, `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGTERM`, `SIGALRM` to `SIG_DFL` |
 
 **Async I/O Pattern:**
 
@@ -442,7 +442,7 @@ Embedded from [pyte_rs](https://github.com/python-pyte/pyte). Provides VT100/VT2
 
 #### ANSI Parser (`ansi_parser.rs`)
 
-ECMA-48 state machine with 10 states:
+ECMA-48 state machine with 14 states:
 
 | State | Enters On | Exits On |
 |-------|-----------|----------|
@@ -453,7 +453,11 @@ ECMA-48 state machine with 10 states:
 | `CsiIgnore` | `>`–`?` in param | Final byte |
 | `OscString` | ESC `]` | BEL, ST, ESC |
 | `DcsEntry` | ESC `P` | Hook byte |
+| `DcsParam` | `0`–`?` after ESC `P` | Hook byte, intermediates |
+| `DcsIntermediate` | ` `–`/` after DCS params | Hook byte |
+| `DcsIgnore` | Malformed DCS bytes | ST, ESC, CAN, SUB |
 | `DcsPassthrough` | After hook | `\x9c`, ESC, SUB, CAN |
+| `SosPmApcString` | ESC `X` / `^` / `_` (SOS/PM/APC) | ST |
 | `Escape` | ESC | Final byte / intermediate |
 | `EscapeIntermediate` | ESC + ` `–`/` | Final byte |
 
@@ -471,6 +475,8 @@ ECMA-48 state machine with 10 states:
 | **Kitty Keyboard Protocol** | Mode push/pop/replace |
 | **Shell cwd** | OSC 7 / OSC 9;9 tracking, survives alt-screen and reset |
 | **Dirty tracking** | `BTreeSet<usize>` peek (`dirty()`) + drain (`take_dirty_rows()`) + ordered event log (`poll_events()`) + bell flag (`take_bell()`) |
+| **Wrap flags** | Per-row soft-wrap tracking (content-flow semantics — travel with rows, clear on line-unit replace) |
+| **Reflow** | Column resize reflows `history ++ buffer` as one logical sequence (wide glyphs never split, trailing blanks trimmed, bottom-anchored repack, logical cursor anchor); alt-screen conforms only |
 | **Background color erase** | Erased cells keep the current SGR (EL/ED/ECH/ICH/DCH/IL/DL, scrolling); full reset and DECALN still use defaults |
 
 #### Scrollback (`history.rs`)
@@ -495,9 +501,14 @@ Python call (GIL held)
     → Rust value → Python object conversion
 ```
 
-**GIL is acquired only for:**
+**GIL is released across `.await`:** async reads/writes run on tokio threads
+without the GIL; it is reacquired to hand results back to Python.
+
+**GIL is held by:**
 1. Converting `Vec<u8>` → `PyBytes`
 2. Raising `PyErr` exceptions
+3. Synchronous `TerminalState` emulator calls (`feed`, `display`,
+   `styled_viewport`, …) — parsing and screen-building run under the GIL
 
 ### Memory Safety
 
@@ -669,7 +680,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.5.5"
+stitch-pty = "0.9.0"
 ```
 
 To build and test the pure Rust code locally:
@@ -685,7 +696,7 @@ The Python extension is built using `maturin`. The `pyproject.toml` is configure
 
 ```bash
 # Clone
-git clone https://github.com/stitch-pty/stitch-pty.git
+git clone https://github.com/opticsWolf/stitch-pty.git
 cd stitch-pty
 
 # Development build (fast, unoptimized)
@@ -816,7 +827,7 @@ or embedded into this project.
 
 **What was taken:**
 
-- **ECMA-48 state machine** — 10-state ANSI parser (Ground, CsiEntry, CsiParam,
+- **ECMA-48 state machine** — 14-state ANSI parser (Ground, CsiEntry, CsiParam,
   CsiIntermediate, CsiIgnore, OscString, DcsEntry, DcsPassthrough, Escape, EscapeIntermediate)
 - **`Parser` struct** — state, intermediates, params, UTF-8 partial buffer, OSC raw buffer
 - **`Params` struct** — sub-parameter groups with `MAX_PARAMS = 32` limit

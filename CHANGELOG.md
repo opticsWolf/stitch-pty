@@ -17,6 +17,12 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   signals are Ctrl+C plus TERM/KILL-via-`TerminateProcess`, and
   `core_dumped` is always `False` (field reserved); matching touch-ups to
   the ConPTY-loading and Platform-Differences rows.
+- README full audit (fixes 3–10): 14-state parser table (was 10),
+  `PtyMaster.raw_fd()` (was phantom `fd` property), correct clone URL and
+  dependency version, `SIGQUIT` in the signal-reset list,
+  `set_scrollback_lines` moved to methods, reflow/wrap rows in the Screen
+  Buffer table, honest GIL section, and a `session.resize` two-call note
+  (PTY backend only — pair with `terminal.resize()`).
 
 ## [0.9.0] — Reflow on column resize
 
