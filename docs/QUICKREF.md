@@ -155,7 +155,7 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `take_dirty_rows()` | Drain dirty rows (sorted, empty afterwards) |
 | `take_bell()` | Edge-triggered BEL check (resets the flag) |
 | `poll_events()` | Drain ordered events → `list[(tag, payload)]` |
-| `resize(lines, cols)` | Resize screen buffer (zero rows/columns clamp to 1) |
+| `resize(lines, cols)` | Resize screen buffer (column change reflows, bottom-anchored; zero rows/columns clamp to 1) |
 | `reset()` | Reset terminal + clear history |
 | `styled_viewport()` | Full buffer as styled cells: `list[list[(text, fg, bg, attrs_bitmask)]]` |
 | `total_lines()` | Total lines = history + visible |

@@ -549,12 +549,14 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
   continuations with content-flow semantics (travel with rows, clear on
   line-unit replace, never on cursor moves). No behavior change; groundwork
   for v0.9.0 reflow.
-- **v0.9.0 (minor, planned)** — reflow on column resize over
-  `history ++ buffer` as one logical sequence (trim trailing blanks,
-  never split wide glyphs, cursor/scroll anchors), primary screen only,
-  DECSTBM × reflow unspecified, damage via `mark_all_dirty`. No new Python
-  bindings. `alacritty_terminal` migration explicitly deferred (10× cost
-  for what is ~300 lines on the owned model).
+- **v0.9.0 (minor)** — reflow on column resize over `history ++ buffer`
+  as one logical sequence (trim trailing blanks, never split wide glyphs,
+  cursor/scroll anchors), primary screen only, DECSTBM × reflow
+  unspecified, damage via `mark_all_dirty`. No new Python bindings.
+  `alacritty_terminal` migration explicitly deferred (10× cost for what is
+  ~300 lines on the owned model). Landed (§7 row 19) — including two
+  in-version finds: exact-fit lines emitted a phantom blank row, and
+  alt-screen column resize left history at a stale width (proptest).
 
 ---
 
@@ -580,9 +582,9 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 16 | 0.8.0 | ☑ landed — geometry getters + bounded event log (§9) |
 | 17 | 0.8.1 | ☑ landed — background color erase (§9) |
 | 18 | 0.8.2 | ☑ landed — wrap-flag model, no behavior change (§9) |
-| 19 | 0.9.0 | ☐ planned — reflow on column resize + anchors (§9) |
+| 19 | 0.9.0 | ☑ landed — reflow on column resize + anchors (§9) |
 
 All rows landed, one commit per version, all pushed to `dev`.
-Final tally at v0.8.2: **387 Rust tests, 191 Python tests**, all green;
+Final tally at v0.9.0: **399 Rust tests, 192 Python tests**, all green;
 `fmt --check`, `clippy -D warnings` (Windows + Linux + macOS targets),
 `ruff check`, `mypy --strict` all clean.

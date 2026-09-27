@@ -35,6 +35,15 @@ fn pack_cell(c: &Char) -> (String, String, String, u8) {
     (c.data.clone(), c.fg.clone(), c.bg.clone(), a)
 }
 
+/// Drop trailing default-blank cells (uncolored, unstyled spaces) from a
+/// flattened logical line: reflow- or erase-introduced padding, not content.
+/// BCE-colored tails are *not* blank and survive.
+fn trim_trailing_blanks(cells: &mut Vec<Char>) {
+    while cells.last().is_some_and(Char::is_blank) {
+        cells.pop();
+    }
+}
+
 pub struct HistoryScreen {
     inner: Screen,
     history: Vec<Vec<Char>>,
@@ -211,10 +220,8 @@ impl HistoryScreen {
                 self.inner.wrapped[y] = self.inner.wrapped[y - 1];
             }
             if let Some((line, wrapped)) = self.pop_history() {
-                // Conform a stale-width history line the same way resize
-                // does; its flag travels only if the width still matches.
-                // (v0.8.2: widths always match — resize conforms columns
-                // without reflow, so history and buffer share one width.)
+                // History rows always match the buffer width (alt-path
+                // resizes conform them), so the flag travels as-is.
                 self.inner.buffer[top] = line;
                 self.inner.wrapped[top] = wrapped;
             } else {
@@ -348,8 +355,29 @@ impl HistoryScreen {
         let columns = columns.max(1);
         // On the alternate screen there is no scrollback interaction: just
         // reshape both the live alt buffer and the parked primary buffer.
+        // History is conformed (never reflowed) so every parked row stays
+        // rectangular at the new width — otherwise a later
+        // scroll_down_with_history could pop a stale-width line into the
+        // live buffer.
         if self.inner.alt_screen {
+            let old_cols = self.inner.columns;
             self.inner.resize(lines, columns);
+            if columns != old_cols {
+                for line in self.history.iter_mut() {
+                    line.truncate(columns);
+                    while line.len() < columns {
+                        line.push(self.inner.default_char.clone());
+                    }
+                }
+            }
+            return;
+        }
+        // A column change reflows; a row-count-only change keeps the
+        // established shrink-push / grow-nop path below (deliberately never
+        // pulling history back — see the grow comment). The two never mix:
+        // reflow repacks to exactly `lines` visible rows itself.
+        if columns != self.inner.columns {
+            self.reflow(lines, columns);
             return;
         }
         let old_lines = self.inner.lines;
@@ -383,6 +411,204 @@ impl HistoryScreen {
         // blanks back — repeated fast resizes would then drain real scrollback.
         // Reshape columns and pad/truncate to exactly `lines` rows.
         self.inner.resize(lines, columns);
+    }
+
+    /// Reflow primary-screen content to a new column width (v0.9.0).
+    ///
+    /// `history ++ buffer` is treated as one logical sequence. Logical lines
+    /// (rows joined via `wrapped` flags) are flattened — dropping each wide
+    /// glyph's continuation cell and trimming trailing default-blank cells
+    /// (reflow- or erase-introduced padding; BCE-colored tails are *not*
+    /// blank and survive) — then re-split at the new width. A wide glyph
+    /// that would straddle the margin gets a gap pad and starts the next
+    /// row; it is never split. Every emitted row has exactly `columns`
+    /// cells, so row indexing downstream cannot panic.
+    ///
+    /// Repack is bottom-anchored: the last `lines` rows stay visible, the
+    /// rest flows to history (cap-trimmed, oldest first, row-granular). This
+    /// viewport has no scroll offset, so bottom-anchored *is* the scroll
+    /// anchor. The cursor keeps a logical anchor — its logical line plus
+    /// flat cell offset — clamped into view if its content was trimmed.
+    /// Primary screen only; the alt-screen path returns before this runs.
+    /// DECSTBM × reflow is unspecified (margins are cleared, matching the
+    /// row-count path). Damage funnels through `mark_all_dirty`, so Python
+    /// consumers just eat a full redraw; `scrollback_grew` counts the net
+    /// history growth only.
+    fn reflow(&mut self, lines: usize, columns: usize) {
+        let old_cols = self.inner.columns.max(1);
+        // Drain any pending scrolled-off lines first so nothing is lost.
+        if !self.inner.scrolled_off.is_empty() {
+            let pending = std::mem::take(&mut self.inner.scrolled_off);
+            let pending_w = std::mem::take(&mut self.inner.scrolled_off_wrapped);
+            for (i, line) in pending.into_iter().enumerate() {
+                let wrapped = pending_w.get(i).copied().unwrap_or(false);
+                self.push_history(line, wrapped);
+            }
+        }
+        let total_rows = self.history.len() + self.inner.buffer.len();
+        // ── 1. Flatten into logical lines (owned: borrows end here). ──
+        struct LogicalLine {
+            cells: Vec<Char>,
+            start_row: usize,
+        }
+        let mut logical: Vec<LogicalLine> = Vec::new();
+        let mut cur: Vec<Char> = Vec::new();
+        let mut cur_start = 0usize;
+        let mut skip_next_blank = false;
+        for r in 0..total_rows {
+            let (row, wrapped) = if r < self.history.len() {
+                (
+                    &self.history[r],
+                    self.history_wrapped.get(r).copied().unwrap_or(false),
+                )
+            } else {
+                let i = r - self.history.len();
+                (
+                    &self.inner.buffer[i],
+                    self.inner.wrapped.get(i).copied().unwrap_or(false),
+                )
+            };
+            if r > 0 && !wrapped {
+                trim_trailing_blanks(&mut cur);
+                logical.push(LogicalLine {
+                    cells: std::mem::take(&mut cur),
+                    start_row: cur_start,
+                });
+                cur_start = r;
+            }
+            for cell in row.iter() {
+                // A wide glyph's continuation cell is a blank directly
+                // behind it — skip exactly one (a real following space is
+                // kept: the one-shot is consumed by the continuation).
+                if skip_next_blank && cell.data == " " {
+                    skip_next_blank = false;
+                    continue;
+                }
+                skip_next_blank = false;
+                if cell.width() >= 2 {
+                    skip_next_blank = true;
+                }
+                cur.push(cell.clone());
+            }
+        }
+        trim_trailing_blanks(&mut cur);
+        logical.push(LogicalLine {
+            cells: cur,
+            start_row: cur_start,
+        });
+        // ── 2. Cursor anchor: logical line + flat cell offset. ──
+        let cur_row = self.history.len() + self.inner.cursor.y;
+        let mut anchor_line = 0usize;
+        for (i, line) in logical.iter().enumerate() {
+            if line.start_row <= cur_row {
+                anchor_line = i;
+            } else {
+                break;
+            }
+        }
+        let flat = (cur_row.saturating_sub(logical[anchor_line].start_row))
+            .saturating_mul(old_cols)
+            .saturating_add(self.inner.cursor.x.min(old_cols.saturating_sub(1)));
+        // ── 3. Re-split at the new width. ──
+        // Per line: (first reflowed row, trimmed cell count).
+        let mut line_spans: Vec<(usize, usize)> = Vec::with_capacity(logical.len());
+        let mut rows: Vec<(Vec<Char>, bool)> = Vec::new();
+        for line in &logical {
+            let first = rows.len();
+            let mut row: Vec<Char> = Vec::new();
+            let flush = |row: &mut Vec<Char>, rows: &mut Vec<(Vec<Char>, bool)>| {
+                while row.len() < columns {
+                    row.push(Char::blank());
+                }
+                rows.push((std::mem::take(row), true));
+            };
+            for cell in line.cells.iter() {
+                let need = if cell.width() >= 2 { 2 } else { 1 };
+                if row.len() + need > columns {
+                    // Pad a gap rather than stranding a wide glyph with one
+                    // slot left — it starts the next row whole.
+                    if need == 2 && row.len() + 1 == columns {
+                        row.push(Char::blank());
+                    }
+                    flush(&mut row, &mut rows);
+                }
+                row.push(cell.clone());
+                if cell.width() >= 2 && row.len() < columns {
+                    // Continuation cell: the glyph's style, blank text —
+                    // BCE-friendly, and the next flatten skips it again.
+                    let mut cont = cell.clone();
+                    cont.data = " ".to_string();
+                    row.push(cont);
+                }
+                if row.len() == columns {
+                    flush(&mut row, &mut rows);
+                }
+            }
+            // End of logical line: emit the tail — except when the line
+            // ended exactly on a row boundary (cur already flushed above).
+            // An empty line still emits its single blank row, so hard
+            // breaks (including blank lines) survive the round trip.
+            if !row.is_empty() || rows.len() == first {
+                flush(&mut row, &mut rows);
+            }
+            rows[first].1 = false;
+            line_spans.push((first, line.cells.len()));
+        }
+        // ── 4. Overflow trim from the front (row-granular). ──
+        let cap = self.scrollback_lines;
+        let mut overflow = 0usize;
+        if cap > 0 {
+            let max_total = cap + lines;
+            if rows.len() > max_total {
+                overflow = rows.len() - max_total;
+                rows.drain(..overflow);
+                if let Some(first) = rows.first_mut() {
+                    // The new first row lost its start — it is hard now.
+                    first.1 = false;
+                }
+            }
+        }
+        // ── 5. Repack: last `lines` rows visible, rest to history. ──
+        let total = rows.len();
+        let vis_start = total.saturating_sub(lines);
+        let old_hist = self.history.len();
+        self.history = rows[..vis_start].iter().map(|(c, _)| c.clone()).collect();
+        self.history_wrapped = rows[..vis_start].iter().map(|(_, w)| *w).collect();
+        self.trim_history();
+        let mut new_buffer: Vec<Vec<Char>> =
+            rows[vis_start..].iter().map(|(c, _)| c.clone()).collect();
+        let mut new_wrapped: Vec<bool> = rows[vis_start..].iter().map(|(_, w)| *w).collect();
+        // Short screens pad at the bottom, like the row-count grow path.
+        while new_buffer.len() < lines {
+            new_buffer.push(vec![Char::blank(); columns]);
+            new_wrapped.push(false);
+        }
+        self.inner.buffer = new_buffer;
+        self.inner.wrapped = new_wrapped;
+        self.inner.lines = lines;
+        self.inner.columns = columns;
+        self.inner.margins = None;
+        self.inner.init_tabstops();
+        self.inner.dirty.clear();
+        self.inner.mark_all_dirty();
+        if self.history.len() > old_hist {
+            self.scrollback_grew += (self.history.len() - old_hist) as u64;
+        }
+        // ── 6. Restore the cursor from its logical anchor. ──
+        let (a_first, a_len) = line_spans[anchor_line];
+        let flat_in_line = flat.min(a_len.saturating_sub(1));
+        let (new_row, new_col) = if a_first + flat_in_line / columns < overflow {
+            (0usize, 0usize)
+        } else {
+            (
+                a_first + flat_in_line / columns - overflow,
+                flat_in_line % columns,
+            )
+        };
+        self.inner.cursor.y = new_row
+            .saturating_sub(vis_start)
+            .min(lines.saturating_sub(1));
+        self.inner.cursor.x = new_col.min(columns.saturating_sub(1));
     }
     pub fn set_title(&mut self, title: &str) {
         self.inner.set_title(title);
@@ -917,6 +1143,30 @@ mod tests {
             prop_assert!(!hs.inner.alt_screen, "stuck in alt screen");
             prop_assert_eq!(hs.inner.buffer.len(), 10, "parked row count");
         }
+
+        #[test]
+        fn prop_reflow_shape(
+            data in arb_mixed_stream(),
+            cols in 2..30usize,
+            lines in 1..10usize,
+            new_cols in 1..30usize,
+            new_lines in 1..10usize,
+            cap in 0..30usize,
+        ) {
+            // Any column resize must preserve the structural invariants:
+            // rectangular rows at the new width, synced flag vectors,
+            // in-bounds cursor, capped history. Primary screen only —
+            // alt-screen resizes conform without reflowing.
+            let mut hs = make_history(cols, lines, cap);
+            hs.feed(&data);
+            hs.resize(new_lines, new_cols);
+            check_history_shape(&hs, new_cols, new_lines, cap)?;
+            prop_assert_eq!(hs.history_wrapped.len(), hs.history_size());
+            prop_assert_eq!(hs.inner.wrapped.len(), new_lines);
+            for row in hs.history.iter() {
+                prop_assert_eq!(row.len(), new_cols);
+            }
+        }
     }
 
     // ── Event pipeline ───────────────────────────────────────────────
@@ -980,6 +1230,188 @@ mod tests {
             );
         }
     }
+    // ── Reflow on column resize (v0.9.0) ──
+
+    fn row_text(hs: &HistoryScreen, y: usize) -> String {
+        hs.inner.buffer[y].iter().map(|c| c.data.as_str()).collect()
+    }
+
+    #[test]
+    fn test_reflow_narrow_to_wide_rejoins() {
+        let mut hs = make_history(10, 5, 50);
+        hs.feed(&[b'a'; 25]); // rows of 10/10/5, one logical line
+        assert!(hs.inner.wrapped[1] && hs.inner.wrapped[2]);
+        hs.resize(5, 25);
+        assert_eq!(row_text(&hs, 0), "a".repeat(25));
+        assert!(
+            hs.inner.wrapped.iter().all(|&w| !w),
+            "rejoined line starts hard: {:?}",
+            hs.inner.wrapped
+        );
+        assert_eq!(hs.history_size(), 0);
+        // Cursor anchor: was flat offset 25 in a 25-cell line → last cell.
+        assert_eq!((hs.cursor().x, hs.cursor().y), (24, 0));
+        assert_history_wrapped_len(&hs);
+    }
+
+    #[test]
+    fn test_reflow_wide_to_narrow_splits() {
+        // lines=1: no pre-existing blank rows to bottom-anchor against.
+        let mut hs = make_history(20, 1, 50);
+        hs.feed(b"0123456789");
+        hs.resize(1, 5);
+        // Bottom-anchored: the head spills to history, the tail shows.
+        assert_eq!(hs.history_display(), vec!["01234"]);
+        assert_eq!(row_text(&hs, 0), "56789");
+        // Visible row 0 continues the history line — flag says so.
+        assert_eq!(hs.inner.wrapped, vec![true]);
+        assert_history_wrapped_len(&hs);
+    }
+
+    #[test]
+    fn test_reflow_preserves_hard_breaks() {
+        // lines=3: exactly the three fed rows, no blanks in the mix.
+        let mut hs = make_history(10, 3, 50);
+        hs.feed(b"ab\r\ncdefgh\r\nij");
+        hs.resize(4, 4);
+        let got: Vec<String> = (0..4).map(|y| row_text(&hs, y)).collect();
+        assert_eq!(got, vec!["ab  ", "cdef", "gh  ", "ij  "]);
+        assert_eq!(hs.inner.wrapped, vec![false, false, true, false]);
+        assert_eq!(hs.history_size(), 0);
+    }
+
+    #[test]
+    fn test_reflow_round_trip_is_lossless() {
+        // Narrowing pads rows with blanks; widening must trim that padding
+        // back off instead of leaving phantom rows (the trim case).
+        let mut hs = make_history(10, 8, 50);
+        hs.feed(b"hello world, this wraps\r\nsecond line here ok\r\nshort\r\n");
+        let before = hs.display();
+        hs.resize(8, 5);
+        hs.resize(8, 10);
+        assert_eq!(hs.display(), before, "round trip changed content");
+        assert_history_wrapped_len(&hs);
+    }
+
+    #[test]
+    fn test_reflow_never_splits_wide_glyph() {
+        let mut hs = make_history(4, 1, 50);
+        hs.feed("ab\u{4e2d}".as_bytes()); // row: a b 中 cont
+        hs.resize(2, 2);
+        assert_eq!(row_text(&hs, 0), "ab");
+        assert_eq!(hs.inner.buffer[1][0].data, "\u{4e2d}");
+        assert_eq!(hs.inner.wrapped, vec![false, true]);
+    }
+
+    #[test]
+    fn test_reflow_gap_pads_stranded_wide_glyph() {
+        let mut hs = make_history(5, 1, 50);
+        hs.feed("abc\u{4e2d}".as_bytes()); // row: a b c 中 cont
+        hs.resize(4, 4);
+        // 中 needs two slots with one left: gap pad, next row.
+        assert_eq!(row_text(&hs, 0), "abc ");
+        assert_eq!(hs.inner.buffer[1][0].data, "\u{4e2d}");
+        assert_eq!(hs.inner.wrapped, vec![false, true, false, false]);
+    }
+
+    #[test]
+    fn test_reflow_moves_history_and_conforms_widths() {
+        let mut hs = make_history(10, 3, 100);
+        for i in 0..6 {
+            let line = format!("L{i}{}", "x".repeat(23)); // 25 cells
+            hs.feed(line.as_bytes());
+            hs.feed(b"\r\n");
+        }
+        let nonblank_before: String = hs
+            .display()
+            .join("")
+            .chars()
+            .filter(|&c| c != ' ')
+            .collect();
+        hs.resize(3, 7);
+        for row in hs.history.iter().chain(hs.inner.buffer.iter()) {
+            assert_eq!(row.len(), 7, "every row conforms to the new width");
+        }
+        let nonblank_after: String = hs
+            .display()
+            .join("")
+            .chars()
+            .filter(|&c| c != ' ')
+            .collect();
+        assert_eq!(nonblank_after, nonblank_before, "content lost in reflow");
+        assert!(
+            hs.cursor().y < 3,
+            "cursor stays in bounds: {:?}",
+            hs.cursor()
+        );
+        assert_history_wrapped_len(&hs);
+    }
+
+    #[test]
+    fn test_reflow_alt_screen_passthrough() {
+        let mut hs = make_history(10, 4, 50);
+        hs.feed(b"primary");
+        hs.feed(b"\x1b[?1049h"); // enter alt
+        assert!(hs.alt_screen());
+        hs.resize(4, 20); // conform only, no reflow
+        assert!(hs.alt_screen());
+        assert!(hs.inner.wrapped.iter().all(|&w| !w));
+        assert_eq!(hs.inner.buffer[0].len(), 20);
+        hs.feed(b"\x1b[?1049l"); // exit: primary restored, conformed
+        assert!(!hs.alt_screen());
+        assert_eq!(hs.inner.buffer[0].len(), 20);
+        assert_history_wrapped_len(&hs);
+    }
+
+    #[test]
+    fn test_reflow_overflow_trims_oldest_and_clamps_cursor() {
+        let mut hs = make_history(10, 3, 4); // tiny cap forces overflow
+        for _ in 0..8 {
+            hs.feed(&[b'a'; 10]);
+            hs.feed(b"\r\n");
+        }
+        hs.resize(3, 5); // 8 lines × 2 rows = 16 rows, cap 4 + 3 visible
+        assert!(hs.history_size() <= 4, "cap respected");
+        for row in hs.history.iter().chain(hs.inner.buffer.iter()) {
+            assert_eq!(row.len(), 5);
+        }
+        assert!(hs.cursor().y < 3 && hs.cursor().x < 5);
+        assert_history_wrapped_len(&hs);
+    }
+
+    #[test]
+    fn test_reflow_clears_margins() {
+        let mut hs = make_history(10, 4, 50);
+        hs.feed(b"abcdef");
+        hs.set_margins(Some(1), Some(2));
+        hs.resize(4, 5); // DECSTBM × reflow: unspecified, must not corrupt
+        assert!(hs.inner.margins.is_none());
+        assert_history_wrapped_len(&hs);
+        for row in hs.history.iter().chain(hs.inner.buffer.iter()) {
+            assert_eq!(row.len(), 5);
+        }
+    }
+
+    #[test]
+    fn test_reflow_alt_resize_conforms_parked_history() {
+        // Proptest find: a feed ending in alt-screen followed by a column
+        // resize left history at the stale width. The alt path conforms
+        // parked history now (never reflows — primary-screen only).
+        let mut hs = make_history(10, 4, 50);
+        hs.feed(b"line1\r\nline2\r\nline3\r\nline4\r\nline5");
+        assert!(hs.history_size() > 0);
+        hs.feed(b"\x1b[?1049h"); // enter alt
+        hs.resize(4, 6);
+        for row in hs.history.iter() {
+            assert_eq!(row.len(), 6, "parked history must conform");
+        }
+        hs.feed(b"\x1b[?1049l"); // exit: primary restored
+        assert_history_wrapped_len(&hs);
+        for row in hs.history.iter().chain(hs.inner.buffer.iter()) {
+            assert_eq!(row.len(), 6);
+        }
+    }
+
     #[test]
     fn test_scrollback_grew_trails() {
         use crate::terminal::events::TermEvent;

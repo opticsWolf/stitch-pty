@@ -300,7 +300,7 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `take_dirty_rows` | `take_dirty_rows() → list[int]` | Drain dirty rows (sorted, empty afterwards) |
 | `take_bell` | `take_bell() → bool` | Edge-triggered BEL check (resets the flag) |
 | `poll_events` | `poll_events() → list[tuple[str, object]]` | Drain ordered events (log capped at 1024, drop-oldest) |
-| `resize` | `resize(lines, cols) → None` | Resize screen buffer |
+| `resize` | `resize(lines, cols) → None` | Resize screen buffer (column change reflows; zero clamps to 1) |
 | `reset` | `reset() → None` | Reset terminal + clear history |
 
 | Property | Type | Description |

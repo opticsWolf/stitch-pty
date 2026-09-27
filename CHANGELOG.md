@@ -13,6 +13,26 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `visible_columns` and its error table no longer attributes timeouts to
   `IOError`; ARCHITECTURE wrapper paragraph mentions the geometry getters.
 
+## [0.9.0] — Reflow on column resize
+
+### Added
+- `HistoryScreen` reflows on column resize: `history ++ buffer` is treated
+  as one logical sequence (joined via the v0.8.2 wrap flags), flattened
+  and re-split at the new width. Wide glyphs never split (gap pad +
+  next row); trailing default-blank padding is trimmed so narrow→wide
+  round-trips are lossless; BCE-colored tails survive. Repack is
+  bottom-anchored (last `lines` rows stay visible, the rest flows to
+  history cap-trimmed); the cursor keeps a logical anchor (line + flat
+  offset), clamped into view if its content was trimmed. Primary screen
+  only — alt-screen resizes conform without reflowing; DECSTBM × reflow
+  is unspecified (margins cleared). No new Python bindings; damage funnels
+  through `mark_all_dirty`, so consumers eat a full redraw.
+
+### Fixed
+- Alt-screen column resize now conforms parked history to the new width.
+  Previously history kept the stale width, so a later scroll could pop a
+  ragged line into the live buffer (proptest find, fixed in-version).
+
 ## [0.8.2] — Wrap-flag model (reflow groundwork)
 
 ### Added

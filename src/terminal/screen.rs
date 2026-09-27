@@ -236,7 +236,7 @@ impl Screen {
         screen
     }
 
-    fn init_tabstops(&mut self) {
+    pub(crate) fn init_tabstops(&mut self) {
         self.tabstops.clear();
         for col in (8..self.columns).step_by(8) {
             self.tabstops.insert(col);
@@ -536,7 +536,7 @@ impl Screen {
         out
     }
 
-    fn mark_all_dirty(&mut self) {
+    pub(crate) fn mark_all_dirty(&mut self) {
         for y in 0..self.lines {
             self.dirty.insert(y);
         }

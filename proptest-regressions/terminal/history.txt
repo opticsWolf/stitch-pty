@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc aca1eb6df93f60c93ac76685da08c61b25e9672040cc5d35b1002b51d49d87a3 # shrinks to data = [254, 128, 27, 91, 49, 59, 49, 72, 27, 93, 55, 59, 102, 105, 108, 101, 58, 47, 47, 47, 120, 7, 255], cuts = [77], cols = 5, lines = 1, cap = 0
+cc ff46910210ecd6efd4538ba4eb5c03a8285f0bd53055650592ae1eff9e3039b6 # shrinks to data = [10, 27, 91, 63, 49, 48, 52, 57, 104], cols = 3, lines = 1, new_cols = 1, new_lines = 1, cap = 0

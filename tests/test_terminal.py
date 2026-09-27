@@ -323,3 +323,29 @@ async def test_event_log_bounded(idle):
         assert session.poll_events() == []
     finally:
         await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_terminal_reflow_preserves_content(idle):
+    """Column resize reflows instead of truncating (v0.9.0).
+
+    A long logical line splits on narrow (head spills to scrollback,
+    bottom-anchored) and rejoins on wide; the grid stays rectangular.
+    """
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        t = session.terminal
+        t.feed(b"0123456789ABCDEFGHIJ")  # 20 chars, one row at 80 cols
+        t.resize(24, 10)
+        vis = t.visible_display()
+        assert all(len(row) == 10 for row in vis)
+        assert t.history_display()[0] == "0123456789"
+        assert vis[0] == "ABCDEFGHIJ"
+        t.resize(24, 80)
+        vis = t.visible_display()
+        assert len(vis[0]) == 80
+        assert vis[0][:20] == "0123456789ABCDEFGHIJ"
+        assert t.visible_columns == 80
+    finally:
+        await session.terminate()

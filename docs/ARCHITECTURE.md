@@ -269,8 +269,13 @@ scroll margins, and dirty tracking. Supports:
   erased cells keep the current SGR instead of screen defaults — matching
   xterm/VTE/kitty and repairing ConPTY's trimmed-tail re-emits
 - **Soft-wrap tracking**: `Screen::wrapped` flags continuation rows
-  (content-flow semantics — travel with rows, clear on line-unit replace);
-  consumed by reflow, not yet by any renderer
+  (content-flow semantics — travel with rows, clear on line-unit replace)
+- **Reflow**: `HistoryScreen::reflow()` treats `history ++ buffer` as one
+  logical sequence on column resize — flatten (drop wide continuations,
+  trim trailing default-blanks), re-split (never split wide glyphs, every
+  row exactly `columns` cells), bottom-anchored repack, logical cursor
+  anchor; primary screen only, margins cleared, damage via
+  `mark_all_dirty`
 - **Drain APIs**: `take_bell()` (coalescing bit), `take_dirty_rows()`
   (sorted, emptied set), `take_events()` (ordered log — see below)
 
