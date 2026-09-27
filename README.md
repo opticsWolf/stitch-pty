@@ -212,7 +212,7 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `read_timeout` | `await read_timeout(size, timeout) → bytes` | Read with timeout (raises `PtyError` on timeout; `b""` on EOF) |
 | `write` | `await write(data) → int` | Write bytes to PTY, returns bytes written |
 | `write_all` | `await write_all(data) → None` | Write all bytes (handles partial writes) |
-| `resize` | `resize(rows, cols) → None` | Resize PTY backend (pair with `terminal.resize()` to update the emulator) |
+| `resize` | `resize(rows, cols) → None` | Resize PTY backend **and** emulator (reflows on column change) |
 | `wait` | `await wait() → ExitStatus \| None` | Wait for child exit; returns `ExitStatus` or `None` if already reaped |
 | `terminate` | `await terminate(grace_period=5.0) → None` | SIGTERM → wait → SIGKILL fallback |
 | `kill` | `kill() → None` | Force kill immediately |

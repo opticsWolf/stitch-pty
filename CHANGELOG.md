@@ -21,8 +21,21 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `PtyMaster.raw_fd()` (was phantom `fd` property), correct clone URL and
   dependency version, `SIGQUIT` in the signal-reset list,
   `set_scrollback_lines` moved to methods, reflow/wrap rows in the Screen
-  Buffer table, honest GIL section, and a `session.resize` two-call note
-  (PTY backend only — pair with `terminal.resize()`).
+  Buffer table, and an honest GIL section.
+
+## [0.9.1] — Resize forwarding + Windows kill-on-drop
+
+### Fixed
+- `PtySession.resize()` now resizes **both** the PTY backend and the
+  terminal emulator. Previously it only resized the backend, so the
+  emulator kept the old geometry (and `display`/`visible_lines` reported
+  stale numbers) until a separate `terminal.resize()` call — two calls
+  where one was documented. Idempotent for consumers already calling
+  both; reflow rides along on column changes.
+- `WinChildProcess` Drop now terminates a still-running child before
+  closing handles, matching `UnixChildProcess` (SIGKILL + reap). Windows
+  sessions dropped without `terminate()` previously orphaned a live
+  child that could never be reaped (handles already gone).
 
 ## [0.9.0] — Reflow on column resize
 

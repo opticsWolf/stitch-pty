@@ -557,6 +557,19 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
   ~300 lines on the owned model). Landed (§7 row 19) — including two
   in-version finds: exact-fit lines emitted a phantom blank row, and
   alt-screen column resize left history at a stale width (proptest).
+- **v0.9.1 (patch)** — two asymmetry finds from the README audit:
+  (1) `PtySession.resize()` only resized the PTY backend — the emulator
+  kept stale geometry until a separate `terminal.resize()`; now one call
+  does both (backend first, emulator second, reflow rides along).
+  (2) `WinChildProcess` Drop only closed handles — a session dropped
+  without `terminate()` orphaned a live child forever (Unix Drop already
+  SIGKILLs + reaps); Windows now terminates before closing.
+- **Backlog (from 0.9.1 testing)** — blank-scrollback padding artifacts:
+  reflowing a once-blank screen leaves blank logical rows in history, and
+  bottom-anchoring then drifts content down one visible row per
+  prior blank-screen resize. Fix candidate: trim leading blank logical
+  lines — but printed `\n\n` blank lines are indistinguishable from grid
+  padding, so this needs its own semantic decision + proptests (minor).
 
 ---
 
@@ -583,8 +596,9 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 17 | 0.8.1 | ☑ landed — background color erase (§9) |
 | 18 | 0.8.2 | ☑ landed — wrap-flag model, no behavior change (§9) |
 | 19 | 0.9.0 | ☑ landed — reflow on column resize + anchors (§9) |
+| 20 | 0.9.1 | ☑ landed — `session.resize` forwards to emulator; Windows kill-on-drop (§9) |
 
 All rows landed, one commit per version, all pushed to `dev`.
-Final tally at v0.9.0: **399 Rust tests, 192 Python tests**, all green;
+Final tally at v0.9.1: **399 Rust tests, 193 Python tests**, all green;
 `fmt --check`, `clippy -D warnings` (Windows + Linux + macOS targets),
 `ruff check`, `mypy --strict` all clean.

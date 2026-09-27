@@ -349,3 +349,34 @@ async def test_terminal_reflow_preserves_content(idle):
         assert t.visible_columns == 80
     finally:
         await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_session_resize_updates_emulator(idle):
+    """session.resize() drives both backend and emulator (v0.9.1).
+
+    Previously only the PTY backend was resized; the emulator kept the
+    old geometry until a separate terminal.resize() call.
+    """
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        t = session.terminal
+        session.resize(10, 20)
+        assert (t.visible_lines, t.visible_columns) == (10, 20)
+        assert (session.visible_lines, session.visible_columns) == (10, 20)
+        assert all(len(row) == 20 for row in t.visible_display())
+        # Reflow rides along: a wide logical line survives the round trip.
+        t.feed(b"abcdefghijklmnopqrstuvwxyz")  # 26 chars > 20 cols
+        session.resize(10, 40)
+        # Bottom-anchored note: the initial 24x80 -> 10x20 resize pushed 14
+        # blank rows to history (blank hard lines are preserved), so the
+        # shrunken content line lands at visible row 1, not row 0. Pinned
+        # here; trimming blank padding is a future semantic change.
+        assert t.visible_display()[1][:26] == "abcdefghijklmnopqrstuvwxyz"
+        assert (t.visible_lines, t.visible_columns) == (10, 40)
+        # Zero clamps, no panic (v0.7.5 contract, now through session).
+        session.resize(0, 0)
+        assert (t.visible_lines, t.visible_columns) == (1, 1)
+    finally:
+        await session.terminate()

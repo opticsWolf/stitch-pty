@@ -97,7 +97,7 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `await read_timeout(size, timeout)` | Read with timeout (raises `PtyError` on timeout; returns `b""` on EOF) |
 | `await write(data)` | Write bytes to PTY, returns bytes written |
 | `await write_all(data)` | Write all bytes (handles partial writes) |
-| `resize(rows, cols)` | Resize terminal (forwards to PTY backend) |
+| `resize(rows, cols)` | Resize PTY backend + emulator in one call (reflows on column change) |
 | `await terminate(grace_period=5.0)` | SIGTERM → wait → SIGKILL fallback |
 | `kill()` | Force kill |
 | `interrupt()` | Send Ctrl+C (SIGINT) |

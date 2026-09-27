@@ -60,7 +60,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -463,8 +463,13 @@ class PtySession:
         self._inner.interrupt()
 
     def resize(self, rows: int, cols: int) -> None:
-        """Resize the terminal."""
+        """Resize the PTY backend and the terminal emulator.
+
+        One call does both: the child learns the new size (SIGWINCH on
+        POSIX), and the emulator reflows its grid to match (v0.9.1).
+        """
         self._inner.resize(rows, cols)
+        self._terminal.resize(rows, cols)
 
     def send_signal(self, signal_num: int) -> None:
         """Send a custom signal."""

@@ -194,6 +194,12 @@ pub struct WinChildProcess {
 
 impl Drop for WinChildProcess {
     fn drop(&mut self) {
+        // Kill-on-drop, matching `UnixChildProcess` (SIGKILL + reap): a
+        // session dropped without `terminate()` must not orphan a live
+        // child whose handles are about to vanish (unreapable forever).
+        if self.is_running() {
+            let _ = self.do_kill();
+        }
         unsafe {
             let _ = CloseHandle(self.process_handle.0);
             let _ = CloseHandle(self.thread_handle.0);
