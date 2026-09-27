@@ -420,7 +420,7 @@ loop {
 
 | Component | Detail |
 |-----------|--------|
-| **ConPTY loading** | Dynamic `GetProcAddress` from `kernel32.dll` (graceful fallback on older Windows) |
+| **ConPTY loading** | Dynamic `GetProcAddress` from `kernel32.dll` (spawn raises `PtyError` on Windows without ConPTY — no fallback) |
 | **PTY creation** | `CreatePseudoConsole(size, stdin_handle, stdout_handle)` |
 | **Pipe plumbing** | Two `tokio::net::NamedPipeServer` instances (input + output) |
 | **Pipe naming** | `\\.\pipe\stitch-pty-{pid}-{counter}` (unique per instance) |
@@ -859,10 +859,14 @@ stitch-pty's dual licensing.
 
 | Platform | Backend | Signal Support | Resize Signal | Exit Info | Status |
 |----------|---------|----------------|---------------|-----------|--------|
-| **Linux** | POSIX `openpty()` + `fork()` | Full | ✅ `SIGWINCH` | code + signal + core_dumped | ✅ Complete |
-| **macOS** | POSIX `openpty()` + `fork()` | Full | ✅ `SIGWINCH` | code + signal + core_dumped | ✅ Complete |
-| **Windows 10 1809+** | ConPTY + NamedPipes | Ctrl+C only | ❌ No signal | code only | ✅ Complete |
-| **Windows <10** | `CreateProcess` + pipes | ❌ Limited | ❌ | code only | ⚠️ Fallback |
+| **Linux** | POSIX `openpty()` + `fork()` | Full | ✅ `SIGWINCH` | code + signal | ✅ Complete |
+| **macOS** | POSIX `openpty()` + `fork()` | Full | ✅ `SIGWINCH` | code + signal | ✅ Complete |
+| **Windows 10 1809+** | ConPTY + NamedPipes | Ctrl+C, TERM/KILL (terminate) | ❌ No signal | code only | ✅ Complete |
+| **Windows < 1809** | — (spawn raises `PtyError`) | — | — | — | ❌ Unsupported |
+
+> `ExitStatus.core_dumped` exists on all platforms but is always `False`
+> (reserved for future `WCOREDUMP` reporting — the reaper currently
+> discards the core flag).
 
 ### Platform Differences
 
@@ -870,9 +874,9 @@ stitch-pty's dual licensing.
 |---------|-------|---------|
 | PTY backend | `openpty(3)` + `fork()` + `execvpe()` | ConPTY (`CreatePseudoConsole`) + `CreateProcessW` |
 | I/O model | `tokio::AsyncFd` over raw FDs | `tokio::NamedPipeServer` (IOCP) |
-| Signal delivery | Full via `nix::sys::signal` (SIGINT, SIGTERM, SIGKILL, SIGWINCH) | Ctrl+C (`GenerateConsoleCtrlEvent`), SIGTERM/KILL → `TerminateProcess` |
+| Signal delivery | Full via `nix::sys::signal` (SIGINT, SIGTERM, SIGKILL, SIGWINCH) | Ctrl+C (`GenerateConsoleCtrlEvent`), SIGTERM/KILL → `TerminateProcess`, others rejected |
 | Resize signal | `SIGWINCH` forwarded to process group via `tcgetpgrp` | No signal; `ResizePseudoConsole` only |
-| Exit info | `exit_code` + `signal` + `core_dumped` | `exit_code` only |
+| Exit info | `exit_code` + `signal` (`core_dumped` always `False`, reserved) | `exit_code` only |
 | Pipe plumbing | Single FD pair (master/slave) | Two named pipes (input/output) + `connect()` to arm IOCP |
 | Startup handshake | N/A | DSR reply (`\x1b[1;1R`) to conhost before child output flows |
 | FD leak fix | `close_random_fds()` (macOS/Linux) | N/A |

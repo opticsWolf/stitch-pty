@@ -12,6 +12,11 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   QUICKREF `TerminalState` properties gained `visible_lines`/
   `visible_columns` and its error table no longer attributes timeouts to
   `IOError`; ARCHITECTURE wrapper paragraph mentions the geometry getters.
+- README Platform Support table corrected: no `CreateProcess`+pipes
+  fallback exists on pre-1809 Windows (spawn raises `PtyError`), Windows
+  signals are Ctrl+C plus TERM/KILL-via-`TerminateProcess`, and
+  `core_dumped` is always `False` (field reserved); matching touch-ups to
+  the ConPTY-loading and Platform-Differences rows.
 
 ## [0.9.0] — Reflow on column resize
 
