@@ -213,7 +213,7 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `write` | `await write(data) → int` | Write bytes to PTY, returns bytes written |
 | `write_all` | `await write_all(data) → None` | Write all bytes (handles partial writes) |
 | `resize` | `resize(rows, cols) → None` | Resize PTY backend **and** emulator (reflows on column change) |
-| `wait` | `await wait() → ExitStatus \| None` | Wait for child exit; returns `ExitStatus` or `None` if already reaped |
+| `wait` | `await wait(timeout=None) → ExitStatus \| None` | Wait for child exit; returns `ExitStatus` or `None` if already reaped; raises `TimeoutError` past `timeout` |
 | `terminate` | `await terminate(grace_period=5.0) → None` | SIGTERM → wait → SIGKILL fallback |
 | `kill` | `kill() → None` | Force kill immediately |
 | `interrupt` | `interrupt() → None` | Send Ctrl+C (SIGINT on POSIX, `GenerateConsoleCtrlEvent` on Windows) |
@@ -262,7 +262,7 @@ Raw PTY I/O without terminal emulation or child management.
 | `write_all` | `await write_all(data) → None` | Write all bytes |
 | `set_winsize` | `set_winsize(rows, cols, xpixel=0, ypixel=0) → None` | Set window size |
 | `get_winsize` | `get_winsize() → Winsize` | Get current size |
-| `raw_fd` | `raw_fd() → int` | Raw file descriptor (Unix) / `-1` (Windows) |
+| `fd` | `property → int` | Raw file descriptor (Unix) / `-1` (Windows) |
 | `is_open` | `property → bool` | PTY still open? |
 
 ---
@@ -275,7 +275,7 @@ Child process management.
 |-----------------|-----------|-------------|
 | `pid` | `property → int` | Child process PID |
 | `is_running` | `property → bool` | Process still running? |
-| `wait` | `await wait() → ExitStatus \| None` | Wait for exit; returns `ExitStatus` or `None` if already reaped |
+| `wait` | `await wait(timeout=None) → ExitStatus \| None` | Wait for exit; returns `ExitStatus` or `None` if already reaped; raises `TimeoutError` past `timeout` |
 | `terminate` | `await terminate(grace_period=5.0) → None` | SIGTERM → wait → SIGKILL |
 | `kill` | `kill() → None` | Force kill |
 | `interrupt` | `interrupt() → None` | Send Ctrl+C |
@@ -396,7 +396,7 @@ as an `OSError` with `errno == 0` and a stable `kind == "eof"` attribute.
 | **PTY creation** | `openpty(3)` → master/slave pair, `O_NONBLOCK` on master |
 | **Process spawn** | `fork()` → child: `setsid()` + `TIOCSCTTY` + `dup2()`×3 + `execvpe()` |
 | **Async I/O** | `tokio::io::AsyncFd` over raw FD with `try_io` pattern |
-| **Reaping** | Background `tokio::spawn` polls `waitpid(WNOHANG)` every 50ms |
+| **Reaping** | Background `std::thread` polls `waitpid(WNOHANG)` every 50ms (immune to Tokio starvation) |
 | **Signal delivery** | All signals sent to process group (`-pgid`) via `nix::sys::signal` |
 | **Resize** | `TIOCSWINSZ` ioctl + `SIGWINCH` to process group via `tcgetpgrp` |
 | **FD leak fix** | `close_random_fds()` closes FDs > 2 via `/dev/fd` (critical for macOS Big Sur) |

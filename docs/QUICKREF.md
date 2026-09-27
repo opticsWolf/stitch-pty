@@ -198,7 +198,7 @@ branch on the attribute, not on string matching.
 | I/O model | `tokio::AsyncFd` over raw FDs | `tokio::NamedPipeServer` (IOCP) |
 | Signals | Full via `nix::sys::signal` (SIGINT, SIGTERM, SIGKILL, SIGWINCH) | Ctrl+C (`GenerateConsoleCtrlEvent`), SIGTERM/KILL → `TerminateProcess` |
 | Resize signal | `SIGWINCH` forwarded to process group via `tcgetpgrp` | No signal; `ResizePseudoConsole` only |
-| Exit info | `exit_code` + `signal` + `core_dumped` | `exit_code` only |
+| Exit info | `exit_code` + `signal` (`core_dumped` always `False`, reserved) | `exit_code` only |
 | Pipe plumbing | Single FD pair (master/slave) | Two named pipes (input/output) + `connect()` to arm IOCP |
 | Startup handshake | N/A | DSR reply (`\x1b[1;1R`) to conhost before child output flows |
 | Close random FDs | `close_random_fds()` (macOS/Linux FD leak fix) | N/A |
@@ -240,7 +240,7 @@ Full reset (`RIS`) and DECALN still use defaults.
 | `DECTCEM` | private | on | Text cursor visible |
 | `DECSCNM` | private | off | Reverse video |
 | `DECCKM` | private | off | Application keypad |
-| `BRACKETED_PASTE` | private | off | Mouse paste mode |
+| `BRACKETED_PASTE` | private | off | Paste mode |
 | Mouse modes | private | off | 1000/1002/1003/1004 |
 
 ### SGR Color Formats
@@ -296,7 +296,11 @@ Full reset (`RIS`) and DECALN still use defaults.
 | `CsiIgnore` | `>`–`?` in param | Final byte |
 | `OscString` | ESC `]` | BEL, ST, ESC |
 | `DcsEntry` | ESC `P` | Hook byte |
+| `DcsParam` | `0`–`?` after ESC `P` | Hook byte, intermediates |
+| `DcsIntermediate` | ` `–`/` after DCS params | Hook byte |
+| `DcsIgnore` | Malformed DCS bytes | ST, ESC, CAN, SUB |
 | `DcsPassthrough` | After hook | `\x9c`, ESC, SUB, CAN |
+| `SosPmApcString` | ESC `X` / `^` / `_` (SOS/PM/APC) | ST |
 | `Escape` | ESC | Final byte / intermediate |
 | `EscapeIntermediate` | ESC + ` `–`/` | Final byte |
 
@@ -304,7 +308,9 @@ Full reset (`RIS`) and DECALN still use defaults.
 
 - All I/O (`read`, `write`, `wait`, `read_timeout`) runs via `pyo3_async_runtimes::tokio::future_into_py`
 - GIL is released during tokio I/O waits
-- GIL acquired only for: converting buffers to `PyBytes`, raising exceptions
+- GIL is held by: converting buffers to `PyBytes`, raising exceptions,
+  and synchronous `TerminalState` emulator calls (`feed`, `display`,
+  `styled_viewport`, …)
 - `spawn`/`open_pty` are `async` — must `await`
 
 ## Build

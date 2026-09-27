@@ -4,7 +4,7 @@
 
 1. **Cross-platform**: Single codebase supporting Linux, macOS, Windows 10+
 2. **Dual-purpose**: Can be compiled as a standalone Rust crate or a Python extension via the `python` feature flag
-3. **Zero GIL contention**: All blocking operations release the Python GIL (when built as an extension)
+3. **GIL released across `.await`**: blocking I/O releases the Python GIL (when built as an extension)
 4. **No zombie processes**: Platform-specific reaping strategies
 5. **True PTY compliance**: POSIX `openpty` + Windows ConPTY with named pipes
 6. **Terminal emulation**: Built-in VT100/VT220/xterm-compatible screen with scrollback
@@ -129,7 +129,7 @@ kill(pgid, SIGTERM)?;  // Entire process group receives signal
 
 **FD Leak Prevention:** `close_random_fds()` closes all FDs > 2 via `/dev/fd` listing (critical for macOS Big Sur / Linux gnome/mutter).
 
-**Signal Disposition Reset:** Before `execvpe()`, child resets `SIGCHLD`, `SIGHUP`, `SIGINT`, `SIGTERM`, `SIGALRM` to `SIG_DFL` and clears signal mask.
+**Signal Disposition Reset:** Before `execvpe()`, child resets `SIGCHLD`, `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGTERM`, `SIGALRM` to `SIG_DFL` and clears signal mask.
 
 ### Windows Implementation (`platform_windows.rs`)
 
@@ -143,7 +143,8 @@ type PfnCreatePseudoConsole = extern "system" fn(COORD, *mut c_void, *mut c_void
 static mut CREATE_PSEUDO_CONSOLE: Option<PfnCreatePseudoConsole> = None;
 static mut CONPTY_LOADED: bool = false;
 ```
-Graceful degradation on older Windows (returns error if ConPTY unavailable).
+ConPTY is loaded dynamically from kernel32.dll; on Windows without ConPTY
+(pre-1809) `spawn` raises `PtyError` — there is no fallback backend.
 
 **PTY Lifecycle:**
 1. Create Tokio named pipe server for each direction (input + output)
@@ -184,6 +185,8 @@ Embedded from [pyte_rs](https://github.com/python-pyte/pyte). Provides:
 Wraps the internal `ansi_parser::Parser` (ECMA-48 state machine) to translate
 ANSI escape sequences into `Screen` method calls via the `Performer` trait.
 
+The state machine has 14 states:
+
 ```rust
 let mut parser = Parser::new();
 let mut screen = Screen::new(80, 24);
@@ -200,7 +203,11 @@ parser.feed(&mut screen, b"\x1b[31mHello\x1b[0m");
 | `CsiIgnore` | `>`–`?` in param | Final byte |
 | `OscString` | ESC `]` | BEL, ST, ESC |
 | `DcsEntry` | ESC `P` | Hook byte |
+| `DcsParam` | `0`–`?` after ESC `P` | Hook byte, intermediates |
+| `DcsIntermediate` | ` `–`/` after DCS params | Hook byte |
+| `DcsIgnore` | Malformed DCS bytes | ST, ESC, CAN, SUB |
 | `DcsPassthrough` | After hook | `\x9c`, ESC, SUB, CAN |
+| `SosPmApcString` | ESC `X` / `^` / `_` (SOS/PM/APC) | ST |
 | `Escape` | ESC | Final byte / intermediate |
 | `EscapeIntermediate` | ESC + ` `–`/` | Final byte |
 
@@ -321,7 +328,8 @@ Extends `Screen` with a fixed-capacity scrollback history:
 pub struct HistoryScreen {
     inner: Screen,
     history: Vec<Vec<Char>>,
-    scrollback_lines: usize,  // 0 = unlimited
+    history_wrapped: Vec<bool>,   // wrap flags, parallel to history
+    scrollback_lines: usize,      // 0 = unlimited
 }
 ```
 
@@ -336,6 +344,7 @@ pub struct HistoryScreen {
 | `total_lines()` | history_len + visible_lines |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
 | `styled_viewport()` | Full buffer as styled cells |
+| `styled_range(start, count)` | Styled cells for absolute rows `[start, start+count)`, clamped |
 | `dirty()` | Modified row indices (BTreeSet, level-triggered peek) |
 | `take_dirty_rows()` | Drain dirty rows (sorted, empty afterwards) |
 | `take_bell()` | Edge-triggered BEL check (resets the flag) |
@@ -515,7 +524,7 @@ Python exception (PtyError / ProcessError / IOError / PyOSError / PyIOError)
 Delegates to `PtyMaster` + `PtyChild`. Adds:
 | Method | Description |
 |--------|-------------|
-| `resize(rows, cols)` | Convenience wrapper |
+| `resize(rows, cols)` | Convenience wrapper — resizes PTY backend **and** the wrapper's emulator (v0.9.1) |
 | `is_alive` | Child still running? |
 
 **`stitch_pty.PtySession` wrapper additions** (`__init__.py`): an embedded
@@ -614,8 +623,8 @@ GitHub Actions
 
 ### Windows
 
-1. **ConPTY requires Windows 10 version 1809+**. Older Windows falls back to
-   `CreateProcess` with `CREATE_NEW_CONSOLE` (limited PTY functionality).
+1. **ConPTY requires Windows 10 version 1809+**. On older Windows, `spawn`
+   raises `PtyError` — there is no `CreateProcess` fallback.
 
 2. **No Unix signals**: Windows uses `GenerateConsoleCtrlEvent` for Ctrl+C
    and `TerminateProcess` for kill. Custom signals are not supported.

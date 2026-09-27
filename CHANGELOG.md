@@ -18,10 +18,15 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `core_dumped` is always `False` (field reserved); matching touch-ups to
   the ConPTY-loading and Platform-Differences rows.
 - README full audit (fixes 3–10): 14-state parser table (was 10),
-  `PtyMaster.raw_fd()` (was phantom `fd` property), correct clone URL and
-  dependency version, `SIGQUIT` in the signal-reset list,
-  `set_scrollback_lines` moved to methods, reflow/wrap rows in the Screen
-  Buffer table, and an honest GIL section.
+  correct clone URL and dependency version, `SIGQUIT` in the
+  signal-reset list, `set_scrollback_lines` moved to methods,
+  reflow/wrap rows in the Screen Buffer table, and an honest GIL section.
+- ARCHITECTURE + QUICKREF audit: 14-state parser tables, honest GIL
+  wording, `SIGQUIT`, `styled_range` + `history_wrapped` in the
+  HistoryScreen section, `session.resize` forwarding note, Windows
+  no-fallback limitation corrected, `core_dumped` footnotes; README
+  `wait(timeout=None)` rows and the POSIX reaper (`std::thread`, not
+  `tokio::spawn`) fixed after cross-checking QUICKREF.
 
 ## [0.9.1] — Resize forwarding + Windows kill-on-drop
 
