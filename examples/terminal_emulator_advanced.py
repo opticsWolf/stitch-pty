@@ -1453,8 +1453,9 @@ class _AsyncRunner(QObject):
         async def _r():
             if self.session:
                 try:
+                    # One call resizes both the PTY backend and the emulator
+                    # (v0.9.1+); reflow rides along on column changes.
                     self.session.resize(rows, cols)
-                    self.session.terminal.resize(rows, cols)
                     self._emit_frame(force=True)
                 except Exception:
                     pass
@@ -1716,10 +1717,10 @@ class TerminalTab(QWidget):
         try:
             with open(path, "w", encoding="utf-8") as fh:
                 if self.view.frame:
-                    for row in self.view.frame.rows:
-                        fh.write("".join(
-                            (c[0] if c[0] else " ") for c in row).rstrip())
-                        fh.write("\n")
+                    # text_rows is the FULL buffer (history + visible) as
+                    # plain text — frame.rows is only the rendered window.
+                    for line in self.view.frame.text_rows:
+                        fh.write(line.rstrip() + "\n")
         except OSError as e:
             print(f"save failed: {e}", file=sys.stderr)
 

@@ -27,6 +27,11 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   no-fallback limitation corrected, `core_dumped` footnotes; README
   `wait(timeout=None)` rows and the POSIX reaper (`std::thread`, not
   `tokio::spawn`) fixed after cross-checking QUICKREF.
+- Examples audited headless (both data paths smoke-tested live): advanced
+  `save_output` now writes the full buffer (`text_rows`) instead of only
+  the rendered window; both resizers model the v0.9.1 single-call
+  `session.resize()` (backend + emulator) instead of the redundant
+  two-call pattern.
 
 ## [0.9.1] — Resize forwarding + Windows kill-on-drop
 

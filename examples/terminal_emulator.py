@@ -572,8 +572,8 @@ class _AsyncRunner(QObject):
 
     async def _do_resize(self, rows: int, cols: int) -> None:
         if self.session:
+            # One call resizes both the PTY backend and the emulator (v0.9.1+).
             self.session.resize(rows, cols)
-            self.session.terminal.resize(rows, cols)
             self.view_rows = rows
             self._emit_frame()  # refresh after resize
 
