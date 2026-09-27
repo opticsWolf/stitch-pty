@@ -13,6 +13,18 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `visible_columns` and its error table no longer attributes timeouts to
   `IOError`; ARCHITECTURE wrapper paragraph mentions the geometry getters.
 
+## [0.8.2] — Wrap-flag model (reflow groundwork)
+
+### Added
+- Soft-wrap tracking: `Screen.wrapped` (parallel `Vec<bool>`) records which
+  rows are continuations of the previous row via DECAWM wrap, with
+  content-flow semantics — flags travel with rows on scroll/insert/delete
+  and into scrollback, and clear only when a row's content is replaced as
+  a line unit. No behavior change yet: nothing consumes the flags until
+  v0.9.0 reflow. This deliberately deviates from the review sketch (which
+  cleared flags on cursor movement): flags describe content, matching
+  alacritty, so explicit cursor moves leave them intact.
+
 ## [0.8.1] — Background color erase (BCE)
 
 ### Fixed

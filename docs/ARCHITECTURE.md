@@ -268,6 +268,9 @@ scroll margins, and dirty tracking. Supports:
   insert path (EL/ED/ECH/ICH/DCH/IL/DL, scrolling, wide continuations), so
   erased cells keep the current SGR instead of screen defaults — matching
   xterm/VTE/kitty and repairing ConPTY's trimmed-tail re-emits
+- **Soft-wrap tracking**: `Screen::wrapped` flags continuation rows
+  (content-flow semantics — travel with rows, clear on line-unit replace);
+  consumed by reflow, not yet by any renderer
 - **Drain APIs**: `take_bell()` (coalescing bit), `take_dirty_rows()`
   (sorted, emptied set), `take_events()` (ordered log — see below)
 

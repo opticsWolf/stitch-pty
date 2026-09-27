@@ -528,7 +528,7 @@ all fixed in one patch version:
 Governance note: all four are bug fixes / CI changes → single `+0.0.1`
 patch version, one commit.
 
-## 9. Post-plan: integration findings (v0.7.6, v0.8.0, v0.8.1)
+## 9. Post-plan: integration findings (v0.7.6, v0.8.0, v0.8.1, v0.8.2+)
 
 Downstream integration (Kilim surfaces) passed two items back upstream:
 
@@ -545,6 +545,16 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 - **v0.8.1 (patch)** — background color erase: erased/inserted cells keep
   the current SGR (ConPTY trimmed-tail repair); erase copies the template
   verbatim so draw and erase agree under reverse video.
+- **v0.8.2 (patch)** — wrap-flag model: `Screen.wrapped` records soft-wrap
+  continuations with content-flow semantics (travel with rows, clear on
+  line-unit replace, never on cursor moves). No behavior change; groundwork
+  for v0.9.0 reflow.
+- **v0.9.0 (minor, planned)** — reflow on column resize over
+  `history ++ buffer` as one logical sequence (trim trailing blanks,
+  never split wide glyphs, cursor/scroll anchors), primary screen only,
+  DECSTBM × reflow unspecified, damage via `mark_all_dirty`. No new Python
+  bindings. `alacritty_terminal` migration explicitly deferred (10× cost
+  for what is ~300 lines on the owned model).
 
 ---
 
@@ -569,8 +579,10 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 15 | 0.7.6 | ☑ landed — Unix-only clippy lints, CI repair (§9) |
 | 16 | 0.8.0 | ☑ landed — geometry getters + bounded event log (§9) |
 | 17 | 0.8.1 | ☑ landed — background color erase (§9) |
+| 18 | 0.8.2 | ☑ landed — wrap-flag model, no behavior change (§9) |
+| 19 | 0.9.0 | ☐ planned — reflow on column resize + anchors (§9) |
 
 All rows landed, one commit per version, all pushed to `dev`.
-Final tally at v0.8.1: **374 Rust tests, 191 Python tests**, all green;
+Final tally at v0.8.2: **387 Rust tests, 191 Python tests**, all green;
 `fmt --check`, `clippy -D warnings` (Windows + Linux + macOS targets),
 `ruff check`, `mypy --strict` all clean.

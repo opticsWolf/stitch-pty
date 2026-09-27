@@ -133,6 +133,18 @@ pub struct Screen {
     pub columns: usize,
     pub lines: usize,
     pub buffer: Vec<Vec<Char>>,
+    /// Soft-wrap flags, parallel to `buffer`: `wrapped[y]` is true iff row
+    /// `y` is a *continuation* of row `y-1` — content flowed onto it via a
+    /// DECAWM wrap, not a hard line break. Row 0 is always false.
+    ///
+    /// Content-flow semantics: flags describe content, not cursor intent.
+    /// Set at draw-time wrap; moved alongside rows on scroll/insert/delete;
+    /// cleared only when the row's content is replaced as a line unit
+    /// (full-row erase, reset, alt-screen switch, margins change, resize
+    /// conform). Explicit cursor movement never touches them — overwriting
+    /// cells doesn't change the wrap structure. v0.9.0 reflow consumes
+    /// these; v0.8.2 only records them (no behavior change).
+    pub wrapped: Vec<bool>,
     pub cursor: Cursor,
     pub default_char: Char,
     pub mode: Modes,
@@ -161,10 +173,14 @@ pub struct Screen {
     /// Lines that scrolled off the top of a full screen, awaiting capture into
     /// the scrollback history by the owning `HistoryScreen` after each feed.
     pub scrolled_off: Vec<Vec<Char>>,
+    /// Wrap flags parallel to `scrolled_off` — drained together by `feed`.
+    pub scrolled_off_wrapped: Vec<bool>,
     /// Whether the alternate screen buffer is currently active.
     pub alt_screen: bool,
     /// Primary buffer, parked here while the alternate screen is active.
     pub saved_buffer: Option<Vec<Vec<Char>>>,
+    /// Wrap flags parked alongside `saved_buffer`.
+    pub saved_wrapped: Option<Vec<bool>>,
     /// Cursor saved on `?1049h` entry, restored on `?1049l`.
     pub alt_saved_cursor: Option<Cursor>,
 }
@@ -177,6 +193,7 @@ impl Screen {
         let lines = lines.max(1);
         let default_char = Char::blank();
         let buffer = vec![vec![default_char.clone(); columns]; lines];
+        let wrapped = vec![false; lines];
         let mut tabstops = HashSet::new();
         for col in (8..columns).step_by(8) {
             tabstops.insert(col);
@@ -186,6 +203,7 @@ impl Screen {
             columns,
             lines,
             buffer,
+            wrapped,
             cursor: Cursor::default(),
             default_char,
             mode,
@@ -208,8 +226,10 @@ impl Screen {
             keyboard_mode: 0,
             keyboard_mode_stack: Vec::new(),
             scrolled_off: Vec::new(),
+            scrolled_off_wrapped: Vec::new(),
             alt_screen: false,
             saved_buffer: None,
+            saved_wrapped: None,
             alt_saved_cursor: None,
         };
         screen.init_tabstops();
@@ -252,14 +272,17 @@ impl Screen {
         self.keyboard_mode_stack.clear();
         self.init_tabstops();
         self.scrolled_off.clear();
+        self.scrolled_off_wrapped.clear();
         self.alt_screen = false;
         self.saved_buffer = None;
+        self.saved_wrapped = None;
         self.alt_saved_cursor = None;
         self.dirty.clear();
-        for line in &mut self.buffer {
-            for ch in line {
+        for (line, w) in self.buffer.iter_mut().zip(self.wrapped.iter_mut()) {
+            for ch in line.iter_mut() {
                 *ch = self.default_char.clone();
             }
+            *w = false;
         }
         self.mark_all_dirty();
     }
@@ -273,24 +296,31 @@ impl Screen {
         if self.lines == lines && self.columns == columns {
             return;
         }
-        let old_buffer = self
+        let old_flags = std::mem::take(&mut self.wrapped);
+        let mut rows: Vec<(Vec<Char>, bool)> = self
             .buffer
             .drain(..)
-            .map(|line| {
-                line.into_iter()
+            .zip(old_flags.into_iter().chain(std::iter::repeat(false)))
+            .map(|(line, w)| {
+                let row = line
+                    .into_iter()
                     .take(columns)
                     .chain(std::iter::repeat(self.default_char.clone()))
                     .take(columns)
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>();
+                (row, w)
             })
             .take(lines)
-            .collect::<Vec<_>>();
-        let default_line = vec![self.default_char.clone(); columns];
-        self.buffer = old_buffer
-            .into_iter()
-            .chain(std::iter::repeat(default_line))
-            .take(lines)
             .collect();
+        // v0.8.2: no reflow yet — carried flags describe the old layout,
+        // so rows surviving the conform keep theirs while padded rows
+        // start hard. (v0.9.0 recomputes all flags via reflow.)
+        while rows.len() < lines {
+            rows.push((vec![self.default_char.clone(); columns], false));
+        }
+        let (buf, wrap): (Vec<Vec<Char>>, Vec<bool>) = rows.into_iter().unzip();
+        self.buffer = buf;
+        self.wrapped = wrap;
         self.lines = lines;
         self.columns = columns;
         self.margins = None;
@@ -301,6 +331,8 @@ impl Screen {
         self.cursor.y = self.cursor.y.min(self.lines.saturating_sub(1));
         // Keep the parked primary buffer in sync so it restores cleanly on exit.
         if let Some(saved) = self.saved_buffer.take() {
+            let saved_w = self.saved_wrapped.take().unwrap_or_default();
+            self.saved_wrapped = Some(Self::conform_wrapped(saved_w, lines));
             self.saved_buffer = Some(Self::conform_buffer(
                 saved,
                 lines,
@@ -440,6 +472,10 @@ impl Screen {
         }
         let fresh = vec![vec![self.default_char.clone(); self.columns]; self.lines];
         self.saved_buffer = Some(std::mem::replace(&mut self.buffer, fresh));
+        self.saved_wrapped = Some(std::mem::replace(
+            &mut self.wrapped,
+            vec![false; self.lines],
+        ));
         self.alt_screen = true;
         self.push_event(super::events::TermEvent::AltScreen { entered: true });
         self.mark_all_dirty();
@@ -450,7 +486,9 @@ impl Screen {
             return;
         }
         if let Some(buf) = self.saved_buffer.take() {
+            let saved_w = self.saved_wrapped.take().unwrap_or_default();
             self.buffer = Self::conform_buffer(buf, self.lines, self.columns, &self.default_char);
+            self.wrapped = Self::conform_wrapped(saved_w, self.lines);
         }
         self.alt_screen = false;
         if restore_cursor {
@@ -485,6 +523,15 @@ impl Screen {
             .collect();
         while out.len() < lines {
             out.push(vec![default.clone(); columns]);
+        }
+        out
+    }
+
+    /// Conform wrap flags to a row count: truncate survivors, pad hard rows.
+    fn conform_wrapped(flags: Vec<bool>, lines: usize) -> Vec<bool> {
+        let mut out: Vec<bool> = flags.into_iter().take(lines).collect();
+        while out.len() < lines {
+            out.push(false);
         }
         out
     }
@@ -532,10 +579,14 @@ impl Screen {
         let bottom = bottom.unwrap_or(self.lines).saturating_sub(1);
         if top < bottom && bottom < self.lines {
             self.margins = Some(Margins { top, bottom });
+            // Conservative: the scroll region changes what scroll does to
+            // row adjacency, so continuation flags are no longer trustworthy.
+            self.wrapped.fill(false);
         }
     }
     pub fn clear_margins(&mut self) {
         self.margins = None;
+        self.wrapped.fill(false);
     }
     fn scroll_region(&self) -> (usize, usize) {
         match self.margins {
@@ -678,6 +729,7 @@ impl Screen {
             self.cursor.x = 0;
             if self.cursor.y < self.lines - 1 {
                 self.cursor.y += 1;
+                self.wrapped[self.cursor.y] = true;
             }
         }
         if self.cursor.x >= self.columns {
@@ -685,8 +737,11 @@ impl Screen {
                 self.cursor.x = 0;
                 if self.cursor.y < self.lines - 1 {
                     self.cursor.y += 1;
+                    self.wrapped[self.cursor.y] = true;
                 } else if self.cursor.y < self.scroll_region().1 {
                     self.scroll_up(1);
+                    let bottom = self.scroll_region().1;
+                    self.wrapped[bottom] = true;
                 }
             } else if self.cursor.x == self.columns {
                 self.cursor.x = 0;
@@ -773,10 +828,18 @@ impl Screen {
                     self.buffer[self.cursor.y][i] = blank.clone();
                 }
             }
+            2 => {
+                for i in 0..self.columns {
+                    self.buffer[self.cursor.y][i] = blank.clone();
+                }
+                // Whole-row erase replaces the line unit: hard row again.
+                self.wrapped[self.cursor.y] = false;
+            }
             _ => {
                 for i in 0..self.columns {
                     self.buffer[self.cursor.y][i] = blank.clone();
                 }
+                self.wrapped[self.cursor.y] = false;
             }
         }
         self.dirty.insert(self.cursor.y);
@@ -797,6 +860,7 @@ impl Screen {
                     for x in 0..self.columns {
                         self.buffer[y][x] = blank.clone();
                     }
+                    self.wrapped[y] = false;
                     self.dirty.insert(y);
                 }
             }
@@ -805,6 +869,7 @@ impl Screen {
                     for x in 0..self.columns {
                         self.buffer[y][x] = blank.clone();
                     }
+                    self.wrapped[y] = false;
                     self.dirty.insert(y);
                 }
                 for i in 0..=self.cursor.x.min(self.columns - 1) {
@@ -817,6 +882,7 @@ impl Screen {
                     for x in 0..self.columns {
                         self.buffer[y][x] = blank.clone();
                     }
+                    self.wrapped[y] = false;
                     self.dirty.insert(y);
                 }
             }
@@ -834,8 +900,10 @@ impl Screen {
         for _ in 0..n {
             for y in (self.cursor.y + 1..=bottom).rev() {
                 self.buffer[y] = self.buffer[y - 1].clone();
+                self.wrapped[y] = self.wrapped[y - 1];
             }
             self.buffer[self.cursor.y] = default_line.clone();
+            self.wrapped[self.cursor.y] = false;
             self.dirty.insert(self.cursor.y);
         }
         self.cursor.x = 0;
@@ -851,8 +919,10 @@ impl Screen {
         for _ in 0..n {
             for y in self.cursor.y..bottom {
                 self.buffer[y] = std::mem::replace(&mut self.buffer[y + 1], default_line.clone());
+                self.wrapped[y] = self.wrapped[y + 1];
             }
             self.buffer[bottom] = default_line.clone();
+            self.wrapped[bottom] = false;
             self.dirty.insert(self.cursor.y);
         }
         self.cursor.x = 0;
@@ -867,11 +937,14 @@ impl Screen {
         for _ in 0..rows {
             if to_history {
                 self.scrolled_off.push(self.buffer[top].clone());
+                self.scrolled_off_wrapped.push(self.wrapped[top]);
             }
             for y in top..bottom {
                 self.buffer[y] = std::mem::replace(&mut self.buffer[y + 1], default_line.clone());
+                self.wrapped[y] = self.wrapped[y + 1];
             }
             self.buffer[bottom] = default_line.clone();
+            self.wrapped[bottom] = false;
             self.dirty.insert(bottom);
         }
     }
@@ -882,8 +955,10 @@ impl Screen {
         for _ in 0..rows {
             for y in (top + 1)..=bottom {
                 self.buffer[y] = std::mem::replace(&mut self.buffer[y - 1], default_line.clone());
+                self.wrapped[y] = self.wrapped[y - 1];
             }
             self.buffer[top] = default_line.clone();
+            self.wrapped[top] = false;
             self.dirty.insert(top);
         }
     }
@@ -984,6 +1059,7 @@ impl Screen {
                 self.buffer[y][x] = self.default_char.clone();
                 self.buffer[y][x].data = "E".to_string();
             }
+            self.wrapped[y] = false;
             self.dirty.insert(y);
         }
         self.cursor.x = 0;
@@ -1612,6 +1688,169 @@ mod tests {
             "EL disagreed with drawn cells after SGR 27: {:?}",
             s.buffer[1]
         );
+    }
+
+    // ── Wrap flags (v0.8.2: recorded, not yet consumed) ──
+
+    fn assert_wrapped_len(s: &Screen) {
+        assert_eq!(
+            s.wrapped.len(),
+            s.buffer.len(),
+            "wrapped/buffer length desync"
+        );
+    }
+
+    #[test]
+    fn test_wrap_flag_set_on_decawm_wrap() {
+        let mut s = make_screen(4, 3);
+        s.mode.set_private(mo::DECAWM);
+        s.draw("abcd"); // fills row 0, cursor parks at x == columns
+        assert!(!s.wrapped[0], "row 0 starts hard");
+        s.draw("e"); // wraps onto row 1
+        assert!(s.wrapped[1], "wrapped row must be flagged");
+        assert!(!s.wrapped[0] && !s.wrapped[2]);
+        assert_wrapped_len(&s);
+    }
+
+    #[test]
+    fn test_wrap_flag_not_set_without_decawm() {
+        let mut s = make_screen(4, 2);
+        s.mode.clear_private(mo::DECAWM);
+        s.draw("abcde");
+        assert!(
+            s.wrapped.iter().all(|&w| !w),
+            "clamped writes are not soft wraps: {:?}",
+            s.wrapped
+        );
+    }
+
+    #[test]
+    fn test_wrap_flag_set_on_wide_char_pre_wrap() {
+        let mut s = make_screen(4, 2);
+        s.mode.set_private(mo::DECAWM);
+        s.draw("abcd"); // cursor parks at x == columns
+        s.draw("\u{4e2d}"); // 2 cells: pre-wraps onto row 1
+        assert!(s.wrapped[1], "wide pre-wrap must flag the new row");
+    }
+
+    #[test]
+    fn test_wrap_flag_survives_explicit_cursor_moves() {
+        // Content-flow semantics: moving the cursor doesn't change the
+        // wrap structure — only replacing the line unit does.
+        let mut s = make_screen(4, 3);
+        s.mode.set_private(mo::DECAWM);
+        s.draw("abcde");
+        assert!(s.wrapped[1]);
+        s.cursor_position(1, 1);
+        s.carriage_return();
+        s.cursor_up(1);
+        s.cursor_down(1);
+        assert!(s.wrapped[1], "cursor moves must not clear the flag");
+    }
+
+    #[test]
+    fn test_wrap_flag_cleared_by_line_unit_erases() {
+        let mut s = make_screen(4, 3);
+        s.mode.set_private(mo::DECAWM);
+        s.draw("abcde");
+        assert!(s.wrapped[1]);
+        // Partial erases keep the structure.
+        s.cursor_position(2, 2);
+        s.erase_in_line(0);
+        assert!(s.wrapped[1], "EL 0 is partial: flag stays");
+        // Whole-row erase replaces the line unit.
+        s.erase_in_line(2);
+        assert!(!s.wrapped[1], "EL 2 clears the flag");
+        s.cursor_position(1, 1);
+        s.draw("abcdefghi");
+        assert!(s.wrapped[1] && s.wrapped[2]);
+        s.cursor_position(1, 1);
+        s.erase_in_display(2);
+        assert!(
+            s.wrapped.iter().all(|&w| !w),
+            "ED 2 clears all flags: {:?}",
+            s.wrapped
+        );
+    }
+
+    #[test]
+    fn test_wrap_flag_partial_ed_keeps_cursor_row() {
+        let mut s = make_screen(4, 4);
+        s.mode.set_private(mo::DECAWM);
+        s.draw("abcdefghij"); // wraps rows 0->1, 1->2
+        assert!(s.wrapped[1] && s.wrapped[2]);
+        s.cursor_position(2, 1);
+        s.erase_in_display(0); // cursor row partial, rows below full
+        assert!(s.wrapped[1], "cursor row keeps its flag under ED 0");
+        assert!(!s.wrapped[2], "fully cleared rows lose the flag");
+    }
+
+    #[test]
+    fn test_wrap_flags_shift_with_insert_delete_lines() {
+        let mut s = make_screen(4, 4);
+        s.mode.set_private(mo::DECAWM);
+        s.draw("abcdefghij"); // wrapped[1], wrapped[2] set
+        s.cursor_position(1, 1);
+        s.insert_lines(1);
+        assert!(!s.wrapped[0], "inserted row starts hard");
+        assert!(s.wrapped[2], "old row 1 (now row 2) keeps its flag");
+        s.delete_lines(1);
+        assert!(s.wrapped[1], "delete restores the flag to row 1");
+        assert_wrapped_len(&s);
+    }
+
+    #[test]
+    fn test_wrap_flags_rotate_with_scroll() {
+        let mut s = make_screen(4, 3);
+        s.mode.set_private(mo::DECAWM);
+        s.draw("abcde");
+        assert!(s.wrapped[1]);
+        s.scroll_up(1);
+        assert!(s.wrapped[0], "continuation flag rotates with its row");
+        assert!(!s.wrapped[2], "scrolled-in row starts hard");
+        assert_eq!(s.scrolled_off.len(), 1);
+        assert_eq!(s.scrolled_off_wrapped.len(), 1);
+        s.scroll_down(1);
+        assert!(!s.wrapped[0], "scrolled-in top row starts hard");
+        assert_wrapped_len(&s);
+    }
+
+    #[test]
+    fn test_wrap_flags_conformed_on_resize_and_alt() {
+        let mut s = make_screen(4, 3);
+        s.mode.set_private(mo::DECAWM);
+        s.draw("abcde");
+        s.resize(2, 4);
+        assert_eq!(s.wrapped.len(), 2, "flags conform to the new geometry");
+        s.resize(4, 4);
+        assert!(
+            s.wrapped.len() == 4 && !s.wrapped[3],
+            "padded rows start hard"
+        );
+        s.enter_alt_screen(false);
+        assert!(s.wrapped.iter().all(|&w| !w), "alt buffer starts hard");
+        s.exit_alt_screen(false);
+        assert_eq!(s.wrapped.len(), s.buffer.len());
+    }
+
+    #[test]
+    fn test_wrap_flags_cleared_by_margins_reset_decaln() {
+        let mut s = make_screen(4, 3);
+        s.mode.set_private(mo::DECAWM);
+        s.draw("abcde");
+        assert!(s.wrapped[1]);
+        s.set_margins(Some(1), Some(2));
+        assert!(!s.wrapped[1], "margins change invalidates flags");
+        s.draw("abcde");
+        s.clear_margins();
+        assert!(s.wrapped.iter().all(|&w| !w));
+        s.draw("abcde");
+        s.alignment_display();
+        assert!(s.wrapped.iter().all(|&w| !w), "DECALN replaces all rows");
+        s.draw("abcde");
+        s.reset();
+        assert!(s.wrapped.iter().all(|&w| !w), "reset clears flags");
+        assert_wrapped_len(&s);
     }
 
     #[test]

@@ -38,6 +38,9 @@ fn pack_cell(c: &Char) -> (String, String, String, u8) {
 pub struct HistoryScreen {
     inner: Screen,
     history: Vec<Vec<Char>>,
+    /// Wrap flags parallel to `history` — travel with their line on
+    /// push/pop/trim/resize so reflow (v0.9.0) sees one logical sequence.
+    history_wrapped: Vec<bool>,
     scrollback_lines: usize,
     /// Lines that entered scrollback since the last `take_events()` drain.
     scrollback_grew: u64,
@@ -48,6 +51,7 @@ impl HistoryScreen {
         Self {
             inner: Screen::new(columns, lines),
             history: Vec::new(),
+            history_wrapped: Vec::new(),
             scrollback_lines,
             scrollback_grew: 0,
         }
@@ -155,21 +159,26 @@ impl HistoryScreen {
         if self.scrollback_lines > 0 && self.history.len() > self.scrollback_lines {
             let excess = self.history.len() - self.scrollback_lines;
             self.history.drain(..excess);
+            self.history_wrapped.drain(..excess);
         }
     }
 
-    fn push_history(&mut self, line: Vec<Char>) {
+    fn push_history(&mut self, line: Vec<Char>, wrapped: bool) {
         self.history.push(line);
+        self.history_wrapped.push(wrapped);
         self.scrollback_grew += 1;
         self.trim_history();
     }
 
-    fn pop_history(&mut self) -> Option<Vec<Char>> {
-        self.history.pop()
+    fn pop_history(&mut self) -> Option<(Vec<Char>, bool)> {
+        let line = self.history.pop()?;
+        let wrapped = self.history_wrapped.pop().unwrap_or(false);
+        Some((line, wrapped))
     }
 
     pub fn clear_history(&mut self) {
         self.history.clear();
+        self.history_wrapped.clear();
     }
 
     // ── Scroll Operations (with history) ────────────────────────
@@ -180,12 +189,15 @@ impl HistoryScreen {
         for _ in 0..rows {
             if top < self.inner.buffer.len() {
                 let line = self.inner.buffer[top].clone();
-                self.push_history(line);
+                let wrapped = self.inner.wrapped.get(top).copied().unwrap_or(false);
+                self.push_history(line, wrapped);
             }
             for y in top..bottom {
                 self.inner.buffer[y] = self.inner.buffer[y + 1].clone();
+                self.inner.wrapped[y] = self.inner.wrapped[y + 1];
             }
             self.inner.buffer[bottom] = vec![self.inner.default_char.clone(); self.inner.columns];
+            self.inner.wrapped[bottom] = false;
             self.inner.dirty.insert(bottom);
         }
     }
@@ -196,11 +208,18 @@ impl HistoryScreen {
         for _ in 0..rows {
             for y in (top + 1)..=self.scroll_region().1 {
                 self.inner.buffer[y] = self.inner.buffer[y - 1].clone();
+                self.inner.wrapped[y] = self.inner.wrapped[y - 1];
             }
-            if let Some(line) = self.pop_history() {
+            if let Some((line, wrapped)) = self.pop_history() {
+                // Conform a stale-width history line the same way resize
+                // does; its flag travels only if the width still matches.
+                // (v0.8.2: widths always match — resize conforms columns
+                // without reflow, so history and buffer share one width.)
                 self.inner.buffer[top] = line;
+                self.inner.wrapped[top] = wrapped;
             } else {
                 self.inner.buffer[top] = vec![self.inner.default_char.clone(); self.inner.columns];
+                self.inner.wrapped[top] = false;
             }
             self.inner.dirty.insert(top);
         }
@@ -343,11 +362,17 @@ impl HistoryScreen {
             let from_top = excess - from_bottom;
             for _ in 0..from_bottom {
                 self.inner.buffer.pop();
+                self.inner.wrapped.pop();
             }
             for _ in 0..from_top {
                 if !self.inner.buffer.is_empty() {
                     let line = self.inner.buffer.remove(0);
-                    self.push_history(line);
+                    let wrapped = if self.inner.wrapped.is_empty() {
+                        false
+                    } else {
+                        self.inner.wrapped.remove(0)
+                    };
+                    self.push_history(line, wrapped);
                 }
             }
             self.inner.cursor.y = self.inner.cursor.y.saturating_sub(from_top);
@@ -473,8 +498,10 @@ impl HistoryScreen {
         // its scroll-up evicts into Screen::scrolled_off for us to collect.)
         if !self.inner.scrolled_off.is_empty() {
             let lines = std::mem::take(&mut self.inner.scrolled_off);
-            for line in lines {
-                self.push_history(line);
+            let flags = std::mem::take(&mut self.inner.scrolled_off_wrapped);
+            for (i, line) in lines.into_iter().enumerate() {
+                let wrapped = flags.get(i).copied().unwrap_or(false);
+                self.push_history(line, wrapped);
             }
         }
     }
@@ -961,5 +988,70 @@ mod tests {
         let events = hs.take_events();
         assert_eq!(events.last(), Some(&TermEvent::ScrollbackGrew(1)));
         assert!(hs.take_events().is_empty());
+    }
+
+    // ── Wrap flags travel with their line (v0.8.2) ──
+
+    fn assert_history_wrapped_len(hs: &HistoryScreen) {
+        assert_eq!(
+            hs.history_wrapped.len(),
+            hs.history.len(),
+            "history flag/line desync"
+        );
+        assert_eq!(
+            hs.inner.wrapped.len(),
+            hs.inner.buffer.len(),
+            "visible flag/row desync"
+        );
+    }
+
+    #[test]
+    fn test_wrap_flag_flows_into_scrollback_on_scroll() {
+        let mut hs = make_history(4, 2, 10);
+        hs.inner.mode.set_private(mo::DECAWM);
+        // Fill both rows then wrap-scroll: row 0 (hard) exits to history
+        // while the wrapped continuation stays visible.
+        hs.feed(b"abcdefgh"); // rows: "abcd" "efgh", cursor parks
+        hs.feed(b"i"); // wraps onto... row 1 full -> scroll territory
+        assert_history_wrapped_len(&hs);
+        // Force a scroll: cursor to bottom, feed a hard newline worth.
+        hs.feed(b"\r\nX");
+        assert_history_wrapped_len(&hs);
+        // Flags are recorded on visible rows after wrap.
+        let mut hs2 = make_history(4, 2, 10);
+        hs2.inner.mode.set_private(mo::DECAWM);
+        hs2.feed(b"abcde");
+        assert!(
+            hs2.inner.wrapped[1],
+            "feed wrap must flag the continuation row"
+        );
+        assert_history_wrapped_len(&hs2);
+    }
+
+    #[test]
+    fn test_wrap_flag_round_trips_through_history() {
+        let mut hs = make_history(4, 2, 10);
+        hs.inner.mode.set_private(mo::DECAWM);
+        hs.feed(b"abcde"); // wrapped[1] = true
+        assert!(hs.inner.wrapped[1]);
+        hs.scroll_up_with_history(1); // row 0 -> history, row 1 -> row 0
+        assert!(hs.inner.wrapped[0], "flag rotates with its row");
+        assert_history_wrapped_len(&hs);
+        hs.scroll_down_with_history(1); // history line back on top
+        assert_history_wrapped_len(&hs);
+    }
+
+    #[test]
+    fn test_wrap_flag_carried_on_row_shrink() {
+        let mut hs = make_history(4, 3, 10);
+        hs.inner.mode.set_private(mo::DECAWM);
+        hs.feed(b"abcde"); // wrapped[1] = true
+        hs.cursor_position(3, 1); // pin cursor to the bottom
+        hs.resize(1, 4); // excess 2, all from the top
+        assert_history_wrapped_len(&hs);
+        assert_eq!(hs.history_size(), 2);
+        // Row 0 was hard, row 1 was a continuation — flags travel intact.
+        assert_eq!(hs.history_wrapped, vec![false, true]);
+        assert_eq!(hs.inner.wrapped.len(), hs.inner.buffer.len());
     }
 }
