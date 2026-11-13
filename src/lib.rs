@@ -2,6 +2,7 @@
 //!
 //! Architecture:
 //! - PTY layer: `platform` (PtyBackend/ChildBackend traits) → unix/windows
+//! - Session layer: `session` (Rust `PtySession`, no PyO3 required)
 //! - Terminal layer: `terminal` (pyte_rs: parser + screen + history)
 //! - Python API: `python_api` + `terminal_api` (PyO3 bindings)
 //!
@@ -19,6 +20,11 @@ mod platform_windows;
 // Terminal emulation (embedded pyte_rs)
 pub mod terminal;
 pub use terminal::{Char, Cursor, HistoryScreen, Parser, Screen};
+
+// High-level Rust session API
+pub mod session;
+pub use session::PtySession;
+pub use winsize::Winsize;
 
 // Cross-platform modules
 pub mod async_io;

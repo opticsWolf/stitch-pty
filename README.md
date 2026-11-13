@@ -32,6 +32,7 @@ with scrollback history.
 - [Why stitch-pty?](#why-stitch-pty)
 - [Table of Contents](#table-of-contents)
 - [Quick Start](#quick-start)
+- [Rust API](#rust-api)
 - [Installation](#installation)
 - [API Reference](#api-reference)
   - [Core Functions](#core-functions)
@@ -97,6 +98,47 @@ async def main():
 
 asyncio.run(main())
 ```
+
+---
+
+## Rust API
+
+The PTY and emulator layers are usable without PyO3. `PtySession` assembles
+the platform handles and adds the helpers the Python layer has (`write_all`,
+`read_timeout`, `terminate`); the terminal emulator stays separate so a
+multiplexer can own one screen per pane:
+
+```rust
+use stitch_pty::{HistoryScreen, PtySession, Winsize};
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let session = PtySession::spawn(
+        "bash",
+        &["-i".to_string()],
+        Some(Winsize::new(24, 80, 0, 0)),
+        None,
+    )
+    .await?;
+
+    let mut screen = HistoryScreen::new(80, 24, 1000);
+    let mut buf = [0u8; 4096];
+    let n = session
+        .read_timeout(&mut buf, Duration::from_secs(1))
+        .await?;
+    screen.feed(&buf[..n]);          // ANSI → cells + scrollback
+    println!("{:?}", screen.visible_display());
+
+    session.write_all(b"echo hello\n").await?;
+    session.terminate(Duration::from_secs(2)).await?;
+    Ok(())
+}
+```
+
+`PtySession::spawn` inherits the parent environment; an empty `env` slice
+passed to `PtySession::spawn_with_env` (or `platform::spawn_platform`) does
+the same. EOF is reported as `Ok(0)` from `read` / `read_timeout`.
 
 ---
 
