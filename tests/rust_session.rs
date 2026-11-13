@@ -4,6 +4,7 @@
 //! Windows); CI executes them on all three platforms.
 
 use std::time::Duration;
+use stitch_pty::platform::open_pty_platform;
 use stitch_pty::{PtySession, Winsize};
 
 fn size() -> Option<Winsize> {
@@ -147,6 +148,24 @@ async fn explicit_env_replaces_parent_environment() {
         status.success(),
         "explicit env was merged with the parent: {status}"
     );
+}
+
+#[tokio::test]
+async fn default_winsize_is_24x80() {
+    let (program, args) = shell("exit 0");
+    let session = PtySession::spawn(program, &args, None, None)
+        .await
+        .expect("spawn");
+    let ws = session.get_winsize().expect("get_winsize");
+    assert_eq!((ws.rows, ws.cols), (24, 80));
+    assert!(session.wait().await.is_some());
+}
+
+#[tokio::test]
+async fn open_pty_defaults_to_24x80() {
+    let pty = open_pty_platform(None).await.expect("open_pty");
+    let ws = pty.get_winsize().expect("get_winsize");
+    assert_eq!((ws.rows, ws.cols), (24, 80));
 }
 
 #[tokio::test]

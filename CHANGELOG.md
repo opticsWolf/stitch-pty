@@ -33,6 +33,9 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `PtySession` integration tests.
 
 ### Fixed
+- `spawn_platform`/`open_pty_platform` now apply the documented 24×80
+  default when `winsize` is `None`. The Unix backend previously passed
+  `None` to `openpty(3)`, which left the kernel's 0×0 size.
 - `write_all` returns `WriteZero` instead of looping forever when a
   backend reports a zero-byte write.
 - Bumped `async-trait` to 0.1.92 in `Cargo.lock`; 0.1.91 trips
