@@ -85,6 +85,19 @@ async fn spawn_read_wait_reports_exit_status() {
     assert!(status.success(), "unexpected exit status: {status}");
 }
 
+#[tokio::test]
+async fn wait_is_repeatable_after_exit() {
+    let (program, args) = shell("exit 0");
+    let session = PtySession::spawn(program, &args, size(), None)
+        .await
+        .expect("spawn");
+
+    let first = session.wait().await.expect("first wait");
+    let second = session.wait().await.expect("second wait");
+    assert_eq!(first.exit_code(), second.exit_code());
+    assert_eq!(first.success(), second.success());
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn read_reports_eof_after_child_exit_on_unix() {
@@ -306,6 +319,40 @@ async fn read_timeout_returns_timeout_without_killing_the_session() {
         .terminate(Duration::from_secs(2))
         .await
         .expect("terminate");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn terminate_escalates_when_sigterm_is_ignored() {
+    // The shell ignores SIGTERM (and `sleep` inherits SIG_IGN), so terminate
+    // must exhaust the grace period and escalate to SIGKILL.
+    let session = PtySession::spawn(
+        "sh",
+        &[
+            "-c".into(),
+            "trap '' TERM; while :; do sleep 1; done".into(),
+        ],
+        size(),
+        None,
+    )
+    .await
+    .expect("spawn");
+
+    let started = std::time::Instant::now();
+    session
+        .terminate(Duration::from_millis(200))
+        .await
+        .expect("terminate");
+
+    assert!(
+        !session.is_alive(),
+        "SIGTERM-ignoring child survived terminate()"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "terminate() took {:?}",
+        started.elapsed()
+    );
 }
 
 #[tokio::test]
