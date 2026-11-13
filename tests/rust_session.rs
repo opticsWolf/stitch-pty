@@ -97,7 +97,10 @@ async fn empty_env_inherits_parent_environment() {
 
 #[tokio::test]
 async fn resize_updates_pty_winsize() {
-    let (program, args) = interactive_shell();
+    // Use a non-interactive child: resize is a PTY-level operation, and
+    // interactive shells on macOS keep job-control state that makes the
+    // post-terminate liveness assertion timing-dependent.
+    let (program, args) = quiet_long_running();
     let session = PtySession::spawn(program, &args, size(), None)
         .await
         .expect("spawn");
