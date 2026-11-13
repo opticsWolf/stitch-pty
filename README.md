@@ -136,9 +136,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`PtySession::spawn` inherits the parent environment; an empty `env` slice
-passed to `PtySession::spawn_with_env` (or `platform::spawn_platform`) does
-the same. EOF is reported as `Ok(0)` from `read` / `read_timeout`.
+`PtySession::spawn` inherits the parent environment. `spawn_with_env` takes
+the complete environment, so an empty slice is an empty environment; the
+lower-level `platform::spawn_platform` uses `None` to inherit and
+`Some(&[])` for an empty environment. EOF is reported as `Ok(0)` from
+`read` / `read_timeout`.
 
 ---
 
@@ -172,7 +174,7 @@ Spawn a program in a PTY and return a session handle.
 |-----------|------|---------|-------------|
 | `program` | `str` | — | The executable to run |
 | `args` | `list[str]` | `[]` | Command-line arguments |
-| `env` | `dict[str, str]` | `None` | Environment variables (inherits from parent if `None`) |
+| `env` | `dict[str, str]` | `None` | Child environment. `None` inherits the parent; `{}` is empty. |
 | `winsize` | `Winsize \| None` | Auto-detected | Initial terminal size (defaults to 24×80) |
 | `scrollback` | `int` | `1000` | Terminal scrollback capacity in lines |
 | `raw_output_cap` | `int \| None` | `1_048_576` | Max bytes retained in `session.raw_output` (`None` = unbounded) |

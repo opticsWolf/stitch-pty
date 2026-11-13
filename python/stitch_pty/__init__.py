@@ -722,7 +722,8 @@ async def spawn(
     Args:
         program: The executable to run.
         args: Command-line arguments.
-        env: Environment variables. If None, inherits from parent.
+        env: Child environment. If None, inherits from the parent; an empty
+            dict spawns with an empty environment.
         winsize: Initial terminal size. Defaults to 24x80.
         scrollback: Terminal scrollback capacity in lines.
         raw_output_cap: Max bytes retained in ``session.raw_output``

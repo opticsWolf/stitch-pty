@@ -62,13 +62,16 @@ impl PtySession {
         winsize: Option<Winsize>,
         cwd: Option<&str>,
     ) -> PtyResult<Self> {
-        Self::spawn_with_env(program, args, &[], winsize, cwd).await
+        let (pty, child) =
+            crate::platform::spawn_platform(program, args, None, winsize, cwd).await?;
+        Ok(Self { pty, child })
     }
 
     /// Spawn `program` with an explicit environment.
     ///
-    /// An empty `env` inherits the parent environment on both platforms; see
-    /// [`crate::platform::spawn_platform`] for why that is normalized.
+    /// The slice is the complete child environment — it is not merged with the
+    /// parent's. An empty slice spawns with an empty environment; use
+    /// [`PtySession::spawn`] to inherit the parent environment instead.
     pub async fn spawn_with_env(
         program: &str,
         args: &[String],
@@ -77,7 +80,7 @@ impl PtySession {
         cwd: Option<&str>,
     ) -> PtyResult<Self> {
         let (pty, child) =
-            crate::platform::spawn_platform(program, args, env, winsize, cwd).await?;
+            crate::platform::spawn_platform(program, args, Some(env), winsize, cwd).await?;
         Ok(Self { pty, child })
     }
 

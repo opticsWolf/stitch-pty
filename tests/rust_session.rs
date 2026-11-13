@@ -72,10 +72,11 @@ async fn spawn_read_wait_reports_exit_status() {
 }
 
 #[tokio::test]
-async fn empty_env_inherits_parent_environment() {
-    // Regression test: on Unix, `spawn_platform(..., env = &[])` used to pass
-    // an empty envp, so the child lost PATH/HOME/TERM. Windows already
-    // inherited. Both must now inherit.
+async fn spawn_inherits_parent_environment() {
+    // Regression test: `PtySession::spawn` passes `None`, and the Unix backend
+    // builds `envp` from `vars_os()`. An empty slice used to be passed as an
+    // empty `envp`, so the child lost PATH/HOME/TERM. Windows inherited via a
+    // null environment block. Both must inherit now.
     let (program, args) = if cfg!(windows) {
         (
             "cmd.exe",
@@ -92,6 +93,59 @@ async fn empty_env_inherits_parent_environment() {
     assert!(
         status.success(),
         "child did not inherit PATH from the parent: {status}"
+    );
+}
+
+#[tokio::test]
+async fn explicit_empty_env_is_empty() {
+    // `Some(&[])` must be an empty environment on both platforms, not an
+    // accidental "inherit". Windows needs an explicit `\0\0` block for this.
+    let (program, args) = if cfg!(windows) {
+        (
+            "cmd.exe",
+            vec!["/C".into(), "if defined PATH (exit 1) else (exit 0)".into()],
+        )
+    } else {
+        ("sh", vec!["-c".into(), "test -z \"$PATH\"".into()])
+    };
+
+    let session = PtySession::spawn_with_env(program, &args, &[], size(), None)
+        .await
+        .expect("spawn");
+    let status = session.wait().await.expect("child should be reaped");
+    assert!(status.success(), "empty env leaked PATH: {status}");
+}
+
+#[tokio::test]
+async fn explicit_env_replaces_parent_environment() {
+    // A supplied env is the complete environment: inherited variables such as
+    // PATH must be gone, and the supplied variable must be present.
+    let env = vec![("STITCH_TEST".to_string(), "1".to_string())];
+    let (program, args) = if cfg!(windows) {
+        (
+            "cmd.exe",
+            vec![
+                "/C".into(),
+                "if defined PATH (exit 1) & if \"%STITCH_TEST%\"==\"1\" (exit 0) & exit 2".into(),
+            ],
+        )
+    } else {
+        (
+            "sh",
+            vec![
+                "-c".into(),
+                "test -z \"$PATH\" && test \"$STITCH_TEST\" = 1".into(),
+            ],
+        )
+    };
+
+    let session = PtySession::spawn_with_env(program, &args, &env, size(), None)
+        .await
+        .expect("spawn");
+    let status = session.wait().await.expect("child should be reaped");
+    assert!(
+        status.success(),
+        "explicit env was merged with the parent: {status}"
     );
 }
 

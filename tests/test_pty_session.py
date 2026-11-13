@@ -36,6 +36,34 @@ async def test_spawn_with_env(shell):
 
 
 @pytest.mark.asyncio
+async def test_spawn_explicit_env_is_exact():
+    code = (
+        "import os, sys;"
+        "sys.exit(0 if 'PATH' not in os.environ"
+        " and os.environ.get('STITCH_TEST') == '1' else 1)"
+    )
+    session = await spawn(sys.executable, ["-c", code], env={"STITCH_TEST": "1"})
+    try:
+        status = await session.wait()
+        assert status is not None
+        assert status.exit_code == 0
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
+async def test_spawn_empty_env_is_empty():
+    code = "import os, sys; sys.exit(0 if 'PATH' not in os.environ else 1)"
+    session = await spawn(sys.executable, ["-c", code], env={})
+    try:
+        status = await session.wait()
+        assert status is not None
+        assert status.exit_code == 0
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
 async def test_spawn_with_winsize():
     session = await spawn("bash", ["-c", "echo hi"], winsize=Winsize(30, 100))
     try:
