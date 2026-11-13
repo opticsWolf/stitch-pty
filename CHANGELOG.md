@@ -32,6 +32,9 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 - Bumped `async-trait` to 0.1.92 in `Cargo.lock`; 0.1.91 trips
   `clippy::double_must_use` on current stable, so `cargo clippy -- -D
   warnings` could not pass.
+- `Screen::erase_characters` now uses an iterator instead of an index loop,
+  which Rust 1.100's `clippy::needless_range_loop` rejects under CI's
+  `-D warnings` (pre-existing failure, unrelated to the session API).
 
 ### Changed
 - Docs consistency sweep: README `TerminalState` table gained the
