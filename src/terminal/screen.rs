@@ -780,12 +780,13 @@ impl Screen {
     pub fn erase_characters(&mut self, count: usize) {
         let count = count.max(1);
         let x = self.cursor.x;
+        let y = self.cursor.y;
         let end = (x + count).min(self.columns);
         let blank = self.erase_cell();
-        for i in x..end {
-            self.buffer[self.cursor.y][i] = blank.clone();
+        for cell in self.buffer[y].iter_mut().take(end).skip(x) {
+            *cell = blank.clone();
         }
-        self.dirty.insert(self.cursor.y);
+        self.dirty.insert(y);
     }
     pub fn delete_characters(&mut self, count: usize) {
         let count = count.max(1);
