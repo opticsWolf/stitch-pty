@@ -32,21 +32,10 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   (it used to inherit on Windows and be empty on Unix).
 - README gained a Rust quick start; `cargo test` now runs cross-platform
   `PtySession` integration tests.
-
-### Fixed
-- `spawn_platform`/`open_pty_platform` now apply the documented 24×80
-  default when `winsize` is `None`. The Unix backend previously passed
-  `None` to `openpty(3)`, which left the kernel's 0×0 size.
-- `write_all` returns `WriteZero` instead of looping forever when a
-  backend reports a zero-byte write.
-- Bumped `async-trait` to 0.1.92 in `Cargo.lock`; 0.1.91 trips
-  `clippy::double_must_use` on current stable, so `cargo clippy -- -D
-  warnings` could not pass.
-- `Screen::erase_characters` now uses an iterator instead of an index loop,
-  which Rust 1.100's `clippy::needless_range_loop` rejects under CI's
-  `-D warnings` (pre-existing failure, unrelated to the session API).
-
-### Changed
+- `PtySession` docs corrected: Windows EOF (the ConPTY pipe can stay
+  open after exit), repeated `wait()` returns the same status,
+  kill-on-drop, `Arc` handle cloning, `terminate`'s best-effort
+  semantics, and Windows `interrupt()` being best-effort.
 - Docs consistency sweep: README `TerminalState` table gained the
   `take_bell`/`take_dirty_rows`/`poll_events`/`cwd` rows it was missing;
   QUICKREF `TerminalState` properties gained `visible_lines`/
@@ -54,7 +43,7 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `IOError`; ARCHITECTURE wrapper paragraph mentions the geometry getters.
 - README Platform Support table corrected: no `CreateProcess`+pipes
   fallback exists on pre-1809 Windows (spawn raises `PtyError`), Windows
-  signals are Ctrl+C plus TERM/KILL-via-`TerminateProcess`, and
+  signals are best-effort Ctrl+C plus TERM/KILL-via-`TerminateProcess`, and
   `core_dumped` is always `False` (field reserved); matching touch-ups to
   the ConPTY-loading and Platform-Differences rows.
 - README full audit (fixes 3–10): 14-state parser table (was 10),
@@ -72,6 +61,19 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   the rendered window; both resizers model the v0.9.1 single-call
   `session.resize()` (backend + emulator) instead of the redundant
   two-call pattern.
+
+### Fixed
+- `spawn_platform`/`open_pty_platform` now apply the documented 24×80
+  default when `winsize` is `None`. The Unix backend previously passed
+  `None` to `openpty(3)`, which left the kernel's 0×0 size.
+- `write_all` returns `WriteZero` instead of looping forever when a
+  backend reports a zero-byte write.
+- Bumped `async-trait` to 0.1.92 in `Cargo.lock`; 0.1.91 trips
+  `clippy::double_must_use` on current stable, so `cargo clippy -- -D
+  warnings` could not pass.
+- `Screen::erase_characters` now uses an iterator instead of an index loop,
+  which Rust 1.100's `clippy::needless_range_loop` rejects under CI's
+  `-D warnings` (pre-existing failure, unrelated to the session API).
 
 ## [0.9.1] — Resize forwarding + Windows kill-on-drop
 

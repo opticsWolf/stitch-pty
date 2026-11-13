@@ -80,7 +80,10 @@ Async. Opens a raw PTY pair without spawning a child.
 
 ### `ExitStatus` (returned by `await wait(timeout=None)`)
 
-Frozen dataclass. `await wait()` returns `None` if the child was already reaped, or raises `TimeoutError` if the child does not exit within `timeout` seconds.
+Frozen dataclass. `await wait()` returns the exit status (repeated calls
+after exit return the same status); `None` only if the status was lost
+(e.g. reaped externally). Raises `TimeoutError` if the child does not
+exit within `timeout` seconds.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -100,7 +103,7 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `resize(rows, cols)` | Resize PTY backend + emulator in one call (reflows on column change) |
 | `await terminate(grace_period=5.0)` | SIGTERM → wait → SIGKILL fallback |
 | `kill()` | Force kill |
-| `interrupt()` | Send Ctrl+C (SIGINT) |
+| `interrupt()` | Send Ctrl+C (SIGINT); Windows best-effort |
 | `send_signal(num)` | Send signal number |
 | `await wait(timeout=None)` | Wait for exit, returns `ExitStatus \| None`. Raises `TimeoutError` on timeout. |
 | `await interact(input_data=None, timeout=None)` | Write input, read until EOF |
@@ -140,7 +143,7 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | `await wait()` | Wait for exit, returns `ExitStatus \| None` |
 | `await terminate(grace_period)` | SIGTERM → wait → SIGKILL fallback |
 | `kill()` | Force kill |
-| `interrupt()` | Send Ctrl+C |
+| `interrupt()` | Send Ctrl+C (Windows best-effort) |
 | `send_signal(num)` | Send signal number |
 
 ### `TerminalState` — terminal emulation state
@@ -199,7 +202,7 @@ exit.
 |---------|-------|---------|
 | PTY backend | `openpty(3)` + `fork()` + `execvpe()` | ConPTY (kernel32.dll) + tokio NamedPipes |
 | I/O model | `tokio::AsyncFd` over raw FDs | `tokio::NamedPipeServer` (IOCP) |
-| Signals | Full via `nix::sys::signal` (SIGINT, SIGTERM, SIGKILL, SIGWINCH) | Ctrl+C (`GenerateConsoleCtrlEvent`), SIGTERM/KILL → `TerminateProcess` |
+| Signals | Full via `nix::sys::signal` (SIGINT, SIGTERM, SIGKILL, SIGWINCH) | Ctrl+C best-effort (`GenerateConsoleCtrlEvent`; targets caller's group), SIGTERM/KILL → `TerminateProcess` |
 | Resize signal | `SIGWINCH` forwarded to process group via `tcgetpgrp` | No signal; `ResizePseudoConsole` only |
 | Exit info | `exit_code` + `signal` (`core_dumped` always `False`, reserved) | `exit_code` only |
 | Pipe plumbing | Single FD pair (master/slave) | Two named pipes (input/output) + `connect()` to arm IOCP |

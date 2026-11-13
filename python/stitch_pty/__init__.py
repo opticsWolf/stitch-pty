@@ -167,8 +167,9 @@ class PtyChild:
         Args:
             timeout: Maximum seconds to wait. None = wait forever.
 
-        Returns an ExitStatus (pid, exit_code, signal, core_dumped),
-        or None if the process was already reaped.
+        Returns an ExitStatus (pid, exit_code, signal, core_dumped), or None
+        only if the exit status was already lost (e.g. reaped externally).
+        Repeated calls after exit return the same status.
         Raises TimeoutError if the child does not exit within `timeout` seconds.
         """
         deadline = (
@@ -212,7 +213,11 @@ class PtyChild:
         self._inner.kill()
 
     def interrupt(self) -> None:
-        """Send Ctrl+C (SIGINT) to the process group."""
+        """Send Ctrl+C (SIGINT) to the process group.
+
+        Windows: best-effort. GenerateConsoleCtrlEvent targets the caller's
+        console group, not the ConPTY child; use terminate() to stop it.
+        """
         self._inner.interrupt()
 
     def send_signal(self, signal_num: int) -> None:
@@ -415,7 +420,9 @@ class PtySession:
         Args:
             timeout: Maximum seconds to wait. None = wait forever.
 
-        Returns an ExitStatus, or None if the process was already reaped.
+        Returns an ExitStatus, or None only if the exit status was already
+        lost (e.g. reaped externally). Repeated calls after exit return the
+        same status.
         Raises TimeoutError if the child does not exit within `timeout` seconds.
         """
         deadline = (
@@ -459,7 +466,11 @@ class PtySession:
         self._inner.kill()
 
     def interrupt(self) -> None:
-        """Send Ctrl+C."""
+        """Send Ctrl+C.
+
+        Windows: best-effort (may not reach the ConPTY child); use
+        terminate() instead.
+        """
         self._inner.interrupt()
 
     def resize(self, rows: int, cols: int) -> None:
