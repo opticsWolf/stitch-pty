@@ -20,13 +20,19 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 - Root re-export of `Winsize` (`stitch_pty::Winsize`).
 
 ### Changed
+- `platform::spawn_platform` now takes
+  `env: Option<&[(String, String)]>`: `None` inherits the parent
+  environment, `Some(&[])` requests an empty environment, and
+  `Some(entries)` supplies exactly those variables. This resolves the old
+  ambiguity where `&[]` was empty on Unix but inherited on Windows.
+- Python `spawn(env=None)` now uses the inherit path, so it no longer
+  snapshots/copies the parent environment through `std::env::vars()`;
+  `spawn(env={})` now spawns with an empty environment on both platforms
+  (it used to inherit on Windows and be empty on Unix).
 - README gained a Rust quick start; `cargo test` now runs cross-platform
   `PtySession` integration tests.
 
 ### Fixed
-- `spawn_platform(..., env = &[])` now inherits the parent environment on
-  Unix. It previously passed an empty `envp`, silently dropping `PATH`,
-  `HOME`, `TERM`, and everything else; Windows already inherited.
 - `write_all` returns `WriteZero` instead of looping forever when a
   backend reports a zero-byte write.
 - Bumped `async-trait` to 0.1.92 in `Cargo.lock`; 0.1.91 trips

@@ -222,28 +222,24 @@ pub(crate) fn validate_cwd(cwd: &str) -> PtyResult<()> {
 /// `cwd` only selects the child's working directory; it changes nothing about
 /// the async/IOCP plumbing on either platform.
 ///
-/// An empty `env` means **inherit the parent environment** on both platforms.
-/// Windows already behaved this way (it passes a null environment block);
-/// Unix previously passed an empty `envp`, which silently dropped `PATH`,
-/// `HOME`, `TERM`, and everything else. Pass an explicit list to control the
-/// child environment.
+/// `env` selects the child environment:
+///
+/// - `None` inherits the parent environment (the usual case).
+/// - `Some(&[])` spawns with an empty environment.
+/// - `Some(entries)` supplies exactly those variables (no merging).
+///
+/// An empty slice used to be ambiguous: Unix passed an empty `envp`, while
+/// Windows passed a null environment block and inherited. The `Option` makes
+/// both intents explicit and keeps the platforms consistent. Note that the
+/// inherit path on Unix is built from `vars_os()`, so non-Unicode environment
+/// entries do not panic.
 pub async fn spawn_platform(
     program: &str,
     args: &[String],
-    env: &[(String, String)],
+    env: Option<&[(String, String)]>,
     winsize: Option<Winsize>,
     cwd: Option<&str>,
 ) -> PtyResult<(ArcPtyBackend, ArcChildBackend)> {
-    // Normalize `&[]` to the parent environment before platform dispatch so
-    // Unix and Windows cannot diverge again.
-    let inherited;
-    let env = if env.is_empty() {
-        inherited = std::env::vars().collect::<Vec<_>>();
-        inherited.as_slice()
-    } else {
-        env
-    };
-
     #[cfg(unix)]
     {
         let (pty, child) = crate::platform_unix::spawn(program, args, env, winsize, cwd)?;
@@ -470,7 +466,7 @@ mod tests {
         // at the type level via a future. The actual calls would need a runtime.
         // This is a compile-time check that the functions exist with the right signature.
         async fn check_spawn() {
-            let _f = spawn_platform("", &[], &[], None, None);
+            let _f = spawn_platform("", &[], None, None, None);
         }
         async fn check_open() {
             let _f = open_pty_platform(None);

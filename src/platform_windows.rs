@@ -489,7 +489,7 @@ pub async fn open_pty(
 pub async fn spawn(
     program: &str,
     args: &[String],
-    env: &[(String, String)],
+    env: Option<&[(String, String)]>,
     winsize: Option<Winsize>,
     cwd: Option<&str>,
 ) -> Result<(Arc<dyn PtyBackend>, Arc<dyn ChildBackend>), PtyErrorKind> {
@@ -548,17 +548,24 @@ pub async fn spawn(
                 .collect()
         });
 
-        // Build environment block
-        let mut env_block: Vec<u16> = Vec::new();
-        for (k, v) in env {
-            env_block.extend(k.encode_utf16());
-            env_block.push('=' as u16);
-            env_block.extend(v.encode_utf16());
-            env_block.push(0);
-        }
-        if !env.is_empty() {
-            env_block.push(0);
-        }
+        // Build the environment block. `None` means inherit: pass a null
+        // lpEnvironment. `Some(&[])` is an explicit empty environment, which
+        // Windows represents as a lone null entry (`\0\0` overall) — the same
+        // block std builds for `Command::env_clear()`.
+        let env_block: Option<Vec<u16>> = env.map(|env| {
+            let mut block: Vec<u16> = Vec::new();
+            if env.is_empty() {
+                block.push(0);
+            }
+            for (k, v) in env {
+                block.extend(k.encode_utf16());
+                block.push('=' as u16);
+                block.extend(v.encode_utf16());
+                block.push(0);
+            }
+            block.push(0);
+            block
+        });
 
         // --------------------------------------------------------------------
         // ConPTY attribute list setup (required for EXTENDED_STARTUPINFO_PRESENT)
@@ -616,11 +623,9 @@ pub async fn spawn(
                 None,
                 false,
                 EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
-                if env.is_empty() {
-                    None
-                } else {
-                    Some(env_block.as_ptr() as *mut std::ffi::c_void)
-                },
+                env_block
+                    .as_ref()
+                    .map(|block| block.as_ptr() as *const std::ffi::c_void),
                 cwd_wide
                     .as_ref()
                     .map(|w| PCWSTR(w.as_ptr()))

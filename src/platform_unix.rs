@@ -22,6 +22,7 @@ use parking_lot::Mutex;
 use std::ffi::CString;
 use std::os::fd::RawFd;
 use std::os::fd::{BorrowedFd, IntoRawFd};
+use std::os::unix::ffi::OsStrExt;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::Interest;
@@ -71,7 +72,10 @@ struct PreparedCommand {
 }
 
 impl PreparedCommand {
-    fn new(program: &str, args: &[String], env: &[(String, String)]) -> PtyResult<Self> {
+    /// `env = None` inherits the parent environment. The inherited entries are
+    /// materialised from `vars_os()` (raw bytes), not `vars()`, which would
+    /// panic on a non-Unicode environment entry.
+    fn new(program: &str, args: &[String], env: Option<&[(String, String)]>) -> PtyResult<Self> {
         let program_cstr = CString::new(program)
             .map_err(|_| PtyErrorKind::ForkFailed("program contains NUL byte".into()))?;
 
@@ -84,15 +88,28 @@ impl PreparedCommand {
             );
         }
 
-        let mut envp = Vec::with_capacity(env.len());
-        for (k, v) in env {
-            let s = format!("{}={}", k, v);
-            envp.push(
-                CString::new(s).map_err(|_| {
-                    PtyErrorKind::ForkFailed("environment contains NUL byte".into())
-                })?,
-            );
-        }
+        let envp = match env {
+            Some(env) => {
+                let mut envp = Vec::with_capacity(env.len());
+                for (k, v) in env {
+                    let s = format!("{}={}", k, v);
+                    envp.push(CString::new(s).map_err(|_| {
+                        PtyErrorKind::ForkFailed("environment contains NUL byte".into())
+                    })?);
+                }
+                envp
+            }
+            None => std::env::vars_os()
+                .map(|(k, v)| {
+                    let mut entry = k.as_bytes().to_vec();
+                    entry.push(b'=');
+                    entry.extend_from_slice(v.as_bytes());
+                    CString::new(entry).map_err(|_| {
+                        PtyErrorKind::ForkFailed("environment contains NUL byte".into())
+                    })
+                })
+                .collect::<PtyResult<Vec<_>>>()?,
+        };
 
         let mut argv_ptrs: Vec<*const c_char> = argv.iter().map(|s| s.as_ptr()).collect();
         argv_ptrs.push(std::ptr::null());
@@ -579,7 +596,7 @@ fn fork_pty(
     pty: &PtyPair,
     program: &str,
     args: &[String],
-    env: &[(String, String)],
+    env: Option<&[(String, String)]>,
     cwd: Option<&str>,
 ) -> PtyResult<Pid> {
     // Prepare all allocations in the parent process before fork().
@@ -629,7 +646,7 @@ pub fn open_pty(winsize: Option<Winsize>) -> PtyResult<UnixPtyMaster> {
 pub fn spawn(
     program: &str,
     args: &[String],
-    env: &[(String, String)],
+    env: Option<&[(String, String)]>,
     winsize: Option<Winsize>,
     cwd: Option<&str>,
 ) -> PtyResult<(UnixPtyMaster, UnixChildProcess)> {
