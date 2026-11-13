@@ -1,7 +1,8 @@
 //! High-level Rust session API.
 //!
 //! The crate's platform layer deliberately exposes the raw pieces
-//! ([`PtyBackend`], [`ChildBackend`], [`spawn_platform`]); the Python binding
+//! ([`crate::platform::PtyBackend`], [`crate::platform::ChildBackend`],
+//! [`crate::platform::spawn_platform`]); the Python binding
 //! then assembles them into `PtySession`. Rust callers previously had to do
 //! that assembly themselves and reimplement `write_all`/`terminate`.
 //!
@@ -46,6 +47,10 @@ use std::time::Duration;
 /// Cloning the inner `Arc`s (via [`PtySession::pty`] / [`PtySession::child`])
 /// is cheap, so a supervisor can keep the process handle while a reader task
 /// owns the PTY.
+///
+/// Dropping the session drops those handles. The platform child backend kills
+/// a still-running child when the last handle is dropped, so clone the `Arc`s
+/// if the process should outlive the session.
 pub struct PtySession {
     pty: ArcPtyBackend,
     child: ArcChildBackend,
@@ -84,12 +89,14 @@ impl PtySession {
         Ok(Self { pty, child })
     }
 
-    /// The underlying PTY handle (cheap `Arc` clone when returned by value).
+    /// The underlying PTY handle. Use `Arc::clone` to keep it after the
+    /// session is dropped.
     pub fn pty(&self) -> &ArcPtyBackend {
         &self.pty
     }
 
-    /// The underlying child-process handle.
+    /// The underlying child-process handle. Use `Arc::clone` to keep it alive
+    /// after the session is dropped.
     pub fn child(&self) -> &ArcChildBackend {
         &self.child
     }
@@ -162,8 +169,9 @@ impl PtySession {
 
     /// Wait for the child to exit.
     ///
-    /// Returns `None` if the child was already reaped (for example by a
-    /// previous `wait`), matching the Python API.
+    /// Returns the exit status, or `None` only if the status was already lost
+    /// (for example if the child was reaped externally). Repeated calls after
+    /// a normal exit return the same status.
     pub async fn wait(&self) -> Option<ExitStatus> {
         self.child.wait_status().await
     }
@@ -181,7 +189,8 @@ impl PtySession {
     /// Send Ctrl+C.
     ///
     /// POSIX: `SIGINT` to the child's process group. Windows: delegates to
-    /// [`ChildBackend::signal`] (`GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`),
+    /// [`crate::platform::ChildBackend::signal`]
+    /// (`GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`),
     /// which targets the caller's console group rather than the ConPTY child;
     /// see the Windows notes in the README before relying on it.
     pub fn interrupt(&self) -> PtyResult<()> {
@@ -192,6 +201,9 @@ impl PtySession {
     ///
     /// On Windows signal 15 maps to `TerminateProcess`, so the grace period is
     /// effectively skipped; that is the platform's only option.
+    ///
+    /// Best effort: signal/kill errors are ignored, and this returns `Ok(())`
+    /// even if the child is still alive after the bounded post-kill wait.
     pub async fn terminate(&self, grace: Duration) -> PtyResult<()> {
         let _ = self.child.signal(15);
         let deadline = std::time::Instant::now() + grace;

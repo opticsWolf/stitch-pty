@@ -32,6 +32,7 @@ src/
 │   ├── WinPtyBackend, WinChildProcess, SendSyncHandle
 │   ├── NamedPipeServer connect() + ConPTY
 │   ├── ArgvQuote algorithm + SafeAttributeList
+├── session.rs                # High-level Rust PtySession (no PyO3 required)
 ├── terminal/                 # Embedded pyte_rs terminal emulation
 │   ├── mod.rs                # Re-exports
 │   ├── ansi_parser.rs        # ECMA-48 ANSI escape sequence state machine
@@ -175,6 +176,26 @@ This answers conhost's startup query so it begins relaying child output.
 
 **SendSyncHandle:** Wrapper around `HANDLE` implementing `Send + Sync` + `Clone`,
 allowing Windows non-Send types to live across `.await` points.
+
+## Rust Session Layer (`session.rs`)
+
+`PtySession` is the Rust-facing counterpart of the Python wrapper. It owns the
+`Arc<dyn PtyBackend>` / `Arc<dyn ChildBackend>` pair and adds the helpers the
+Python layer used to implement in the binding: `read`/`read_timeout` (EOF is
+mapped to `Ok(0)` when the platform reports it), `write_all`, `resize`, `wait`
+(returning `ExitStatus` via `ChildBackend::wait_status`), the `terminate`
+ladder (signal 15 → bounded grace → kill), and `into_parts`.
+
+- `spawn` inherits the parent environment; `spawn_with_env` takes the exact
+  environment (an empty slice is empty). `spawn_platform` mirrors this with
+  `Option` (`None` = inherit).
+- `winsize = None` is normalized to 24×80 in the platform dispatch, so Unix
+  and Windows agree (Unix `openpty(3)` otherwise leaves 0×0).
+- The session deliberately does **not** own a `HistoryScreen`: a multiplexer
+  can keep one emulator per pane fed from `read`. It also does not close the
+  ConPTY early, so on Windows EOF may not arrive merely because the child
+  exited.
+- Dropping the last child handle kills a still-running child.
 
 ## Terminal Emulation Layer (`terminal/`)
 
@@ -513,10 +534,10 @@ Python exception (PtyError / ProcessError / IOError / PyOSError / PyIOError)
 |--------|-------------|
 | `pid` | Child PID |
 | `is_running` | Process still running? |
-| `wait()` | Wait for exit, returns `(pid, exit_code, signal, core_dumped)` or `None` if already reaped |
+| `wait()` | Wait for exit, returns `(pid, exit_code, signal, core_dumped)`; repeated calls return the same status (`None` only if it was lost) |
 | `terminate(grace_period)` | SIGTERM → wait → SIGKILL fallback |
 | `kill()` | Force kill |
-| `interrupt()` | Send Ctrl+C (SIGINT) |
+| `interrupt()` | Send Ctrl+C (SIGINT); Windows best-effort (may not reach the ConPTY child) |
 | `send_signal(num)` | Send signal number |
 
 ### `PtySession` — Combined PTY + Child
@@ -626,13 +647,20 @@ GitHub Actions
 1. **ConPTY requires Windows 10 version 1809+**. On older Windows, `spawn`
    raises `PtyError` — there is no `CreateProcess` fallback.
 
-2. **No Unix signals**: Windows uses `GenerateConsoleCtrlEvent` for Ctrl+C
-   and `TerminateProcess` for kill. Custom signals are not supported.
+2. **No Unix signals**: Windows uses `TerminateProcess` for kill; custom
+   signals are not supported. `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)` is
+   best-effort only: it targets the caller's console process group, not the
+   ConPTY child, so `interrupt()` may leave the child running.
 
 3. **Window resize**: `ResizePseudoConsole` changes the buffer size but does
    not send a signal to the child process. Applications must poll for size.
 
 4. **Exit info**: Only `exit_code` available; no `signal` or `core_dumped`.
+
+5. **EOF on child exit**: ConPTY can keep the output pipe open after the
+   child exits, so reads may block or time out until the pseudo console is
+   closed. Use `wait()` / `is_alive()` to detect exit; do not rely on
+   `read()` returning `Ok(0)`/`b""` at process exit.
 
 ### POSIX
 
