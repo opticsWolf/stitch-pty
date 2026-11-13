@@ -222,6 +222,8 @@ pub(crate) fn validate_cwd(cwd: &str) -> PtyResult<()> {
 /// `cwd` only selects the child's working directory; it changes nothing about
 /// the async/IOCP plumbing on either platform.
 ///
+/// `winsize` defaults to 24×80 when `None`, on every platform.
+///
 /// `env` selects the child environment:
 ///
 /// - `None` inherits the parent environment (the usual case).
@@ -240,6 +242,8 @@ pub async fn spawn_platform(
     winsize: Option<Winsize>,
     cwd: Option<&str>,
 ) -> PtyResult<(ArcPtyBackend, ArcChildBackend)> {
+    let winsize = Some(winsize.unwrap_or_else(|| Winsize::new(24, 80, 0, 0)));
+
     #[cfg(unix)]
     {
         let (pty, child) = crate::platform_unix::spawn(program, args, env, winsize, cwd)?;
@@ -258,8 +262,11 @@ pub async fn spawn_platform(
 
 /// Open a PTY pair without spawning a child.
 ///
+/// `winsize` defaults to 24×80 when `None`, on every platform.
 /// Windows: async for the same IOCP pump reason as `spawn_platform`.
 pub async fn open_pty_platform(winsize: Option<Winsize>) -> PtyResult<ArcPtyBackend> {
+    let winsize = Some(winsize.unwrap_or_else(|| Winsize::new(24, 80, 0, 0)));
+
     #[cfg(unix)]
     {
         let pty = crate::platform_unix::open_pty(winsize)?;
