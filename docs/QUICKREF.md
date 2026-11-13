@@ -94,7 +94,7 @@ Frozen dataclass. `await wait()` returns `None` if the child was already reaped,
 | Method | Description |
 |--------|-------------|
 | `await read(size=4096)` | Read PTY output (auto-feeds terminal) |
-| `await read_timeout(size, timeout)` | Read with timeout (raises `PtyError` on timeout; returns `b""` on EOF) |
+| `await read_timeout(size, timeout)` | Read with timeout (raises `PtyError` on timeout; returns `b""` on EOF — see EOF note below) |
 | `await write(data)` | Write bytes to PTY, returns bytes written |
 | `await write_all(data)` | Write all bytes (handles partial writes) |
 | `resize(rows, cols)` | Resize PTY backend + emulator in one call (reflows on column change) |
@@ -185,10 +185,13 @@ re-exported from `stitch_pty`, so `except stitch_pty.IOError` / `ProcessError`
 matches errors raised from native code. (Note: `stitch_pty.IOError` shadows the
 builtin `IOError`/`OSError` within this namespace.)
 
-**EOF:** once the child exits, `read()`/`read_timeout()` return `b""`
-(never raise). Natively this is `PtyErrorKind::Eof`, surfaced as an `OSError`
-with `errno == 0` and a stable `kind == "eof"` attribute — Python code should
-branch on the attribute, not on string matching.
+**EOF:** on Unix, once the child exits, `read()`/`read_timeout()` return
+`b""` (never raise). Natively this is `PtyErrorKind::Eof`, surfaced as an
+`OSError` with `errno == 0` and a stable `kind == "eof"` attribute — Python
+code should branch on the attribute, not on string matching. On Windows the
+ConPTY output pipe can stay open after the child exits, so `read()` may block
+and `read_timeout()` may raise a timeout; check `is_alive`/`wait()` to detect
+exit.
 
 ## Platform Differences
 

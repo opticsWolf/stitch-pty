@@ -41,14 +41,28 @@ fn interactive_shell() -> (&'static str, Vec<String>) {
     }
 }
 
-async fn drain_to_eof(session: &PtySession) -> Vec<u8> {
-    let mut out = Vec::new();
+/// Read until `needle` appears or `timeout` elapses.
+///
+/// Deliberately does not wait for EOF: on Windows the ConPTY output pipe can
+/// stay open after the child exits, so EOF may not arrive at all.
+async fn read_until_contains(session: &PtySession, needle: &str, timeout: Duration) -> String {
+    let deadline = std::time::Instant::now() + timeout;
+    let mut out = String::new();
     let mut buf = [0u8; 4096];
-    loop {
-        match session.read_timeout(&mut buf, Duration::from_secs(5)).await {
+    while std::time::Instant::now() < deadline {
+        match session
+            .read_timeout(&mut buf, Duration::from_millis(250))
+            .await
+        {
             Ok(0) => break,
-            Ok(n) => out.extend_from_slice(&buf[..n]),
-            Err(_) => break,
+            Ok(n) => {
+                out.push_str(&String::from_utf8_lossy(&buf[..n]));
+                if out.contains(needle) {
+                    break;
+                }
+            }
+            Err(stitch_pty::errors::PtyErrorKind::Timeout(_)) => continue,
+            Err(err) => panic!("unexpected read error: {err:?}"),
         }
     }
     out
@@ -61,8 +75,7 @@ async fn spawn_read_wait_reports_exit_status() {
         .await
         .expect("spawn");
 
-    let out = drain_to_eof(&session).await;
-    let text = String::from_utf8_lossy(&out);
+    let text = read_until_contains(&session, "stitch-session-ok", Duration::from_secs(5)).await;
     assert!(
         text.contains("stitch-session-ok"),
         "child output missing from PTY; got {text:?}"
@@ -70,6 +83,33 @@ async fn spawn_read_wait_reports_exit_status() {
 
     let status = session.wait().await.expect("child should be reaped");
     assert!(status.success(), "unexpected exit status: {status}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn read_reports_eof_after_child_exit_on_unix() {
+    // The Unix backend maps EIO on the master (slave closed) to Ok(0).
+    // Windows is intentionally not asserted here: ConPTY can keep the output
+    // pipe open after the child exits, so reads time out instead.
+    let (program, args) = shell("echo eof-marker");
+    let session = PtySession::spawn(program, &args, size(), None)
+        .await
+        .expect("spawn");
+
+    let mut buf = [0u8; 4096];
+    let mut saw_eof = false;
+    for _ in 0..20 {
+        match session.read_timeout(&mut buf, Duration::from_secs(2)).await {
+            Ok(0) => {
+                saw_eof = true;
+                break;
+            }
+            Ok(_) => continue,
+            Err(err) => panic!("unexpected read error before EOF: {err:?}"),
+        }
+    }
+    assert!(saw_eof, "Unix PTY never reported EOF after child exit");
+    assert!(session.wait().await.is_some());
 }
 
 #[tokio::test]

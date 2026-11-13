@@ -139,8 +139,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 `PtySession::spawn` inherits the parent environment. `spawn_with_env` takes
 the complete environment, so an empty slice is an empty environment; the
 lower-level `platform::spawn_platform` uses `None` to inherit and
-`Some(&[])` for an empty environment. EOF is reported as `Ok(0)` from
-`read` / `read_timeout`.
+`Some(&[])` for an empty environment. EOF is reported as `Ok(0)` when the
+platform closes the PTY; on Windows ConPTY can keep the pipe open after the
+child exits, so reads may time out until the session is closed (poll
+`wait`/`is_alive` to detect exit).
 
 ---
 
@@ -252,8 +254,8 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `read` | `await read(size=4096) → bytes` | Read from PTY (auto-feeds terminal); returns `b""` on EOF (child exited) |
-| `read_timeout` | `await read_timeout(size, timeout) → bytes` | Read with timeout (raises `PtyError` on timeout; `b""` on EOF) |
+| `read` | `await read(size=4096) → bytes` | Read from PTY (auto-feeds terminal); `b""` on EOF. On Windows may block after child exit until the pipe closes |
+| `read_timeout` | `await read_timeout(size, timeout) → bytes` | Read with timeout (`PtyError` on timeout, including Windows ConPTY after child exit; `b""` on EOF) |
 | `write` | `await write(data) → int` | Write bytes to PTY, returns bytes written |
 | `write_all` | `await write_all(data) → None` | Write all bytes (handles partial writes) |
 | `resize` | `resize(rows, cols) → None` | Resize PTY backend **and** emulator (reflows on column change) |
@@ -268,6 +270,11 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `poll_events` | `poll_events() → list[tuple[str, object]]` | Drain ordered events (`bell`, `title`, `icon`, `cwd`, `altscreen`, `scrollback_grew`) |
 | `take_bell` | `take_bell() → bool` | Edge-triggered BEL check (resets the flag) |
 | `take_dirty_rows` | `take_dirty_rows() → list[int]` | Drain dirty row indices (sorted, empty afterwards) |
+
+> **EOF on Windows:** ConPTY does not necessarily close the output pipe when
+> the child exits. On Unix, `read()`/`read_timeout()` return `b""` once the
+> slave closes; on Windows, check `is_alive`/`wait()` — reads may block or
+> time out until the session is closed.
 
 **Properties:**
 
@@ -395,9 +402,12 @@ ws = Winsize(50, 120, 0, 0)
 | `ProcessError` | `PtyError` | Spawn/kill failures, process not running |
 | `IOError` | `PtyError` | I/O errors, winsize failures |
 
-EOF note: after the child exits, `read()`/`read_timeout()` return `b""`
-instead of raising; natively the condition is `PtyErrorKind::Eof`, surfaced
-as an `OSError` with `errno == 0` and a stable `kind == "eof"` attribute.
+EOF note: on Unix, after the child exits, `read()`/`read_timeout()` return
+`b""` instead of raising; natively the condition is `PtyErrorKind::Eof`,
+surfaced as an `OSError` with `errno == 0` and a stable `kind == "eof"`
+attribute. On Windows the ConPTY output pipe can stay open after the child
+exits, so `read()` may block and `read_timeout()` may raise a timeout; check
+`is_alive`/`wait()` to detect exit.
 
 ---
 
