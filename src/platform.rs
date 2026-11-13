@@ -134,6 +134,25 @@ pub trait PtyBackend: Send + Sync {
 
     /// Check if the PTY is still open.
     fn is_open(&self) -> bool;
+
+    /// Write the whole buffer, looping over partial writes.
+    ///
+    /// Returns [`std::io::ErrorKind::WriteZero`] if the backend reports a
+    /// zero-byte write. Without that guard the loop would spin forever — a
+    /// backend is allowed to return `Ok(0)` and some closed-pipe paths do.
+    async fn write_all(&self, mut buf: &[u8]) -> std::io::Result<()> {
+        while !buf.is_empty() {
+            let n = self.write(buf).await?;
+            if n == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "PTY write returned 0 bytes",
+                ));
+            }
+            buf = &buf[n.min(buf.len())..];
+        }
+        Ok(())
+    }
 }
 
 /// Platform-agnostic child process handle.
@@ -149,9 +168,28 @@ pub trait ChildBackend: ChildKiller + Send + Sync {
     /// Takes &self (not &mut) so the future is Send-compatible.
     async fn wait(&self) -> Option<ProcessExit>;
 
+    /// Wait for the process and return the modern [`ExitStatus`].
+    ///
+    /// Convenience over [`ChildBackend::wait`], which still returns the
+    /// legacy [`ProcessExit`] shape kept for Python compatibility.
+    /// Returns `None` when the child was already reaped.
+    async fn wait_status(&self) -> Option<ExitStatus> {
+        self.wait().await.map(|exit| exit.to_exit_status())
+    }
+
     /// Send a signal to the process.
     fn signal(&self, sig: i32) -> PtyResult<()>;
 }
+
+/// Shared handle to a PTY backend.
+///
+/// This is the type returned by [`spawn_platform`] and
+/// [`open_pty_platform`]; naming it used to require spelling out
+/// `Arc<dyn PtyBackend>` (the aliases were not exported).
+pub type ArcPtyBackend = std::sync::Arc<dyn PtyBackend>;
+
+/// Shared handle to a child-process backend.
+pub type ArcChildBackend = std::sync::Arc<dyn ChildBackend>;
 
 // ── Platform Dispatch ─────────────────────────────────────────────
 
@@ -183,16 +221,29 @@ pub(crate) fn validate_cwd(cwd: &str) -> PtyResult<()> {
 /// runtime to arm mio's IOCP pump. Unix: sync wrapped in async (no await).
 /// `cwd` only selects the child's working directory; it changes nothing about
 /// the async/IOCP plumbing on either platform.
+///
+/// An empty `env` means **inherit the parent environment** on both platforms.
+/// Windows already behaved this way (it passes a null environment block);
+/// Unix previously passed an empty `envp`, which silently dropped `PATH`,
+/// `HOME`, `TERM`, and everything else. Pass an explicit list to control the
+/// child environment.
 pub async fn spawn_platform(
     program: &str,
     args: &[String],
     env: &[(String, String)],
     winsize: Option<Winsize>,
     cwd: Option<&str>,
-) -> PtyResult<(
-    std::sync::Arc<dyn PtyBackend>,
-    std::sync::Arc<dyn ChildBackend>,
-)> {
+) -> PtyResult<(ArcPtyBackend, ArcChildBackend)> {
+    // Normalize `&[]` to the parent environment before platform dispatch so
+    // Unix and Windows cannot diverge again.
+    let inherited;
+    let env = if env.is_empty() {
+        inherited = std::env::vars().collect::<Vec<_>>();
+        inherited.as_slice()
+    } else {
+        env
+    };
+
     #[cfg(unix)]
     {
         let (pty, child) = crate::platform_unix::spawn(program, args, env, winsize, cwd)?;
@@ -212,9 +263,7 @@ pub async fn spawn_platform(
 /// Open a PTY pair without spawning a child.
 ///
 /// Windows: async for the same IOCP pump reason as `spawn_platform`.
-pub async fn open_pty_platform(
-    winsize: Option<Winsize>,
-) -> PtyResult<std::sync::Arc<dyn PtyBackend>> {
+pub async fn open_pty_platform(winsize: Option<Winsize>) -> PtyResult<ArcPtyBackend> {
     #[cfg(unix)]
     {
         let pty = crate::platform_unix::open_pty(winsize)?;
@@ -429,5 +478,67 @@ mod tests {
         // Invoke so the checks count as used; the futures are lazy and
         // never polled, so no PTY is actually opened here.
         let _ = (check_spawn(), check_open());
+    }
+
+    // ── write_all default implementation ──────────────────────────
+
+    struct StubPty {
+        chunk: usize,
+        written: std::sync::Mutex<Vec<u8>>,
+    }
+
+    #[async_trait::async_trait]
+    impl PtyBackend for StubPty {
+        async fn read(&self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Ok(0)
+        }
+
+        async fn write(&self, buf: &[u8]) -> std::io::Result<usize> {
+            let n = self.chunk.min(buf.len());
+            self.written.lock().unwrap().extend_from_slice(&buf[..n]);
+            Ok(n)
+        }
+
+        fn set_winsize(&self, _winsize: Winsize) -> PtyResult<()> {
+            Ok(())
+        }
+
+        fn get_winsize(&self) -> PtyResult<Winsize> {
+            Ok(Winsize::new(24, 80, 0, 0))
+        }
+
+        #[cfg(unix)]
+        fn raw_handle(&self) -> std::os::fd::RawFd {
+            -1
+        }
+
+        #[cfg(windows)]
+        fn raw_handle(&self) -> *mut std::ffi::c_void {
+            std::ptr::null_mut()
+        }
+
+        fn is_open(&self) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn write_all_loops_over_partial_writes() {
+        let pty = StubPty {
+            chunk: 3,
+            written: std::sync::Mutex::new(Vec::new()),
+        };
+        pty.write_all(b"abcdefgh").await.unwrap();
+        assert_eq!(pty.written.into_inner().unwrap(), b"abcdefgh");
+    }
+
+    #[tokio::test]
+    async fn write_all_rejects_zero_byte_writes() {
+        let pty = StubPty {
+            chunk: 0,
+            written: std::sync::Mutex::new(Vec::new()),
+        };
+        let err = pty.write_all(b"abc").await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::WriteZero);
     }
 }

@@ -64,15 +64,11 @@ impl PtyMaster {
     fn write_all<'py>(&self, py: Python<'py>, data: Vec<u8>) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut remaining = &data[..];
-            while !remaining.is_empty() {
-                let n = inner
-                    .write(remaining)
-                    .await
-                    .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))?;
-                remaining = &remaining[n..];
-            }
-            Ok(()) // () → None
+            inner
+                .write_all(&data)
+                .await
+                .map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))?;
+            Ok(())
         })
     }
 

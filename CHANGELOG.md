@@ -6,6 +6,33 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased]
 
+### Added
+- `PtySession` Rust API (`stitch_pty::PtySession`): `spawn`,
+  `spawn_with_env`, `read`/`read_timeout` (EOF normalized to `Ok(0)`),
+  `write`/`write_all`, `resize`, `wait` returning `ExitStatus`,
+  `terminate`, `interrupt`, `kill`, and `into_parts`. Mirrors the Python
+  session composition without requiring PyO3, so Rust callers no longer
+  have to assemble `spawn_platform`/`open_pty_platform` by hand.
+- `PtyBackend::write_all` and `ChildBackend::wait_status` default methods.
+- Public `ArcPtyBackend` / `ArcChildBackend` aliases for the handles
+  returned by `spawn_platform` and `open_pty_platform`; previously those
+  return types could not be named by callers.
+- Root re-export of `Winsize` (`stitch_pty::Winsize`).
+
+### Changed
+- README gained a Rust quick start; `cargo test` now runs cross-platform
+  `PtySession` integration tests.
+
+### Fixed
+- `spawn_platform(..., env = &[])` now inherits the parent environment on
+  Unix. It previously passed an empty `envp`, silently dropping `PATH`,
+  `HOME`, `TERM`, and everything else; Windows already inherited.
+- `write_all` returns `WriteZero` instead of looping forever when a
+  backend reports a zero-byte write.
+- Bumped `async-trait` to 0.1.92 in `Cargo.lock`; 0.1.91 trips
+  `clippy::double_must_use` on current stable, so `cargo clippy -- -D
+  warnings` could not pass.
+
 ### Changed
 - Docs consistency sweep: README `TerminalState` table gained the
   `take_bell`/`take_dirty_rows`/`poll_events`/`cwd` rows it was missing;
