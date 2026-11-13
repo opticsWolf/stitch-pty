@@ -8,7 +8,8 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ### Added
 - `PtySession` Rust API (`stitch_pty::PtySession`): `spawn`,
-  `spawn_with_env`, `read`/`read_timeout` (EOF normalized to `Ok(0)`),
+  `spawn_with_env`, `read`/`read_timeout` (EOF reported as `Ok(0)` when
+  the platform closes the PTY; see the Windows caveat),
   `write`/`write_all`, `resize`, `wait` returning `ExitStatus`,
   `terminate`, `interrupt`, `kill`, and `into_parts`. Mirrors the Python
   session composition without requiring PyO3, so Rust callers no longer

@@ -106,9 +106,14 @@ impl PtySession {
 
     /// Read from the PTY.
     ///
-    /// EOF is normalized to `Ok(0)` (the Unix backend already does this for
-    /// `EIO`; ConPTY reports broken-pipe errors instead). Other I/O errors are
-    /// returned as [`PtyErrorKind::AsyncIo`].
+    /// EOF is reported as `Ok(0)` when the platform signals it: the Unix
+    /// backend maps `EIO` (slave closed) to `Ok(0)`, and ConPTY maps
+    /// `ERROR_BROKEN_PIPE` / `ERROR_NO_DATA` to it. On Windows the ConPTY
+    /// output pipe can stay open after the child exits, so a read may instead
+    /// wait until data arrives or the timeout expires; use [`PtySession::wait`]
+    /// or [`PtySession::is_alive`] to detect child exit rather than relying on
+    /// EOF alone. Other I/O errors are returned as
+    /// [`PtyErrorKind::AsyncIo`].
     pub async fn read(&self, buf: &mut [u8]) -> PtyResult<usize> {
         match self.pty.read(buf).await {
             Ok(n) => Ok(n),
@@ -119,8 +124,9 @@ impl PtySession {
         }
     }
 
-    /// Read with a timeout. EOF is normalized to `Ok(0)`; a timeout returns
-    /// [`PtyErrorKind::Timeout`].
+    /// Read with a timeout. EOF is reported as `Ok(0)`; a timeout returns
+    /// [`PtyErrorKind::Timeout`]. See [`PtySession::read`] for the Windows
+    /// caveat: child exit does not necessarily close the ConPTY pipe.
     pub async fn read_timeout(&self, buf: &mut [u8], timeout: Duration) -> PtyResult<usize> {
         match tokio::time::timeout(timeout, self.read(buf)).await {
             Ok(result) => result,
