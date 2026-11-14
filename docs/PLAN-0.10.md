@@ -1175,7 +1175,7 @@ Tag and registry publication are complete:
 - [x] `uvx maturin build --release`; upload `dist/*` to PyPI — PyPI 0.10.0
       published (4 files)
 - [x] Tag `v0.10.0` at `e620cc8`
-- [ ] Create the GitHub release from the CHANGELOG entry
+- [x] Create the GitHub release from the CHANGELOG entry
 - [ ] Bump Kilim's `stitch-pty` dependency
 - [ ] Announce the breaking low-level env signature and the Windows EOF
       caveat
@@ -1192,6 +1192,7 @@ a stale `CARGO_REGISTRY_TOKEN`; after refresh, the rerun published cleanly.
       `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release`
       (0.10.1), `pytest` (195)
 - [x] Tag `v0.10.1` at `97e03ab`
+- [x] GitHub release <https://github.com/opticsWolf/stitch-pty/releases/tag/v0.10.1>
 - [x] PyPI 0.10.1 (4 files) and crates.io 0.10.1 published
 
 Tag CI: <https://github.com/opticsWolf/stitch-pty/actions/runs/43581964572> —
