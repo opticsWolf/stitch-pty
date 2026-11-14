@@ -84,6 +84,19 @@ async fn read_to_eof(session: &PtySession) -> String {
     out
 }
 
+/// Wait briefly for the platform reaper/watcher to publish the child exit.
+///
+/// `is_alive()` reflects the cached reaper state, which can lag the OS exit by
+/// a scheduling quantum; close itself already waits, but macOS CI occasionally
+/// observes the reaper one tick late.
+async fn assert_child_reaped(session: &PtySession, message: &str) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while session.is_alive() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!session.is_alive(), "{message}");
+}
+
 #[tokio::test]
 async fn spawn_read_wait_reports_exit_status() {
     let (program, args) = shell("echo stitch-session-ok");
@@ -511,7 +524,7 @@ async fn close_is_idempotent_and_does_not_hang_with_unread_output() {
         "close took {:?}",
         started.elapsed()
     );
-    assert!(!session.is_alive(), "close left the child running");
+    assert_child_reaped(&session, "close left the child running").await;
 }
 
 #[cfg(unix)]
@@ -543,7 +556,7 @@ async fn close_with_unread_output_does_not_hang() {
         "close with unread output took {:?}",
         started.elapsed()
     );
-    assert!(!session.is_alive());
+    assert_child_reaped(&session, "close with unread output left the child running").await;
 }
 
 #[tokio::test]
