@@ -1,8 +1,8 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.10.0 released; 0.10.1 patch landed on `dev`** (G3: Windows `interrupt()` is explicitly unsupported)
-> Release branch: `dev` (contains tag commit `e620cc8`; `main` is fast-forwarded through `07b4680`)
-> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 patch on `dev`; pre-rebase PR head was `5e68aa1`
+> Status: **0.10.1 released** (tag `v0.10.1`; G3 Windows `interrupt()` is explicitly unsupported; 0.10.0 also published)
+> Release branch: `dev` (contains `v0.10.0` at `e620cc8` and `v0.10.1` at `97e03ab`; `main` contains tag commit `97e03ab`)
+> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
 > [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md)
@@ -51,11 +51,11 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | 0.10.0 tag run `43579326214`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.1 CI runs on push. |
-| Version | `0.10.1` on `dev` (G3 patch); `0.10.0` is the published tag at `e620cc8` |
-| Publication | PyPI 0.10.0 (4 files) and crates.io 0.10.0 published |
+| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.0 tag run `43579326214` also green. |
+| Version | `0.10.1` released; tag `v0.10.1` at `97e03ab`; `0.10.0` tag at `e620cc8` |
+| Publication | PyPI 0.10.1 (4 files) and crates.io 0.10.1 published; 0.10.0 remains published |
 | Local gates | 0.10.1: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (402 unit + 12 integration + 1 doc), `--no-default-features` (402), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.1), `pytest` (195) |
-| Branch sync | `dev` is ahead with the 0.10.1 patch; `main` is at `07b4680` (post-release docs); tag `v0.10.0` remains at `e620cc8`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Branch sync | `dev` and `main` contain tag commit `97e03ab`; tags `v0.10.0`/`e620cc8` and `v0.10.1`/`97e03ab`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
@@ -320,7 +320,7 @@ note.
 
 ### 4.4 G3 — Windows `interrupt()` semantics
 
-**Current behavior.** `signal(2)` maps to
+**Before 0.10.1.** `signal(2)` mapped to
 `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)` (`src/platform_windows.rs:265-273`).
 That targets the caller's console process group, not the ConPTY child, so the
 interrupt may silently do nothing. The docs call it best-effort.
@@ -338,7 +338,7 @@ behavior, and none of these codebases validates it.
 
 **Revised work.**
 
-1. **Landed in 0.10.1:** on Windows, `interrupt()`/`send_signal(2)` return
+1. **Released in 0.10.1:** on Windows, `interrupt()`/`send_signal(2)` return
    `PtyErrorKind::Unsupported` (Python `NotImplementedError`). Do not silently
    succeed. Unix SIGINT is unchanged.
 2. Update `PtySession::interrupt`, Python `interrupt()`, README Windows
@@ -1023,7 +1023,7 @@ the number, not the order, when scheduling.
 | Order | Version | Work | Why this bucket |
 |---|---|---|---|
 | 0 | **0.10.0** | PR #2 merged; version/changelog commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; PyPI + crates.io published | Released |
-| 1 | **0.10.1** | G3 — Windows interrupt: explicit unsupported error (**landed**) | Bug/behavior fix; no new API surface |
+| 1 | **0.10.1** | G3 — Windows interrupt: explicit unsupported error (**released**) | Bug/behavior fix; no new API surface |
 | 2 | **0.10.2** | G4 + H3 — close/read-until-exit, drain, child watcher | Incremental fix on the just-landed `PtySession`; pairs with G6 |
 | 3 | **0.10.3** | G7 — Python terminate consolidation | Tech debt; behavior-preserving, macOS-verified |
 | 4 | **0.10.4** | H1 — env key dedup/normalization | Windows correctness fix; contract already shipped in 0.10.0 |
@@ -1078,7 +1078,7 @@ PR #2 is merged, and link each back to the PR and this plan.
 
 **Original gaps**
 
-- [x] **G3** — `fix(windows): make interrupt() fail explicitly on ConPTY` (landed in 0.10.1)
+- [x] **G3** — `fix(windows): make interrupt() fail explicitly on ConPTY` (released in 0.10.1)
 - [ ] **G4** — `fix(windows): add close()/read_until_exit with drain and close-order safety`
 - [ ] **G2** — `refactor(rust)!: remove ProcessExit and return ExitStatus from wait`
 - [ ] **G1** — `docs(rust): document raw_handle platform contract; optional RawHandle enum`
@@ -1184,6 +1184,19 @@ Tag CI: <https://github.com/opticsWolf/stitch-pty/actions/runs/43579326214> —
 all 6 test jobs, all 4 wheels, PyPI, and crates.io green. The first tag run hit
 a stale `CARGO_REGISTRY_TOKEN`; after refresh, the rerun published cleanly.
 
+### 8.5 0.10.1 patch release (G3)
+
+- [x] Version/changelog/docs in `97e03ab`
+- [x] Local gates: `fmt`, `clippy` (host + Linux/macOS), `cargo test`
+      (402 unit + 12 integration + 1 doc), `--no-default-features` (402),
+      `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release`
+      (0.10.1), `pytest` (195)
+- [x] Tag `v0.10.1` at `97e03ab`
+- [x] PyPI 0.10.1 (4 files) and crates.io 0.10.1 published
+
+Tag CI: <https://github.com/opticsWolf/stitch-pty/actions/runs/43581964572> —
+all 6 test jobs, all 4 wheels, PyPI, and crates.io green.
+
 ---
 
 ## 9. Open decisions / risks
@@ -1192,7 +1205,7 @@ a stale `CARGO_REGISTRY_TOKEN`; after refresh, the rerun published cleanly.
 |---|---|---|
 | G1 unified handle | Do we need a nameable `RawHandle` at all, or are platform-gated accessors enough? | 0.11.0 design; default is accessors |
 | G2 status shape | Keep `ExitStatus { code, signal }` or switch to `Code`/`Signal` enum in the same breaking release? | 0.11.0; one migration |
-| G3 Windows interrupt | Is Ctrl+Break acceptable, or is explicit “unsupported” the contract? | Answered: explicit unsupported landed in 0.10.1; Ctrl+Break remains an optional separate spike |
+| G3 Windows interrupt | Is Ctrl+Break acceptable, or is explicit “unsupported” the contract? | Answered: explicit unsupported released in 0.10.1; Ctrl+Break remains an optional separate spike |
 | G4 latent Drop | Does the current 0.10.0 `Drop` hang with unread output? | Answered: no; release smoke passed in ~313 µs with unread output, so no guard is needed |
 | G4 close semantics | Does `close()` require an exited child, kill a live child, or error? How is drain guaranteed? | 0.10.2 design; large-output/unread-output tests |
 | G4 blocking | Is `ClosePseudoConsole` ever called from the async executor, or always from a blocking thread? | 0.10.2; document and test |
@@ -1214,7 +1227,8 @@ a stale `CARGO_REGISTRY_TOKEN`; after refresh, the rerun published cleanly.
 ## 10. Definition of done for the 0.10 series
 
 - PR #2 merged to `dev`; 0.10.0 released from tag `v0.10.0` (`e620cc8`);
-  PyPI and crates.io published.
+  0.10.1 released from tag `v0.10.1` (`97e03ab`); PyPI and crates.io
+  published for both.
 - All seven original gaps, H1–H3, K1a/K1b, P1, and D1/D2 have open issues
   linked to PR #2 and this plan; H4 has a recorded spike decision.
 - Issue #1 is linked to K1a/K1b and is not closed before the PySide6 example

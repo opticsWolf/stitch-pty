@@ -598,7 +598,7 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 19 | 0.9.0 | ☑ landed — reflow on column resize + anchors (§9) |
 | 20 | 0.9.1 | ☑ landed — `session.resize` forwards to emulator; Windows kill-on-drop (§9) |
 | 21 | 0.10.0 | ☑ released (`v0.10.0`, `e620cc8`) — Rust `PtySession` + explicit env contract |
-| 22 | 0.10.1 | ☑ landed — G3: Windows `interrupt()`/`send_signal(2)` return `Unsupported` (`NotImplementedError`) |
+| 22 | 0.10.1 | ☑ released (`v0.10.1`, `97e03ab`) — G3: Windows `interrupt()`/`send_signal(2)` return `Unsupported` (`NotImplementedError`) |
 
 All rows through 0.10.1 are landed on `dev`, one commit per version.
 Final tally at v0.10.0 was **401 Rust unit tests + 11 integration + 1 doctest,
@@ -606,5 +606,5 @@ Final tally at v0.10.0 was **401 Rust unit tests + 11 integration + 1 doctest,
 195 Python tests**, all green; `fmt --check`, `clippy -D warnings` (Windows +
 Linux + macOS targets), `ruff check`, `mypy --strict` all clean.
 
-0.10.0 is published to PyPI and crates.io; 0.10.1 is the next patch. See
+0.10.0 and 0.10.1 are published to PyPI and crates.io. See
 [`PLAN-0.10.md`](PLAN-0.10.md) for the follow-up releases.
