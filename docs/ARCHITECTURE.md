@@ -153,9 +153,18 @@ ConPTY is loaded dynamically from kernel32.dll; on Windows without ConPTY
 2. Bridge named pipe clients to Win32 `HANDLE`s for ConPTY
 3. `CreatePseudoConsole(size, read_handle, write_handle)`
 4. `CreateProcessW` with `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` attached via
-   `SafeAttributeList` (proper `STARTUPINFOEXW` + attribute list)
+   `SafeAttributeList` (proper `STARTUPINFOEXW` + attribute list). The startup
+   info sets `STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES` and sets all three
+   std handles to `INVALID_HANDLE_VALUE`, preventing inheritance of the parent's
+   redirected stdio; ConPTY supplies the child console.
 5. Async I/O via `tokio::net::windows::named_pipe::NamedPipeServer`
-6. Background task polls `GetExitCodeProcess` every 50ms for exit detection
+6. A dedicated `WaitForSingleObject` watcher publishes child exit through a
+   `watch` channel; `wait()` does not poll `GetExitCodeProcess`
+
+**ConPTY creation flags:** `PSEUDOCONSOLE_INHERIT_CURSOR` (0x1) only.
+`RESIZE_QUIRK` (0x2) is off because the Windows resize matrix has no
+reproducible failure; `WIN32_INPUT_MODE` (0x4) is off because it switches input
+to `INPUT_RECORD`s and would break raw byte writers.
 
 **Pipe naming:** Each pipe gets a unique name:
 `\\.\pipe\stitch-pty-{pid}-{counter}` — prevents collisions across PTY instances.

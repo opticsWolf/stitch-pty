@@ -1,8 +1,8 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.10.2, 0.10.3, and 0.10.4 implemented on `dev`** (G4 + H3, G7, then H1); none of the three is tagged or published yet. 0.10.1 and 0.10.0 are published; final release steps wait for explicit confirmation.
-> Release branch: `dev` (contains `v0.10.0` at `e620cc8` and `v0.10.1` at `97e03ab`; 0.10.2 implementation at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 follows; `main` is at `b0e4510`)
-> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`; 0.10.2 implementation at `3b3abb2`; 0.10.3 at `b3f2647`; all three untagged; pre-rebase PR head was `5e68aa1`
+> Status: **0.10.2 through 0.10.5 implemented on `dev`** (G4 + H3, G7, H1, then H2/H4); none of these patches is tagged or published yet. 0.10.1 and 0.10.0 are published; final release steps wait for explicit confirmation.
+> Release branch: `dev` (contains `v0.10.0` at `e620cc8` and `v0.10.1` at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; 0.10.5 follows; `main` is at `b0e4510`)
+> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; all untagged; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
 > [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md)
@@ -51,14 +51,14 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 push run [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) at `3b3abb2`: 6 test jobs + 4 wheel builds green; publish jobs skipped. 0.10.3 and 0.10.4 CI follow their implementation commits; releases are gated on confirmation. |
-| Version | `0.10.4` on `dev` (H1); 0.10.3 at `b3f2647` (G7); 0.10.2 implementation at `3b3abb2` (G4 + H3); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
-| Publication | PyPI/crates.io 0.10.1 and 0.10.0 published; 0.10.2, 0.10.3, and 0.10.4 not tagged or published |
-| Local gates | 0.10.4: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (412 unit + 18 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (412), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.4), `pytest` (198 passed, 1 skipped) |
-| Branch sync | `dev` is ahead with 0.10.2, 0.10.3, and 0.10.4; `main` is at `b0e4510`; tags `v0.10.0`/`e620cc8` and `v0.10.1`/`97e03ab`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 push run [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) at `3b3abb2` green; publish jobs skipped. 0.10.3, 0.10.4, and 0.10.5 CI follow their implementation commits; releases are gated on confirmation. |
+| Version | `0.10.5` on `dev` (H2/H4); 0.10.4 at `de50992` (H1); 0.10.3 at `b3f2647` (G7); 0.10.2 at `3b3abb2` (G4 + H3); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
+| Publication | PyPI/crates.io 0.10.1 and 0.10.0 published; 0.10.2 through 0.10.5 not tagged or published |
+| Local gates | 0.10.5: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (413 unit + 19 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (413), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.5), `pytest` (198 passed, 1 skipped) |
+| Branch sync | `dev` is ahead with 0.10.2 through 0.10.5; `main` is at `b0e4510`; tags `v0.10.0`/`e620cc8` and `v0.10.1`/`97e03ab`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
-| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1 work is implemented but #5/#6/#9/#10 stay open until their releases |
+| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2 work is implemented but #5/#6/#9/#10/#11 stay open until their releases; H4 (#12) has a documented no-change decision |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
 
 The pre-rebase PR contained the original review commits plus the review follow-ups. The rebase merge rewrote these SHAs on `dev`; the sequence is:
@@ -692,6 +692,14 @@ ConPTY. Our `CreateProcessW` setup in `src/platform_windows.rs` zeroes
 - ConPTY I/O still works for `cmd /C echo`.
 - No change on Unix.
 
+**0.10.5 implementation.** `STARTUP_FLAGS` combines `STARTF_USESHOWWINDOW` and
+`STARTF_USESTDHANDLES`; all three `STARTUPINFO` std handles are
+`INVALID_HANDLE_VALUE`. The handles are only inheritance sentinels, not live
+handles, so no lifetime is required; `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`
+still supplies the child console. `tests/redirected_stdio.rs` runs in its own
+test process, redirects the parent’s stdout/stderr to a file, and verifies the
+child marker reaches the PTY rather than the file.
+
 ---
 
 ### 5.3 H3 — Event-driven Windows child-exit watcher
@@ -751,6 +759,13 @@ workaround that may fix resize glitches.
 - A documented flags decision exists.
 - Resize and input tests cover the chosen combination.
 - No speculative flag change without a failing test.
+
+**0.10.5 investigation result.** Keep `PSEUDOCONSOLE_INHERIT_CURSOR` only.
+No reproducible resize failure appeared in the existing Windows resize and raw
+input tests, so `PSEUDOCONSOLE_RESIZE_QUIRK` (0x2) stays off.
+`PSEUDOCONSOLE_WIN32_INPUT_MODE` (0x4) changes input to `INPUT_RECORD`s and
+would break byte-oriented writers, so it is not enabled. The choice is
+centralized in `CONPTY_FLAGS` and asserted by a Windows unit test.
 
 ---
 
@@ -1052,7 +1067,7 @@ the number, not the order, when scheduling.
 | 2 | **0.10.2** | G4 + H3 — close/read-until-exit, drain, child watcher (**implemented; release pending confirmation**) | Incremental fix on the just-landed `PtySession`; pairs with G6 |
 | 3 | **0.10.3** | G7 — shared terminate policy (**implemented; release pending confirmation**) | Tech debt; behavior-preserving, macOS CI verification |
 | 4 | **0.10.4** | H1 — env key dedup/normalization (**implemented; release pending confirmation**) | Windows correctness fix; contract already shipped in 0.10.0 |
-| 5 | **0.10.5** | H2 — `STARTF_USESTDHANDLES`; H4 if confirmed | Windows spawn hardening; one spawn-focused commit |
+| 5 | **0.10.5** | H2 — `STARTF_USESTDHANDLES`; H4 — flags decision (**implemented; release pending confirmation**) | Windows spawn hardening; no speculative flag change |
 | 6 | **0.10.6** | P1 — persistent parser state across `feed()` chunks | Critical correctness fix; prerequisite for K1a/K1b |
 | 7 | **0.10.7** | K1a — Kitty parser correctness + mode exposure | Parser bug fix; builds on P1 |
 | 8 | **0.11.0** | G2 — remove `ProcessExit`; G1 only if a unified `RawHandle` is actually needed | Breaking Rust API cleanup; one migration |
@@ -1115,9 +1130,9 @@ umbrella. Checkboxes track implementation, not filing.
 **Reference-review findings**
 
 - [x] **H1** — `fix(windows): normalize/deduplicate explicit environment keys` (implemented in 0.10.4; release pending) ([#10](https://github.com/opticsWolf/stitch-pty/issues/10))
-- [ ] **H2** — `fix(windows): set STARTF_USESTDHANDLES for ConPTY spawn` ([#11](https://github.com/opticsWolf/stitch-pty/issues/11))
+- [x] **H2** — `fix(windows): set STARTF_USESTDHANDLES for ConPTY spawn` (implemented in 0.10.5; release pending) ([#11](https://github.com/opticsWolf/stitch-pty/issues/11))
 - [x] **H3** — `perf(windows): event-driven child-exit watcher` (implemented in 0.10.2; release pending) ([#6](https://github.com/opticsWolf/stitch-pty/issues/6))
-- [ ] **H4** — `spike(windows): review ConPTY creation flags` ([#12](https://github.com/opticsWolf/stitch-pty/issues/12); investigation)
+- [x] **H4** — `spike(windows): review ConPTY creation flags` (investigation complete in 0.10.5; no flag change) ([#12](https://github.com/opticsWolf/stitch-pty/issues/12))
 
 **Kitty keyboard follow-up (issue #1)**
 
@@ -1269,6 +1284,21 @@ No 0.10.4 tag or registry publish has been performed. 0.10.2 and 0.10.3 also
 remain untagged; their release gates are §8.6 and §8.7. The 0.10.4 release
 waits for explicit confirmation.
 
+### 8.9 0.10.5 (H2 + H4) — implementation complete, release pending
+
+- [x] Version/changelog/docs for 0.10.5
+- [x] Local gates: `fmt`, `clippy` (host + Linux/macOS), `cargo test`
+      (413 unit + 19 integration [Windows; 19 Unix] + 1 doc),
+      `--no-default-features` (413), `check --features python`, `doc`, `ruff`,
+      `mypy`, `maturin develop --release` (0.10.5), `pytest` (198 passed,
+      1 skipped)
+- [ ] CI on the exact 0.10.5 commit
+- [ ] Tag `v0.10.5`; publish PyPI/crates; create the GitHub release
+
+No 0.10.5 tag or registry publish has been performed. 0.10.2 through 0.10.4
+also remain untagged; their gates are §8.6–§8.8. The 0.10.5 release waits for
+explicit confirmation.
+
 ---
 
 ## 9. Open decisions / risks
@@ -1283,9 +1313,9 @@ waits for explicit confirmation.
 | G4 blocking | Is `ClosePseudoConsole` ever called from the async executor, or always from a blocking thread? | Answered: `close()` uses `spawn_blocking`; implemented in 0.10.2 (pending release) |
 | G7 macOS timers | Is the Rust terminate path safe through PyO3 on current macOS? | Answered: shared `terminate_child` policy; PyO3 adapter injects blocking sleeps and Python no longer polls. macOS CI verification pending the 0.10.3 release |
 | H1 duplicate keys | Reject or last-wins for exact/case-insensitive duplicates? | Answered: last occurrence wins; Windows compares ASCII case-insensitively, Unix exact keys. Python preserves mapping order; implemented in 0.10.4 (pending release) |
-| H2 std handles | Does setting `STARTF_USESTDHANDLES` change any current output path? | 0.10.5; redirected-parent test |
+| H2 std handles | Does setting `STARTF_USESTDHANDLES` change any current output path? | Answered: child output still reaches ConPTY; redirected-parent test passes. Implemented in 0.10.5 (pending release) |
 | H3 watcher | Replace the 50 ms exit poll with an event-driven watcher? | Answered: watcher implemented in 0.10.2 (pending release) |
-| H4 flags | Is `RESIZE_QUIRK` needed for a reproducible bug? Is `WIN32_INPUT_MODE` ever desirable? | Spike; no speculative change |
+| H4 flags | Is `RESIZE_QUIRK` needed for a reproducible bug? Is `WIN32_INPUT_MODE` ever desirable? | Answered in 0.10.5: neither; keep `INHERIT_CURSOR` only until a failing test exists |
 | K1a parser | Fix push/pop tests to the spec; separate main/alt stacks | 0.10.7; direct spec vectors |
 | K1b placement | Encoder on `TerminalState`/`HistoryScreen` vs a standalone `KeyboardEncoder` | K1b design; keep `PtySession` transport-only in Rust |
 | K1b flags | Start with flag 1 only, or also 2/8 in the first release? | K1b; flag 1 covers Shift+Enter, 8 covers all keys |
@@ -1301,8 +1331,8 @@ waits for explicit confirmation.
 
 - PR #2 merged to `dev`; 0.10.0 released from tag `v0.10.0` (`e620cc8`);
   0.10.1 released from tag `v0.10.1` (`97e03ab`); PyPI and crates.io
-  published for both. 0.10.2, 0.10.3, and 0.10.4 are implemented on `dev`;
-  their releases are pending explicit confirmation.
+  published for both. 0.10.2 through 0.10.5 are implemented on `dev`; their
+  releases are pending explicit confirmation.
 - All seven original gaps, H1–H3, K1a/K1b, P1, and D1/D2 have open issues
   linked to PR #2 and this plan; H4 has a recorded spike decision.
 - Issue #1 is linked to K1a/K1b and is not closed before the PySide6 example

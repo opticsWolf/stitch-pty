@@ -4,7 +4,7 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **412** | **18** | 393 shared + 19 Windows-only |
+| **Windows** | **413** | **19** | 393 shared + 20 Windows-only |
 | **Linux / macOS** | **397** | **19** | 393 shared + 4 Unix-only |
 
 ### Shared Tests (393)
@@ -28,7 +28,7 @@ Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, 
 - **terminal/screen** (94): Screen rendering, cursor movement, line operations, resize, margins
 - **winsize** (11): Clone/copy/debug, equality, default, PyO3 conversion
 
-### Windows-Only Tests (19)
+### Windows-Only Tests (20)
 
 In `src/platform_windows.rs`.
 
@@ -38,6 +38,7 @@ In `src/platform_windows.rs`.
 - **send_sync_handle** (3): `Send`/`Sync`/`Clone` trait verification for handle wrapper
 - **pipe_counter** (1): Pipe counter monotonic increment
 - **environment block** (2): empty double-null block; UTF-16 encoding with case-insensitive dedupe and empty/Unicode values
+- **ConPTY flags** (1): `STARTF_USESTDHANDLES` is set; resize quirk and Win32 input mode stay off
 
 ### Unix-Only Tests (4)
 
@@ -50,9 +51,9 @@ In `src/platform_unix.rs` and `src/errors.rs`.
 
 ### Integration Tests (`tests/rust_session.rs`)
 
-Real PTYs, end-to-end, via `cargo test` on all three platforms — 18 tests on
-Windows and 19 on Unix (the Windows-only interrupt/env tests and Unix-only
-signal/EOF tests are marked):
+Real PTYs, end-to-end, via `cargo test` on all three platforms — 18 tests in
+`rust_session.rs` on Windows and 19 on Unix (the Windows-only interrupt/env
+tests and Unix-only signal/EOF tests are marked):
 
 - spawn → read → wait with `ExitStatus`, plus repeated `wait()`
 - environment inheritance (`spawn`), explicit empty env, exact replacement (`spawn_with_env`), and Windows case-insensitive duplicate-key collapse
@@ -62,6 +63,12 @@ signal/EOF tests are marked):
 - `read_until_exit` output/status and large-output draining; `close()` idempotence with unread output
 - stdin EOF via `shutdown_write` (Unix); EOF after child exit (Unix; Windows ConPTY may keep the pipe open)
 - Windows `interrupt()`/`send_signal(2)` return `Unsupported`
+
+### Redirected stdio (`tests/redirected_stdio.rs`)
+
+One Windows-only test in its own process: redirects the parent's stdout/stderr
+to a file, spawns a ConPTY child, and verifies the output reaches the PTY, not
+the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 
 ---
 

@@ -60,7 +60,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.10.4"
+__version__ = "0.10.5"
 __all__ = [
     "PtySession",
     "PtyMaster",

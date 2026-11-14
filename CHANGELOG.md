@@ -4,7 +4,19 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.4...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.5...HEAD)
+
+## [0.10.5 — ConPTY stdio isolation and flag decision](https://github.com/opticsWolf/stitch-pty/compare/v0.10.4...v0.10.5)
+
+### Fixed
+- Windows `CreateProcessW` now sets `STARTF_USESTDHANDLES` with invalid
+  standard handles, so a ConPTY child cannot inherit the parent's redirected
+  stdout/stderr. The ConPTY process attribute still supplies the actual child
+  console; a dedicated redirected-parent integration test verifies that child
+  output reaches the PTY, not the parent's log.
+- Documented the ConPTY creation-flag decision: keep
+  `PSEUDOCONSOLE_INHERIT_CURSOR` only. `RESIZE_QUIRK` has no reproducible bug
+  in the current matrix, and `WIN32_INPUT_MODE` would break raw byte input.
 
 ## [0.10.4 — explicit environment deduplication](https://github.com/opticsWolf/stitch-pty/compare/v0.10.3...v0.10.4)
 

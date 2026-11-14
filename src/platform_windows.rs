@@ -30,8 +30,8 @@ use windows::Win32::System::Threading::{
     CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
     EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess, GetProcessId, INFINITE,
     InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
-    STARTUPINFOEXW, STARTUPINFOW_FLAGS, TerminateProcess, UpdateProcThreadAttribute,
-    WaitForSingleObject,
+    STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES, STARTUPINFOEXW, STARTUPINFOW_FLAGS,
+    TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 use windows::core::{PCSTR, PCWSTR, PWSTR};
@@ -44,6 +44,23 @@ type PfnCreatePseudoConsole = extern "system" fn(
     u32,
     *mut HANDLE,
 ) -> i32;
+
+/// ConPTY creation flags.
+///
+/// `PSEUDOCONSOLE_RESIZE_QUIRK` (0x2) is deliberately not set: no reproducible
+/// resize bug exists in the current test matrix. `PSEUDOCONSOLE_WIN32_INPUT_MODE`
+/// (0x4) would switch input to Win32 `INPUT_RECORD`s and break raw VT byte
+/// writers, so it is never enabled without an adapted input path.
+const CONPTY_FLAGS: u32 = PSEUDOCONSOLE_INHERIT_CURSOR;
+
+/// Startup flags for the ConPTY child.
+///
+/// `STARTF_USESTDHANDLES` with invalid standard handles prevents the child from
+/// inheriting the parent's redirected stdio handles. The ConPTY attribute
+/// supplies the child's actual console; the startup handles are not used for
+/// PTY I/O. The handles are pseudo-values, so no handle lifetime is required.
+const STARTUP_FLAGS: STARTUPINFOW_FLAGS =
+    STARTUPINFOW_FLAGS(STARTF_USESHOWWINDOW.0 | STARTF_USESTDHANDLES.0);
 
 type PfnResizePseudoConsole = extern "system" fn(HANDLE, COORD) -> i32;
 type PfnClosePseudoConsole = extern "system" fn(HANDLE) -> i32;
@@ -550,7 +567,7 @@ pub async fn open_pty(
             },
             stdin_handle.0.0,
             stdout_handle.0.0,
-            PSEUDOCONSOLE_INHERIT_CURSOR,
+            CONPTY_FLAGS,
             &mut conpty,
         );
         if hr < 0 {
@@ -621,7 +638,7 @@ pub async fn spawn(
                 },
                 stdin_handle.0.0,
                 stdout_handle.0.0,
-                PSEUDOCONSOLE_INHERIT_CURSOR,
+                CONPTY_FLAGS,
                 &mut conpty,
             );
             if hr < 0 {
@@ -700,7 +717,13 @@ pub async fn spawn(
 
         let mut startup_info: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
         startup_info.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
-        startup_info.StartupInfo.dwFlags = STARTUPINFOW_FLAGS(0x00000100); // STARTF_USESHOWWINDOW
+        startup_info.StartupInfo.dwFlags = STARTUP_FLAGS;
+        // Do not inherit the parent's stdio. Once STARTF_USESTDHANDLES is set,
+        // these handles must at least be syntactically valid; ConPTY supplies
+        // the child console through PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE.
+        startup_info.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+        startup_info.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+        startup_info.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
         startup_info.StartupInfo.wShowWindow = SW_HIDE.0 as u16;
         startup_info.lpAttributeList = attr_list;
 
@@ -928,6 +951,26 @@ mod tests {
             .filter(|entry| !entry.is_empty())
             .map(|entry| String::from_utf16(entry).expect("valid UTF-16 env entry"))
             .collect()
+    }
+
+    #[test]
+    fn test_conpty_and_startup_flags() {
+        // H2: standard handles are explicitly suppressed; ConPTY supplies the
+        // child console through the process attribute.
+        assert_eq!(
+            STARTUP_FLAGS.0 & STARTF_USESTDHANDLES.0,
+            STARTF_USESTDHANDLES.0
+        );
+        assert_eq!(
+            STARTUP_FLAGS.0 & STARTF_USESHOWWINDOW.0,
+            STARTF_USESHOWWINDOW.0
+        );
+
+        // H4: keep cursor inheritance, but do not enable the resize quirk
+        // (0x2) or Win32 INPUT_RECORD mode (0x4) without a failing test.
+        assert_eq!(CONPTY_FLAGS & 0x1, 0x1);
+        assert_eq!(CONPTY_FLAGS & 0x2, 0);
+        assert_eq!(CONPTY_FLAGS & 0x4, 0);
     }
 
     #[test]
