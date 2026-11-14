@@ -33,6 +33,7 @@ src/
 │   ├── NamedPipeServer connect() + ConPTY
 │   ├── ArgvQuote algorithm + SafeAttributeList
 ├── session.rs                # High-level Rust PtySession (no PyO3 required)
+├── terminal_session.rs       # PtySession + owned HistoryScreen (TerminalSession)
 ├── terminate.rs              # Shared SIGTERM → grace → SIGKILL policy (injectable sleep)
 ├── terminal/                 # Embedded pyte_rs terminal emulation
 │   ├── mod.rs                # Re-exports
@@ -237,6 +238,13 @@ back. `open_pty_platform` is master-only (Unix closes the slave; Windows has no
 attached child); `spawn_platform` is the native spawn route. See
 [`PARITY.md`](PARITY.md) for the Rust/Python surface table and the external
 `vt100` example.
+
+**Owned screen.** `TerminalSession` wraps a `PtySession` with one
+`HistoryScreen`: `read`/`read_timeout` feed each chunk exactly once, `resize`
+updates both the PTY and the screen (with reflow), and `display`,
+`styled_viewport`, `take_dirty_rows`, `take_events`, and `encode_key` expose the
+terminal state. `PtySession` itself remains emulator-free; `into_parts` returns
+the transport and screen separately.
 
 ## Terminal Emulation Layer (`terminal/`)
 

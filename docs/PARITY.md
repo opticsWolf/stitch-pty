@@ -19,10 +19,11 @@ emulation layers. CI's **Rust core (no default features)** job runs
 | Terminate / kill / signal | methods | methods | Parity |
 | Close / shutdown_write | methods | not exposed | Rust-only (safety-sensitive lifecycle) |
 | Reader / writer handles | `reader()`, `writer()` (Arc session) | not exposed | Rust-only interop |
+| Owned PTY + screen | `TerminalSession` | `PtySession` owns `_terminal` | Parity; both auto-feed reads and resize the screen |
 | Assemble custom backends | `from_parts(pty, child)` | not exposed | Rust-only interop |
 | Raw unparsed output tail | not owned | `raw_output` | Python-only convenience; the transport does not retain an output history |
 | Expect-style matching | not owned | `expect` | Python-only convenience; Rust G5 tracks a native design |
-| Owned terminal state | not owned | `terminal` | Python convenience; Rust deliberately keeps the emulator separate (G6 tracks `TerminalSession`) |
+| Owned terminal state | `TerminalSession` | `terminal` | Parity via G6; `PtySession` itself stays emulator-free in both layers |
 
 ## Terminal surface
 
@@ -47,5 +48,4 @@ emulation layers. CI's **Rust core (no default features)** job runs
   the session's read history, not a property of the transport; Rust callers
   that need it can accumulate reads themselves.
 - `PtySession` remains emulator-free in Rust. Python's owned `_terminal` is a
-  binding-level convenience; G6 (`TerminalSession`) is the planned Rust
-  equivalent.
+  binding-level convenience; `TerminalSession` is the Rust equivalent.

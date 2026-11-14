@@ -24,9 +24,11 @@ pub use terminal::{
     Screen, encode_key,
 };
 
-// High-level Rust session API
+// High-level Rust session APIs
 pub mod session;
+pub mod terminal_session;
 pub use session::{PtyReader, PtySession, PtyWriter};
+pub use terminal_session::TerminalSession;
 pub use winsize::Winsize;
 
 // Cross-platform modules

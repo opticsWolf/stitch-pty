@@ -4,7 +4,30 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.13.0...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.14.0...HEAD)
+
+## [0.14.0 — owned TerminalSession](https://github.com/opticsWolf/stitch-pty/compare/v0.13.0...v0.14.0)
+
+Adds the Rust convenience that pairs a PTY with one owned terminal screen
+without folding the emulator into `PtySession`.
+
+### Added
+- `TerminalSession` owns a `PtySession` plus a `HistoryScreen`. `spawn` and
+  `spawn_with_env` initialize the screen at the PTY winsize; `read` and
+  `read_timeout` feed each chunk into the screen exactly once.
+- `resize`/`set_winsize` update both the PTY and the screen (with reflow);
+  `display`, `full_display`, `scrollback_display`, `styled_viewport`,
+  `take_dirty_rows`, `take_bell`, `take_events`, `keyboard_mode`, and
+  `encode_key` expose the terminal state.
+- `from_session`, `from_parts`, and `into_parts` provide ownership escape
+  hatches; `PtySession` remains transport-only and emulator-free.
+- `examples/terminal_session.rs` demonstrates spawn → read → render without
+  PyO3.
+
+### Tests
+- `tests/terminal_session.rs`: real-child output feeds the screen and exposes
+  dirty rows; resize keeps PTY and screen dimensions in sync; Unix scrollback
+  is owned by the session.
 
 ## [0.13.0 — Rust interop and no-PyO3 parity](https://github.com/opticsWolf/stitch-pty/compare/v0.12.0...v0.13.0)
 

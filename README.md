@@ -149,6 +149,11 @@ external `vt100` emulator crate. `open_pty_platform` is master-only (Unix
 closes the slave; Windows has no attached child); use `spawn_platform` for the
 native spawn path or implement `PtyBackend` and call `from_parts`.
 
+If you want the PTY and one screen in a single type, `TerminalSession` owns a
+`PtySession` + `HistoryScreen`: reads feed the screen once, and resize updates
+both (including reflow). `PtySession` remains transport-only, so a multiplexer
+can still keep one screen per pane. See `examples/terminal_session.rs`.
+
 `PtySession::spawn` inherits the parent environment. `spawn_with_env` takes
 the complete environment, so an empty slice is an empty environment; the
 lower-level `platform::spawn_platform` uses `None` to inherit and
@@ -792,7 +797,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.13.0"
+stitch-pty = "0.14.0"
 ```
 
 To build and test the pure Rust code locally:

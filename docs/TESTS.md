@@ -4,8 +4,8 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **433** | **19** | 413 shared + 20 Windows-only |
-| **Linux / macOS** | **417** | **22** | 413 shared + 4 Unix-only |
+| **Windows** | **433** | **21** | 413 shared + 20 Windows-only |
+| **Linux / macOS** | **417** | **25** | 413 shared + 4 Unix-only |
 
 ### Shared Tests (413)
 
@@ -53,9 +53,10 @@ In `src/platform_unix.rs` and `src/errors.rs`.
 ### Integration Tests (`tests/rust_session.rs`)
 
 Real PTYs, end-to-end, via `cargo test` on all three platforms — 18 tests in
-`rust_session.rs` on Windows and 21 on Unix, plus the parity corpus test in
-`terminal_parity.rs` (the Windows-only interrupt/env tests and Unix-only
-signal/EOF/from_parts tests are marked):
+`rust_session.rs` on Windows and 21 on Unix, one parity corpus test, and two
+`terminal_session.rs` tests on Windows / three on Unix (the Windows-only
+interrupt/env tests and Unix-only signal/EOF/from_parts/scrollback tests are
+marked):
 
 - spawn → read → wait with `ExitStatus`, plus repeated `wait()`
 - environment inheritance (`spawn`), explicit empty env, exact replacement (`spawn_with_env`), and Windows case-insensitive duplicate-key collapse
@@ -67,6 +68,7 @@ signal/EOF/from_parts tests are marked):
 - stdin EOF via `shutdown_write` (Unix); EOF after child exit (Unix; Windows ConPTY may keep the pipe open)
 - Windows `interrupt()`/`send_signal(2)` return `Unsupported`
 - `from_parts` / `reader()` / `writer()` round-trip on Unix (custom interop)
+- `TerminalSession` auto-feed, dirty rows, resize sync, and Unix scrollback
 
 ### Redirected stdio (`tests/redirected_stdio.rs`)
 
