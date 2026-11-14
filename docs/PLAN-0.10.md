@@ -55,7 +55,7 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | Version | `0.11.0` on `dev` (G2 + G1); `0.10.7` released; 0.10.2–0.10.6 folded into it; `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
 | Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.11.0 is not tagged or published yet; 0.10.2–0.10.6 were not published separately |
 | Local gates | 0.11.0: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (421 unit + 18 integration [Windows; 20 Unix] + 1 doc), `--no-default-features` (421), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.11.0), `pytest` (203 passed, 2 skipped on Windows; 204 passed, 1 skipped on Linux/macOS) |
-| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` is one implementation commit ahead with 0.11.0; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` is at `0b7fe83` with the 0.11.0 implementation; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
 | Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision; G2 (#4) and G1 (#3) are implemented in 0.11.0 and stay open until release |
@@ -1367,7 +1367,7 @@ This completes the planned 0.10.x follow-up set.
       `--no-default-features` (421), `check --features python`, `doc`, `ruff`,
       `mypy`, `maturin develop --release` (0.11.0), `pytest` (203 passed,
       2 skipped on Windows; 204 passed, 1 skipped on Linux/macOS)
-- [ ] CI on the exact 0.11.0 commit
+- [x] CI on `0b7fe83` (run [`43606635653`](https://github.com/opticsWolf/stitch-pty/actions/runs/43606635653): 6 test jobs + 4 wheels green; publish skipped)
 - [ ] Tag `v0.11.0`; publish PyPI/crates; create the GitHub release
 
 No 0.11.0 tag or registry publish has been performed. The release waits for
