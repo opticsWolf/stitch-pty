@@ -58,6 +58,7 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | Branch sync | `dev` and `main` contain tag commit `97e03ab`; tags `v0.10.0`/`e620cc8` and `v0.10.1`/`97e03ab`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
+| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed for G1/G2/G4–G7, H1–H4, K1a/K1b, and P1/D1/D2 (all open) |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
 
 The pre-rebase PR contained the original review commits plus the review follow-ups. The rebase merge rewrote these SHAs on `dev`; the sequence is:
@@ -1073,39 +1074,40 @@ Notes:
 
 ## 7. Issue-filing checklist
 
-The gaps now live in this plan and issue #1. File these follow-ups now that
-PR #2 is merged, and link each back to the PR and this plan.
+The gaps now live in this plan and the issue tracker. All 15 remaining
+follow-ups are filed as #3–#17 and linked below; issue #1 remains the Kitty
+umbrella. Checkboxes track implementation, not filing.
 
 **Original gaps**
 
 - [x] **G3** — `fix(windows): make interrupt() fail explicitly on ConPTY` (released in 0.10.1)
-- [ ] **G4** — `fix(windows): add close()/read_until_exit with drain and close-order safety`
-- [ ] **G2** — `refactor(rust)!: remove ProcessExit and return ExitStatus from wait`
-- [ ] **G1** — `docs(rust): document raw_handle platform contract; optional RawHandle enum`
-- [ ] **G6** — `feat(rust): add TerminalSession with an owned HistoryScreen`
-- [ ] **G5** — `feat(rust): port expect() pattern matching`
-- [ ] **G7** — `refactor(python): consolidate terminate() with Rust PtySession`
+- [ ] **G4** — `fix(windows): add close()/read_until_exit with drain and close-order safety` ([#5](https://github.com/opticsWolf/stitch-pty/issues/5))
+- [ ] **G2** — `refactor(rust)!: remove ProcessExit and return ExitStatus from wait` ([#4](https://github.com/opticsWolf/stitch-pty/issues/4))
+- [ ] **G1** — `docs(rust): document raw_handle platform contract; optional RawHandle enum` ([#3](https://github.com/opticsWolf/stitch-pty/issues/3))
+- [ ] **G6** — `feat(rust): add TerminalSession with an owned HistoryScreen` ([#8](https://github.com/opticsWolf/stitch-pty/issues/8))
+- [ ] **G5** — `feat(rust): port expect() pattern matching` ([#7](https://github.com/opticsWolf/stitch-pty/issues/7))
+- [ ] **G7** — `refactor(python): consolidate terminate() with Rust PtySession` ([#9](https://github.com/opticsWolf/stitch-pty/issues/9))
 
 **Reference-review findings**
 
-- [ ] **H1** — `fix(windows): normalize/deduplicate explicit environment keys`
-- [ ] **H2** — `fix(windows): set STARTF_USESTDHANDLES for ConPTY spawn`
-- [ ] **H3** — `perf(windows): event-driven child-exit watcher` (or fold into G4)
-- [ ] **H4** — `spike(windows): review ConPTY creation flags` (investigation)
+- [ ] **H1** — `fix(windows): normalize/deduplicate explicit environment keys` ([#10](https://github.com/opticsWolf/stitch-pty/issues/10))
+- [ ] **H2** — `fix(windows): set STARTF_USESTDHANDLES for ConPTY spawn` ([#11](https://github.com/opticsWolf/stitch-pty/issues/11))
+- [ ] **H3** — `perf(windows): event-driven child-exit watcher` ([#6](https://github.com/opticsWolf/stitch-pty/issues/6); or fold into G4)
+- [ ] **H4** — `spike(windows): review ConPTY creation flags` ([#12](https://github.com/opticsWolf/stitch-pty/issues/12); investigation)
 
 **Kitty keyboard follow-up (issue #1)**
 
-- [ ] **K1a** — `fix(terminal): correct Kitty push/pop/query, alt-screen stacks, and expose keyboard_mode`
-- [ ] **K1b** — `feat(terminal): add a Kitty key encoder and Python PtySession.encode_key`
+- [ ] **K1a** — `fix(terminal): correct Kitty push/pop/query, alt-screen stacks, and expose keyboard_mode` ([#13](https://github.com/opticsWolf/stitch-pty/issues/13))
+- [ ] **K1b** — `feat(terminal): add a Kitty key encoder and Python PtySession.encode_key` ([#14](https://github.com/opticsWolf/stitch-pty/issues/14))
 - [ ] Keep [issue #1](https://github.com/opticsWolf/stitch-pty/issues/1) as the
       umbrella for the user report and link K1a/K1b back to it. Do not close it
       until K1b lands and the PySide6 example uses the encoder.
 
 **Post-merge parser / decoupling findings**
 
-- [ ] **P1** — `fix(terminal): persist parser state across feed() chunks`
-- [ ] **D1** — `feat(rust): add PtySession::from_parts and reader/writer interop`
-- [ ] **D2** — `test(ci): enforce no-PyO3 core build and Rust/Python parity`
+- [ ] **P1** — `fix(terminal): persist parser state across feed() chunks` ([#15](https://github.com/opticsWolf/stitch-pty/issues/15))
+- [ ] **D1** — `feat(rust): add PtySession::from_parts and reader/writer interop` ([#16](https://github.com/opticsWolf/stitch-pty/issues/16))
+- [ ] **D2** — `test(ci): enforce no-PyO3 core build and Rust/Python parity` ([#17](https://github.com/opticsWolf/stitch-pty/issues/17))
 
 Suggested labels (create if missing): `bug`, `windows`, `rust`, `python`,
 `breaking`, `feature`, `tech-debt`, `macos`, `spike`, `keyboard`, `protocol`,
