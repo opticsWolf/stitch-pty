@@ -234,10 +234,10 @@ pub(crate) fn dedupe_env_windows(env: &[(String, String)]) -> Vec<(&str, &str)> 
     dedupe_env(env, |a, b| a.eq_ignore_ascii_case(b))
 }
 
-fn dedupe_env<'a>(
-    env: &'a [(String, String)],
+fn dedupe_env(
+    env: &[(String, String)],
     same_key: impl Fn(&str, &str) -> bool,
-) -> Vec<(&'a str, &'a str)> {
+) -> Vec<(&str, &str)> {
     let mut entries: Vec<(&str, &str)> = Vec::with_capacity(env.len());
     for (key, value) in env {
         if let Some(pos) = entries

@@ -22,6 +22,8 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 - Exposed `keyboard_mode` through `Screen`, `HistoryScreen`, `TerminalState`,
   and the Python `PtySession`/`TerminalState` properties. No key encoder is
   added; K1b remains the follow-up.
+- Elided the `dedupe_env` lifetime in `platform.rs` so Linux clippy
+  (`needless_lifetimes`) stays warning-free.
 
 ## [0.10.6 — persistent terminal parser state](https://github.com/opticsWolf/stitch-pty/compare/v0.10.5...v0.10.6)
 
