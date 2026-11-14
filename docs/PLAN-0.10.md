@@ -1,8 +1,8 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
 > Status: **all planned 0.10.x patches (0.10.2–0.10.7) implemented on `dev`** (G4 + H3, G7, H1, H2/H4, P1, then K1a); none of these patches is tagged or published yet. 0.10.1 and 0.10.0 are published; final release steps wait for explicit confirmation.
-> Release branch: `dev` (contains `v0.10.0` at `e620cc8` and `v0.10.1` at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; 0.10.5 at `5c66fc2`; 0.10.6 at `deb0df6`; 0.10.7 follows; `main` is at `b0e4510`)
-> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; 0.10.5 at `5c66fc2`; 0.10.6 at `deb0df6`; all untagged; pre-rebase PR head was `5e68aa1`
+> Release branch: `dev` (contains `v0.10.0` at `e620cc8` and `v0.10.1` at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; 0.10.5 at `5c66fc2`; 0.10.6 at `deb0df6`; 0.10.7 at `1092202`; `main` is at `b0e4510`)
+> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; 0.10.5 at `5c66fc2`; 0.10.6 at `deb0df6`; 0.10.7 at `1092202`; all untagged; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
 > [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md)
