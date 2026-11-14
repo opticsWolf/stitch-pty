@@ -604,7 +604,7 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 25 | 0.10.4 | ☑ folded into 0.10.7 — H1: explicit env dedupe last-wins; Windows ASCII case-insensitive; Python forwards ordered pairs |
 | 26 | 0.10.5 | ☑ folded into 0.10.7 — H2/H4: `STARTF_USESTDHANDLES` stdio isolation; ConPTY flags decision |
 | 27 | 0.10.6 | ☑ folded into 0.10.7 — P1: one persistent parser across `feed()` chunks; split CSI/OSC/DCS/UTF-8/alt-screen tests |
-| 28 | 0.10.7 | ☑ released (`v0.10.7`) — K1a: Kitty push/pop/query/`CSI =` semantics, per-screen stacks, keyboard_mode accessor; rolls up 0.10.2–0.10.6 |
+| 28 | 0.10.7 | ☑ released (`v0.10.7`, `842c3d9`) — K1a: Kitty push/pop/query/`CSI =` semantics, per-screen stacks, keyboard_mode accessor; rolls up 0.10.2–0.10.6 |
 
 All rows through 0.10.7 are released or folded into a release. Final tally at
 0.10.1 was **402 Rust unit tests + 12 integration + 1 doctest, 195 Python

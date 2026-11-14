@@ -1,7 +1,7 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
 > Status: **0.10.7 released (2026-11-14)** — the first patch since 0.10.1, rolling up G4 + H3, G7, H1, H2/H4, P1, and K1a. 0.10.2–0.10.6 were not tagged or published separately. 0.10.0 and 0.10.1 remain published.
-> Release branch: `main` at the `v0.10.7` release commit; `dev` carries the same tree plus post-release notes. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at the 0.10.7 release commit.
+> Release branch: `main` and `dev` carry the 0.10.7 release plus post-release notes. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at `842c3d9`.
 > Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`. Intermediate 0.10.2–0.10.6 commits (`3b3abb2`, `b3f2647`, `de50992`, `5c66fc2`, `deb0df6`) were development increments folded into 0.10.7; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
@@ -51,11 +51,11 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.7 release train run [`43596664417`](https://github.com/opticsWolf/stitch-pty/actions/runs/43596664417) at `50fcbf9`: all 6 test jobs and 4 wheel builds green, publish jobs skipped. The `v0.10.7` tag run publishes PyPI and crates.io from the release commit. |
+| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.7 release train run [`43596664417`](https://github.com/opticsWolf/stitch-pty/actions/runs/43596664417) at `50fcbf9`: all 6 test jobs and 4 wheel builds green. Tag run [`43598337253`](https://github.com/opticsWolf/stitch-pty/actions/runs/43598337253) at `842c3d9`: 6 test jobs, 4 wheels, PyPI, and crates.io green. |
 | Version | `0.10.7` released; 0.10.2–0.10.6 folded into it (implementation commits listed in §8.6–§8.10); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
 | Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.10.2–0.10.6 were not published separately |
 | Local gates | 0.10.7: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (424 unit + 19 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (424), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.7), `pytest` (203 passed, 1 skipped) |
-| Branch sync | `main` was fast-forwarded to the `v0.10.7` release commit; `dev` carries the same release plus post-release notes; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Branch sync | `main` was fast-forwarded from `b0e4510` to the 0.10.7 release; `dev` and `main` carry the post-release notes; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
 | Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision |
@@ -1338,10 +1338,10 @@ the aggregated CHANGELOG entry.
       1 skipped)
 - [x] CI on the 0.10.7 train (`50fcbf9`, run `43596664417`: 6 test jobs + 4
       wheels green)
-- [x] `main` fast-forwarded to the 0.10.7 release commit; `dev` matches it
-- [x] Tag `v0.10.7` pushed; tag CI runs the full matrix and publishes
-- [x] PyPI and crates.io 0.10.7 published
-- [x] GitHub release created from the aggregated CHANGELOG entry
+- [x] `main` fast-forwarded from `b0e4510` to `842c3d9`; `dev` matches the release plus these notes
+- [x] Tag `v0.10.7` at `842c3d9`; tag run [`43598337253`](https://github.com/opticsWolf/stitch-pty/actions/runs/43598337253) passed the full matrix and published
+- [x] PyPI 0.10.7 (4 files) and crates.io 0.10.7 published
+- [x] GitHub release <https://github.com/opticsWolf/stitch-pty/releases/tag/v0.10.7> created from the aggregated CHANGELOG entry
 
 This completes the planned 0.10.x follow-up set. The next planned item is
 0.11.0 (G2).
@@ -1378,7 +1378,7 @@ This completes the planned 0.10.x follow-up set. The next planned item is
 
 - PR #2 merged to `dev`; 0.10.0 released from tag `v0.10.0` (`e620cc8`);
   0.10.1 released from tag `v0.10.1` (`97e03ab`); 0.10.7 released from tag
-  `v0.10.7`; PyPI and crates.io published for all three. 0.10.2–0.10.6 were
+  `v0.10.7` (`842c3d9`); PyPI and crates.io published for all three. 0.10.2–0.10.6 were
   development increments folded into 0.10.7 and were not published separately.
 - G4/H3/G7/H1/H2/P1/K1a issues are closed as shipped in 0.10.7; G2/G1/G6/G5,
   K1b, and D1/D2 remain open and linked to PR #2 and this plan; H4 is closed
