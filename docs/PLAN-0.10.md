@@ -51,7 +51,7 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 push run [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) at `3b3abb2` green; publish jobs skipped. 0.10.3–0.10.7 CI follow their implementation commits; releases are gated on confirmation. |
+| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 push run [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) at `3b3abb2` green. The 0.10.4–0.10.7 train landed on run [`43596664417`](https://github.com/opticsWolf/stitch-pty/actions/runs/43596664417) at `50fcbf9`: all 6 test jobs and 4 wheel builds green, publish jobs skipped. Releases are gated on confirmation. |
 | Version | `0.10.7` on `dev` (K1a); 0.10.6 at `deb0df6` (P1); 0.10.5 at `5c66fc2` (H2/H4); 0.10.4 at `de50992` (H1); 0.10.3 at `b3f2647` (G7); 0.10.2 at `3b3abb2` (G4 + H3); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
 | Publication | PyPI/crates.io 0.10.1 and 0.10.0 published; 0.10.2 through 0.10.7 not tagged or published |
 | Local gates | 0.10.7: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (424 unit + 19 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (424), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.7), `pytest` (203 passed, 1 skipped) |
@@ -1340,7 +1340,7 @@ explicit confirmation.
       `--no-default-features` (424), `check --features python`, `doc`, `ruff`,
       `mypy`, `maturin develop --release` (0.10.7), `pytest` (203 passed,
       1 skipped)
-- [ ] CI on the exact 0.10.7 commit
+- [x] CI on the 0.10.7 train (`50fcbf9`, run `43596664417`: 6 test jobs + 4 wheels green)
 - [ ] Tag `v0.10.7`; publish PyPI/crates; create the GitHub release
 
 No 0.10.7 tag or registry publish has been performed. 0.10.2 through 0.10.6
