@@ -540,6 +540,54 @@ async def test_terminate_graceful(shell):
 
 
 @pytest.mark.asyncio
+async def test_terminate_after_exit_and_repeated(shell):
+    """Terminating an already-exited child is a no-op, even when repeated."""
+    prog, args = shell("exit 0")
+    session = await spawn(prog, args)
+    try:
+        await asyncio.wait_for(session.wait(), timeout=5.0)
+        await asyncio.wait_for(session.terminate(0.2), timeout=5.0)
+        await asyncio.wait_for(session.terminate(0.2), timeout=5.0)
+        assert session.is_alive is False
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_terminate_live_child_is_repeatable(idle):
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        await asyncio.wait_for(session.terminate(0.2), timeout=5.0)
+        await asyncio.wait_for(session.terminate(0.2), timeout=5.0)
+        assert session.is_alive is False
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="SIGTERM can be ignored only on POSIX; Windows maps it to TerminateProcess",
+)
+@pytest.mark.asyncio
+async def test_terminate_escalates_when_sigterm_is_ignored():
+    # SIG_IGN survives exec, so the sleep process ignores SIGTERM. The shared
+    # policy must escalate to SIGKILL after the grace period.
+    session = await spawn("bash", ["-c", "trap '' TERM; exec sleep 30"])
+    try:
+        await asyncio.wait_for(session.terminate(0.2), timeout=5.0)
+        assert session.is_alive is False
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
 async def test_display_properties_types(shell, read_all):
     prog, args = shell("echo types_test")
     session = await spawn(prog, args)

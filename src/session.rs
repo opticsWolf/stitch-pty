@@ -344,26 +344,18 @@ impl PtySession {
 
     /// Terminate the child: signal 15, wait up to `grace`, then `kill()`.
     ///
+    /// This is the same escalation policy used by the Python binding, with a
+    /// tokio sleep injected here and a blocking sleep injected through PyO3.
     /// On Windows signal 15 maps to `TerminateProcess`, so the grace period is
     /// effectively skipped; that is the platform's only option.
     ///
     /// Best effort: signal/kill errors are ignored, and this returns `Ok(())`
     /// even if the child is still alive after the bounded post-kill wait.
     pub async fn terminate(&self, grace: Duration) -> PtyResult<()> {
-        let _ = self.child.signal(15);
-        let deadline = std::time::Instant::now() + grace;
-        while self.child.is_running() && std::time::Instant::now() < deadline {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        if self.child.is_running() {
-            let _ = self.child.kill();
-            // Bounded wait for the reaper; do not hang a supervisor on a
-            // process that refuses to die.
-            let kill_deadline = std::time::Instant::now() + Duration::from_secs(2);
-            while self.child.is_running() && std::time::Instant::now() < kill_deadline {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        }
+        crate::terminate::terminate_child(&self.child, grace, |duration| {
+            tokio::time::sleep(duration)
+        })
+        .await;
         Ok(())
     }
 

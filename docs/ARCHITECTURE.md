@@ -33,6 +33,7 @@ src/
 │   ├── NamedPipeServer connect() + ConPTY
 │   ├── ArgvQuote algorithm + SafeAttributeList
 ├── session.rs                # High-level Rust PtySession (no PyO3 required)
+├── terminate.rs              # Shared SIGTERM → grace → SIGKILL policy (injectable sleep)
 ├── terminal/                 # Embedded pyte_rs terminal emulation
 │   ├── mod.rs                # Re-exports
 │   ├── ansi_parser.rs        # ECMA-48 ANSI escape sequence state machine
@@ -183,9 +184,11 @@ allowing Windows non-Send types to live across `.await` points.
 `Arc<dyn PtyBackend>` / `Arc<dyn ChildBackend>` pair and adds the helpers the
 Python layer used to implement in the binding: `read`/`read_timeout` (EOF is
 mapped to `Ok(0)` when the platform reports it), `write_all`, `resize`, `wait`
-(returning `ExitStatus` via `ChildBackend::wait_status`), the `terminate`
-ladder (signal 15 → bounded grace → kill), `read_until_exit`, `close`,
-`shutdown_write`, and `into_parts`.
+(returning `ExitStatus` via `ChildBackend::wait_status`), `read_until_exit`,
+`close`, `shutdown_write`, and `into_parts`. `terminate` uses the shared
+`terminate::terminate_child` policy (signal 15 → bounded grace → kill →
+bounded reap); Rust injects a tokio sleep and the PyO3 adapter injects a
+blocking sleep, so the same ladder runs through both runtimes.
 
 `read_until_exit` selects between reads and child exit, then drains ConPTY
 output for a bounded quiet window; after it returns, reads report EOF. `close`

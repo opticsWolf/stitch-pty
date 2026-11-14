@@ -60,7 +60,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.10.2"
+__version__ = "0.10.3"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -190,23 +190,11 @@ class PtyChild:
     async def terminate(self, grace_period: float = 5.0) -> None:
         """Send SIGTERM, wait for graceful exit, then SIGKILL if needed.
 
-        Uses a polling loop with asyncio.wait_for to prevent Tokio runtime
-        starvation on macOS when bridged via PyO3.
+        Delegates to one Rust escalation policy shared by the Rust and Python
+        APIs. The Rust PyO3 adapter uses blocking sleeps, so this future is not
+        dependent on tokio timers firing through the Python bridge on macOS.
         """
-        deadline = asyncio.get_running_loop().time() + grace_period + 2.0
-        while True:
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                self.kill()
-                return
-            try:
-                await asyncio.wait_for(
-                    self._inner.terminate(grace_period),
-                    timeout=min(remaining, 0.1),
-                )
-                return
-            except TimeoutError:
-                continue
+        await self._inner.terminate(grace_period)
 
     def kill(self) -> None:
         """Force kill the process immediately (SIGKILL)."""
@@ -449,23 +437,11 @@ class PtySession:
     async def terminate(self, grace_period: float = 5.0) -> None:
         """Graceful termination with fallback to SIGKILL.
 
-        Uses a polling loop with asyncio.wait_for to prevent Tokio runtime
-        starvation on macOS when bridged via PyO3.
+        Delegates to one Rust escalation policy shared by the Rust and Python
+        APIs. The Rust PyO3 adapter uses blocking sleeps, so this future is not
+        dependent on tokio timers firing through the Python bridge on macOS.
         """
-        deadline = asyncio.get_running_loop().time() + grace_period + 2.0
-        while True:
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                self.kill()
-                return
-            try:
-                await asyncio.wait_for(
-                    self._inner.terminate(grace_period),
-                    timeout=min(remaining, 0.1),
-                )
-                return
-            except TimeoutError:
-                continue
+        await self._inner.terminate(grace_period)
 
     def kill(self) -> None:
         """Force kill."""

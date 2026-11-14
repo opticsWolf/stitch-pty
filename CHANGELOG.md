@@ -4,7 +4,21 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.2...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.3...HEAD)
+
+## [0.10.3 — shared terminate policy](https://github.com/opticsWolf/stitch-pty/compare/v0.10.2...v0.10.3)
+
+### Changed
+- Python `PtyChild.terminate()` and `PtySession.terminate()` now delegate to
+  one Rust escalation policy instead of wrapping each call in a 100 ms
+  `asyncio.wait_for` loop that could re-issue SIGTERM. `PtySession::terminate`
+  and the PyO3 adapter share the SIGTERM → grace → SIGKILL → bounded-reap
+  ladder; the adapter injects blocking sleeps so the Python path does not
+  depend on tokio timers firing through the PyO3 bridge on macOS.
+- `terminate()` remains idempotent and best-effort: an already-exited child or
+  a failed signal is ignored. Added Rust policy tests for already-exited,
+  graceful, SIGTERM-ignoring, and repeated calls, plus Python tests for the
+  same edge cases.
 
 ## [0.10.2 — Windows close/read-until-exit and exit watcher](https://github.com/opticsWolf/stitch-pty/compare/v0.10.1...v0.10.2)
 

@@ -13,7 +13,7 @@ use crate::winsize::Winsize;
 /// Represents the exit status of a child process.
 ///
 /// Improvements from portable-pty:
-/// - Separate `exit_code` (u32) and `signal` (Option<String>) fields
+/// - Separate `exit_code` (u32) and `signal` (`Option<String>`) fields
 /// - `success()` method for easy checking
 /// - `Display` implementation for human-readable output
 #[derive(Clone, Debug)]

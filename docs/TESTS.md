@@ -4,10 +4,10 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **402** | **17** | 385 shared + 17 Windows-only |
-| **Linux / macOS** | **389** | **19** | 385 shared + 4 Unix-only |
+| **Windows** | **407** | **17** | 390 shared + 17 Windows-only |
+| **Linux / macOS** | **394** | **19** | 390 shared + 4 Unix-only |
 
-### Shared Tests (385)
+### Shared Tests (390)
 
 Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, `src/winsize.rs`, and `src/terminal/`.
 
@@ -24,6 +24,7 @@ Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, 
 - **terminal/history** (47): Scrollback, alt screen swap, resize, cursor delegation
 - **terminal/modes** (7): Public/private modes, mouse modes, cursor style
 - **terminal/parser** (82): Full parser — CSI/OSC/ESC/SGR handling, cursor positioning, screen manipulation
+- **terminate** (5): shared escalation policy — already-exited, graceful, SIGTERM-ignoring, repeated, injected sleep
 - **terminal/screen** (94): Screen rendering, cursor movement, line operations, resize, margins
 - **winsize** (11): Clone/copy/debug, equality, default, PyO3 conversion
 
@@ -48,15 +49,18 @@ In `src/platform_unix.rs` and `src/errors.rs`.
 
 ### Integration Tests (`tests/rust_session.rs`)
 
-Real PTYs, end-to-end, via `cargo test` on all three platforms — 13 tests
-total (11 on Windows; the Unix-only tests are marked):
+Real PTYs, end-to-end, via `cargo test` on all three platforms — 17 tests on
+Windows and 19 on Unix (the Windows-only interrupt test and Unix-only signal/
+EOF tests are marked):
 
 - spawn → read → wait with `ExitStatus`, plus repeated `wait()`
 - environment inheritance (`spawn`), explicit empty env, exact replacement (`spawn_with_env`)
 - 24×80 defaults for `spawn(None)` and `open_pty_platform(None)`
 - resize round-trip, interactive `write_all`, read timeout that keeps the session alive
 - `terminate` grace/reap; a SIGTERM-ignoring child is escalated to SIGKILL (Unix)
-- EOF after child exit (Unix; Windows ConPTY may keep the pipe open)
+- `read_until_exit` output/status and large-output draining; `close()` idempotence with unread output
+- stdin EOF via `shutdown_write` (Unix); EOF after child exit (Unix; Windows ConPTY may keep the pipe open)
+- Windows `interrupt()`/`send_signal(2)` return `Unsupported`
 
 ---
 
@@ -64,8 +68,8 @@ total (11 on Windows; the Unix-only tests are marked):
 
 | Platform | Count | Breakdown |
 |----------|-------|-----------|
-| **Windows** | **195** | 195 passed (including the explicit unsupported `interrupt()` path) |
-| **Linux / macOS** | **195** | 195 passed |
+| **Windows** | **198** | 197 passed + 1 skipped (POSIX-only SIGTERM-ignore escalation; explicit unsupported `interrupt()` path) |
+| **Linux / macOS** | **198** | 198 passed |
 
 ### Test Files
 
@@ -73,7 +77,7 @@ total (11 on Windows; the Unix-only tests are marked):
 |------|-------|-------------|
 | `test_basic.py` | 15 | Core PTY operations: spawn, read, write, kill, resize, signals, interrupt |
 | `test_concurrency.py` | 3 | Concurrent reads conserve bytes, cancel-during-terminate, coherent drains |
-| `test_pty_session.py` | 37 | Session lifecycle: env (inherit/empty/exact), winsize, concurrent spawn, wait, terminate |
+| `test_pty_session.py` | 40 | Session lifecycle: env (inherit/empty/exact), winsize, concurrent spawn, wait, terminate, escalation/repeat edge cases |
 | `test_terminal.py` | 19 | Terminal display: empty, scrollback, cursor, title, history, dirty rows |
 | `test_terminal_altscreen.py` | 10 | Alt screen: enter/exit 1049, 47/1047 swap, scrollback isolation, resize |
 | `test_terminal_display.py` | 56 | Full display rendering: ANSI sequences, SGR colors, cursor movement, erase, scroll, tabs |
@@ -127,6 +131,11 @@ On macOS (especially Python 3.13), `tokio::time::sleep` can fail to fire when br
 **Fix applied in v0.5.6:**
 - Rust: `wait()` uses `spawn_blocking(|| std::thread::sleep(20ms))` instead of `tokio::time::sleep`
 - Rust: `terminate()` uses `std::time::Instant` deadline polling instead of `tokio::time::timeout`
-- Python: `wait()` and `terminate()` wrap Rust calls with `asyncio.wait_for(..., timeout=0.1)` polling loops
+- Python: `wait()` wraps the Rust call with `asyncio.wait_for(..., timeout=0.1)` polling
+
+**0.10.3 update:** `terminate()` is now one shared `src/terminate.rs` policy:
+Rust injects `tokio::time::sleep`; the PyO3 adapter injects
+`spawn_blocking(std::thread::sleep)`. The Python wrappers await that single
+future and no longer re-issue SIGTERM every 100 ms. `wait()` is unchanged.
 
 **If this reappears:** Consider replacing the polling model with a `Condvar`-based notification from the reaper thread (Option D).

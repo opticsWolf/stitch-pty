@@ -33,6 +33,7 @@ pub mod errors;
 mod python_api;
 #[cfg(feature = "python")]
 mod terminal_api;
+mod terminate;
 pub mod winsize;
 
 #[cfg(feature = "python")]
