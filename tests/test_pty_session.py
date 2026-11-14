@@ -146,6 +146,36 @@ async def test_read_output_reaches_terminal(shell, read_all):
 
 
 @pytest.mark.asyncio
+async def test_read_chunked_escape_sequence_preserves_style():
+    # Read one byte at a time so the CSI sequence is split across many
+    # PtySession.read() chunks. The persistent parser must still render X red,
+    # not print the literal ``31mX``.
+    code = (
+        "import sys;"
+        "sys.stdout.write('\\x1b[31mX');"
+        "sys.stdout.flush()"
+    )
+    session = await spawn(sys.executable, ["-c", code])
+    raw = b""
+    try:
+        while True:
+            try:
+                chunk = await session.read_timeout(1, 2.0)
+            except PtyError:
+                break
+            if not chunk:
+                break
+            raw += chunk
+        await asyncio.wait_for(session.wait(), timeout=5.0)
+        text = "\n".join(session.display)
+        assert raw.endswith(b"\x1b[31mX"), f"unexpected child bytes: {raw!r}"
+        assert "X" in text
+        assert "31mX" not in text, f"split CSI leaked as text: {text!r}"
+    finally:
+        await session.terminate()
+
+
+@pytest.mark.asyncio
 async def test_read_timeout_raises_when_idle(idle, read_all):
     prog, args = idle()
     session = await spawn(prog, args)

@@ -227,6 +227,8 @@ Embedded from [pyte_rs](https://github.com/python-pyte/pyte). Provides:
 
 Wraps the internal `ansi_parser::Parser` (ECMA-48 state machine) to translate
 ANSI escape sequences into `Screen` method calls via the `Performer` trait.
+`HistoryScreen` owns one `Parser` for its lifetime; `TerminalState` delegates
+to it instead of keeping a second parser.
 
 The state machine has 14 states:
 
@@ -370,6 +372,7 @@ Extends `Screen` with a fixed-capacity scrollback history:
 ```rust
 pub struct HistoryScreen {
     inner: Screen,
+    parser: Parser,               // one persistent parser across feed() calls
     history: Vec<Vec<Char>>,
     history_wrapped: Vec<bool>,   // wrap flags, parallel to history
     scrollback_lines: usize,      // 0 = unlimited
@@ -378,7 +381,7 @@ pub struct HistoryScreen {
 
 | Method | Description |
 |--------|-------------|
-| `feed(data)` | Feed raw bytes (parses ANSI, updates screen) |
+| `feed(data)` | Feed raw bytes; reuses one parser so escape/UTF-8 sequences may straddle chunks |
 | `display()` | Full display (history + visible) |
 | `visible_display()` | Visible screen only |
 | `history_display()` | Scrollback only |

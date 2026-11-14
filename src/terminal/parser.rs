@@ -481,26 +481,22 @@ mod tests {
             .prop_map(|parts| parts.concat())
     }
 
-    /// Feed `data` through a fresh state machine per segment, cut at `cuts`.
+    /// Feed `data` through one persistent state machine, cut at `cuts`.
     /// Exercises split-boundary handling (control sequences and UTF-8
     /// straddling feed boundaries).
     fn feed_screen_chunked(s: &mut Screen, data: &[u8], cuts: &[u8]) {
-        use super::ansi_parser::Parser as AnsiParser;
         let mut points: Vec<usize> = cuts
             .iter()
             .map(|&b| b as usize % (data.len() + 1))
             .collect();
         points.sort_unstable();
+        let mut parser = Parser::new();
         let mut start = 0;
         for &p in &points {
-            let mut performer = Performer::new(&mut *s);
-            let mut parser = AnsiParser::new();
-            parser.advance(&mut performer, &data[start..p]);
+            parser.feed(s, &data[start..p]);
             start = p;
         }
-        let mut performer = Performer::new(&mut *s);
-        let mut parser = AnsiParser::new();
-        parser.advance(&mut performer, &data[start..]);
+        parser.feed(s, &data[start..]);
     }
 
     fn check_screen_shape(s: &Screen, cols: usize, lines: usize) -> TestCaseResult {

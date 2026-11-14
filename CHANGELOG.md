@@ -4,7 +4,19 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.5...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.6...HEAD)
+
+## [0.10.6 — persistent terminal parser state](https://github.com/opticsWolf/stitch-pty/compare/v0.10.5...v0.10.6)
+
+### Fixed
+- `HistoryScreen` now owns one persistent `Parser` across `feed()` calls, so
+  CSI, OSC, DCS, alt-screen, and UTF-8 sequences split across PTY reads render
+  correctly. `PtySession.read()` and `TerminalState.feed()` now share this
+  parser state instead of creating a fresh parser per chunk.
+- `reset()` clears the persistent parser state; the duplicate `Parser` field in
+  `TerminalState` was removed.
+- Added split-boundary regression tests for SGR/cursor, OSC titles, DCS, UTF-8,
+  alt-screen mode, reset, and a Python one-byte-at-a-time `read()` test.
 
 ## [0.10.5 — ConPTY stdio isolation and flag decision](https://github.com/opticsWolf/stitch-pty/compare/v0.10.4...v0.10.5)
 

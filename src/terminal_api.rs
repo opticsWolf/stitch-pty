@@ -3,8 +3,8 @@
 //! Exposes `TerminalState` as a Python class that wraps the Rust `HistoryScreen`
 //! + `Parser` combo, providing `feed()`, `display()`, `history_display()`, etc.
 
+use crate::terminal::HistoryScreen;
 use crate::terminal::modes as mo;
-use crate::terminal::{HistoryScreen, Parser};
 use pyo3::prelude::*;
 
 /// PyO3 wrapper that links the pyte_rs terminal emulator state machine to Python.
@@ -15,7 +15,6 @@ use pyo3::prelude::*;
 #[pyclass]
 pub struct TerminalState {
     screen: HistoryScreen,
-    parser: Parser,
 }
 
 #[pymethods]
@@ -24,7 +23,6 @@ impl TerminalState {
     pub fn new(columns: usize, lines: usize, scrollback_lines: usize) -> Self {
         Self {
             screen: HistoryScreen::new(columns, lines, scrollback_lines),
-            parser: Parser::new(),
         }
     }
 
@@ -69,7 +67,6 @@ impl TerminalState {
     /// Reset the terminal to its initial state.
     pub fn reset(&mut self) {
         self.screen.reset();
-        self.parser.reset();
     }
 
     /// Get the cursor X position.

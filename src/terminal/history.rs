@@ -3,6 +3,7 @@
 /// Extends ``Screen`` with a fixed-capacity scrollback history.  When the
 /// visible area scrolls, lines are pushed into (or popped from) the history
 /// buffer.
+use super::parser::Parser;
 use super::screen::{Char, Margins, Screen};
 
 /// Pack a cell into the Python tuple shape (text, fg, bg, attrs_bitmask).
@@ -46,6 +47,9 @@ fn trim_trailing_blanks(cells: &mut Vec<Char>) {
 
 pub struct HistoryScreen {
     inner: Screen,
+    /// Persistent parser state, so escape/UTF-8 sequences can straddle
+    /// `feed()` chunk boundaries.
+    parser: Parser,
     history: Vec<Vec<Char>>,
     /// Wrap flags parallel to `history` — travel with their line on
     /// push/pop/trim/resize so reflow (v0.9.0) sees one logical sequence.
@@ -59,6 +63,7 @@ impl HistoryScreen {
     pub fn new(columns: usize, lines: usize, scrollback_lines: usize) -> Self {
         Self {
             inner: Screen::new(columns, lines),
+            parser: Parser::new(),
             history: Vec::new(),
             history_wrapped: Vec::new(),
             scrollback_lines,
@@ -345,6 +350,7 @@ impl HistoryScreen {
     }
     pub fn reset(&mut self) {
         self.inner.reset();
+        self.parser.reset();
         self.clear_history();
     }
     pub fn resize(&mut self, lines: usize, columns: usize) {
@@ -712,13 +718,9 @@ impl HistoryScreen {
 
     /// Feed raw bytes into the terminal state machine.
     pub fn feed(&mut self, data: &[u8]) {
-        use super::ansi_parser::Parser as AnsiParser;
-        use super::parser::Performer;
-        {
-            let mut performer = Performer::new(&mut self.inner);
-            let mut parser = AnsiParser::new();
-            parser.advance(&mut performer, data);
-        }
+        // Reuse one parser for the lifetime of the screen; replacing it here
+        // would discard a partial CSI/OSC/DCS/UTF-8 sequence at a chunk edge.
+        self.parser.feed(&mut self.inner, data);
         // Capture any lines that scrolled off the top during this feed into the
         // scrollback history. (The parser drives the inner Screen directly, so
         // its scroll-up evicts into Screen::scrolled_off for us to collect.)
@@ -1211,6 +1213,67 @@ mod tests {
         assert!(hs.take_bell()); // coalesced pair → one true
         assert!(!hs.take_events().contains(&TermEvent::Bell)); // take consumed them
         assert!(!hs.take_bell());
+    }
+
+    // ── P1: parser state survives feed chunks (v0.10.6) ──────────────
+
+    #[test]
+    fn test_feed_split_csi_preserves_sgr_and_cursor() {
+        let mut hs = make_history(20, 4, 10);
+        hs.feed(b"\x1b[");
+        hs.feed(b"31mX");
+        let cells = hs.styled_range(0, 1);
+        assert_eq!(cells[0][0].0, "X");
+        assert_eq!(cells[0][0].1, "red");
+
+        hs.feed(b"\x1b[2;");
+        hs.feed(b"3H");
+        assert_eq!((hs.cursor().x, hs.cursor().y), (2, 1));
+    }
+
+    #[test]
+    fn test_feed_split_osc_title() {
+        let mut hs = make_history(20, 2, 0);
+        hs.feed(b"\x1b]0;split-");
+        hs.feed(b"title\x07");
+        assert_eq!(hs.title(), "split-title");
+    }
+
+    #[test]
+    fn test_feed_split_dcs_is_consumed_before_text() {
+        let mut hs = make_history(20, 2, 0);
+        hs.feed(b"\x1bP1$");
+        hs.feed(b"tx\x1b\\Z");
+        assert_eq!(hs.visible_display()[0].trim_end(), "Z");
+    }
+
+    #[test]
+    fn test_feed_split_utf8() {
+        let mut hs = make_history(20, 2, 0);
+        let bytes = "中".as_bytes();
+        hs.feed(&bytes[..1]);
+        hs.feed(&bytes[1..]);
+        assert!(hs.visible_display()[0].contains('中'));
+    }
+
+    #[test]
+    fn test_feed_split_alt_screen_mode() {
+        let mut hs = make_history(20, 3, 10);
+        hs.feed(b"\x1b[?10");
+        hs.feed(b"49h");
+        assert!(hs.alt_screen());
+        hs.feed(b"\x1b[?10");
+        hs.feed(b"49l");
+        assert!(!hs.alt_screen());
+    }
+
+    #[test]
+    fn test_feed_reset_clears_partial_parser_state() {
+        let mut hs = make_history(20, 2, 0);
+        hs.feed(b"\x1b[");
+        hs.reset();
+        hs.feed(b"31mX");
+        assert_eq!(hs.visible_display()[0].trim_end(), "31mX");
     }
 
     #[test]
