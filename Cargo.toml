@@ -1,6 +1,6 @@
 [package]
 name = "stitch-pty"
-version = "0.14.0"
+version = "0.15.0"
 edition = "2024"
 authors = ["stitch-pty authors"]
 description = "Cross-platform async PTY with integrated terminal emulation for Rust and Python"
@@ -17,6 +17,7 @@ name = "stitch_pty"
 [features]
 default = []
 python = ["dep:pyo3", "dep:pyo3-async-runtimes"]
+regex = ["dep:regex"]
 
 [dependencies]
 # PyO3 bindings for Python
@@ -38,6 +39,7 @@ async-trait = "0.1"
 unicode-width = "0.2"
 unicode-segmentation = "1.13"
 bitflags = "2.13"
+regex = { version = "1", optional = true }
 
 # Platform-specific dependencies
 [target.'cfg(unix)'.dependencies]

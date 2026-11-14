@@ -34,6 +34,7 @@ src/
 │   ├── ArgvQuote algorithm + SafeAttributeList
 ├── session.rs                # High-level Rust PtySession (no PyO3 required)
 ├── terminal_session.rs       # PtySession + owned HistoryScreen (TerminalSession)
+├── expect.rs                 # byte-oriented expect() matching (optional regex feature)
 ├── terminate.rs              # Shared SIGTERM → grace → SIGKILL policy (injectable sleep)
 ├── terminal/                 # Embedded pyte_rs terminal emulation
 │   ├── mod.rs                # Re-exports
@@ -245,6 +246,12 @@ updates both the PTY and the screen (with reflow), and `display`,
 `styled_viewport`, `take_dirty_rows`, `take_events`, and `encode_key` expose the
 terminal state. `PtySession` itself remains emulator-free; `into_parts` returns
 the transport and screen separately.
+
+**Expect matching.** `PtySession::expect` uses a byte-oriented rolling buffer
+local to the call; patterns are checked in input order after each read, so a
+match can span chunks and need not be valid UTF-8 or line-complete. Timeout,
+EOF, and buffer-limit errors carry the accumulated bytes and leave the session
+alive. `ExpectPattern::Regex` is behind the optional `regex` feature.
 
 ## Terminal Emulation Layer (`terminal/`)
 

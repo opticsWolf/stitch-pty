@@ -154,6 +154,16 @@ If you want the PTY and one screen in a single type, `TerminalSession` owns a
 both (including reflow). `PtySession` remains transport-only, so a multiplexer
 can still keep one screen per pane. See `examples/terminal_session.rs`.
 
+Rust also has byte-oriented `PtySession::expect(patterns, timeout)`
+(`ExpectPattern::Bytes`, `ExpectPattern::Str`, and an optional
+`ExpectPattern::regex` behind the `regex` feature). Patterns are checked after
+each read, so matches span chunks without requiring UTF-8 or line boundaries;
+timeout/EOF errors carry the bytes read so far. Enable regex with:
+
+```toml
+stitch-pty = { version = "0.15.0", features = ["regex"] }
+```
+
 `PtySession::spawn` inherits the parent environment. `spawn_with_env` takes
 the complete environment, so an empty slice is an empty environment; the
 lower-level `platform::spawn_platform` uses `None` to inherit and
@@ -797,7 +807,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.14.0"
+stitch-pty = "0.15.0"
 ```
 
 To build and test the pure Rust code locally:

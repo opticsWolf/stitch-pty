@@ -1,7 +1,7 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.11.0–0.14.0 implemented on `dev`; releases pending confirmation.** G2 removes the legacy `ProcessExit`/`wait_status` split; G1 documents the platform-gated raw-handle contract; K1b adds the Kitty key encoder and Python `encode_key` surface; D1/D2 add Rust interop (`from_parts`, reader/writer), no-PyO3 CI, and the parity corpus; G6 adds `TerminalSession` with an owned `HistoryScreen`. 0.10.7, 0.10.1, and 0.10.0 are released. 0.10.2–0.10.6 were folded into 0.10.7 and not published separately.
-> Release branch: `main` carries the 0.10.7 release; `dev` adds the unreleased 0.11.0–0.14.0 changes. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at `842c3d9`.
+> Status: **0.11.0–0.15.0 implemented on `dev`; releases pending confirmation.** G2 removes the legacy `ProcessExit`/`wait_status` split; G1 documents the platform-gated raw-handle contract; K1b adds the Kitty key encoder and Python `encode_key` surface; D1/D2 add Rust interop (`from_parts`, reader/writer), no-PyO3 CI, and the parity corpus; G6 adds `TerminalSession` with an owned `HistoryScreen`; G5 adds byte-oriented `expect()` matching. 0.10.7, 0.10.1, and 0.10.0 are released. 0.10.2–0.10.6 were folded into 0.10.7 and not published separately.
+> Release branch: `main` carries the 0.10.7 release; `dev` adds the unreleased 0.11.0–0.15.0 changes. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at `842c3d9`.
 > Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`. Intermediate 0.10.2–0.10.6 commits (`3b3abb2`, `b3f2647`, `de50992`, `5c66fc2`, `deb0df6`) were development increments folded into 0.10.7; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
@@ -52,13 +52,13 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
 | CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.7 release train run [`43596664417`](https://github.com/opticsWolf/stitch-pty/actions/runs/43596664417) at `50fcbf9`: all 6 test jobs and 4 wheel builds green. Tag run [`43598337253`](https://github.com/opticsWolf/stitch-pty/actions/runs/43598337253) at `842c3d9`: 6 test jobs, 4 wheels, PyPI, and crates.io green. |
-| Version | `0.14.0` on `dev` (G6) with 0.11.0 (G2 + G1), 0.12.0 (K1b), and 0.13.0 (D1 + D2) also unreleased; `0.10.7` released; 0.10.2–0.10.6 folded into it; `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
-| Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.11.0–0.14.0 are not tagged or published yet; 0.10.2–0.10.6 were not published separately |
-| Local gates | 0.14.0: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (433 unit + 21 integration [Windows; 25 Unix] + 1 doc), `--no-default-features` (433 + examples), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.14.0), `pytest` (215 passed, 2 skipped on Windows; 216 passed, 1 skipped on Linux/macOS) |
-| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` is at `76ad01a` with the unreleased 0.11.0–0.14.0 implementations; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Version | `0.15.0` on `dev` (G5) with 0.11.0 (G2 + G1), 0.12.0 (K1b), 0.13.0 (D1 + D2), and 0.14.0 (G6) also unreleased; `0.10.7` released; 0.10.2–0.10.6 folded into it; `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
+| Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.11.0–0.15.0 are not tagged or published yet; 0.10.2–0.10.6 were not published separately |
+| Local gates | 0.15.0: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (435 unit + 23 integration [Windows; 29 Unix] + 1 doc), `--no-default-features` (435 + examples), `--features regex`, `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.15.0), `pytest` (215 passed, 2 skipped on Windows; 216 passed, 1 skipped on Linux/macOS) |
+| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` has the unreleased 0.11.0–0.15.0 implementations; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
-| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision; G2 (#4) and G1 (#3) are implemented in 0.11.0; K1b (#14) is implemented in 0.12.0; D1 (#16) and D2 (#17) are implemented in 0.13.0; G6 (#8) is implemented in 0.14.0; all six stay open until release |
+| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision; G2 (#4) and G1 (#3) are implemented in 0.11.0; K1b (#14) is implemented in 0.12.0; D1 (#16) and D2 (#17) are implemented in 0.13.0; G6 (#8) is implemented in 0.14.0; G5 (#7) is implemented in 0.15.0; all seven stay open until release |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
 
 The pre-rebase PR contained the original review commits plus the review follow-ups. The rebase merge rewrote these SHAs on `dev`; the sequence is:
@@ -510,6 +510,18 @@ not solved by copying a reference. The useful lesson is byte orientation:
 of a new mandatory dependency.
 
 ---
+
+**0.15.0 implementation.** Added `src/expect.rs` with `ExpectPattern`
+(`Bytes`, `Str`, optional `regex::bytes::Regex`), `ExpectResult` (pattern index,
+matched/before/after bytes, full buffer, span), and `ExpectError` (timeout, EOF,
+buffer limit, empty patterns, I/O). `PtySession::expect` reads in chunks and
+checks patterns in input order after each read, so matches span read boundaries
+without UTF-8/line requirements; `expect_with_options` accepts a buffer cap
+(default 4 MiB, `0` = unlimited). Timeout/EOF errors carry the buffered bytes
+and do not kill the session. The `regex` feature is optional; the default tree
+has no new mandatory dependency. Tests cover literal/string/empty patterns,
+multi-pattern order, cross-chunk matches, timeout-buffer preservation, non-UTF-8
+bytes, and the optional regex feature.
 
 ### 4.7 G6 — `TerminalSession` with an owned emulator
 
@@ -1175,7 +1187,7 @@ the number, not the order, when scheduling.
 | 9 | **0.12.0** | K1b — Kitty key encoder (issue #1) (**implemented; release pending confirmation**) | New API surface; unblocks Shift+Enter and the PySide6 use case |
 | 10 | **0.13.0** | D1 + D2 — Rust interop surface + no-PyO3/parity gates (**implemented; release pending confirmation**) | New API surface; decouples external Rust crates from the Python wrapper |
 | 11 | **0.14.0** | G6 — `TerminalSession` (**implemented; release pending confirmation**) | New API surface; do this before G5 because it is the multiplexer use case |
-| 12 | **Following feature minor** | G5 — Rust `expect()` | New API surface; larger design surface |
+| 12 | **0.15.0** | G5 — Rust `expect()` (**implemented; release pending confirmation**) | New API surface; larger design surface |
 
 Notes:
 
@@ -1225,7 +1237,7 @@ umbrella. Checkboxes track implementation, not filing.
 - [x] **G2** — `refactor(rust)!: remove ProcessExit and return ExitStatus from wait` (implemented in 0.11.0; release pending) ([#4](https://github.com/opticsWolf/stitch-pty/issues/4))
 - [x] **G1** — `docs(rust): document raw_handle platform contract; optional RawHandle enum` (documented in 0.11.0; release pending) ([#3](https://github.com/opticsWolf/stitch-pty/issues/3))
 - [x] **G6** — `feat(rust): add TerminalSession with an owned HistoryScreen` (implemented in 0.14.0; release pending) ([#8](https://github.com/opticsWolf/stitch-pty/issues/8))
-- [ ] **G5** — `feat(rust): port expect() pattern matching` ([#7](https://github.com/opticsWolf/stitch-pty/issues/7))
+- [x] **G5** — `feat(rust): port expect() pattern matching` (implemented in 0.15.0; release pending) ([#7](https://github.com/opticsWolf/stitch-pty/issues/7))
 - [x] **G7** — `refactor(python): consolidate terminate() with Rust PtySession` (shipped in 0.10.7) ([#9](https://github.com/opticsWolf/stitch-pty/issues/9))
 
 **Reference-review findings**
@@ -1518,6 +1530,30 @@ explicit confirmation.
 
 ---
 
+### 8.16 0.15.0 (G5) — implementation complete, release pending
+
+- [x] `ExpectPattern` bytes/string/optional byte-regex, `ExpectResult`,
+      `ExpectError`, and `ExpectOptions`
+- [x] `PtySession::expect` / `expect_with_options` cross-chunk matching with
+      input-order patterns, buffer cap, and buffered timeout/EOF errors
+- [x] Optional `regex` feature; default dependency tree stays free of it
+- [x] Tests for split matches, multiple patterns, timeout buffer, non-UTF-8
+      bytes, and regex
+- [x] Version/changelog/docs for 0.15.0
+- [x] Local gates: `fmt`, `clippy` (host + Linux/macOS), `cargo test`
+      (435 unit + 23 integration [Windows; 29 Unix] + 1 doc),
+      `--no-default-features` (435 + examples), `--features regex`,
+      `check --features python`, `doc`, `ruff`, `mypy`,
+      `maturin develop --release` (0.15.0), `pytest` (215 passed, 2 skipped on
+      Windows; 216 passed, 1 skipped on Linux/macOS)
+- [ ] CI on the exact 0.15.0 commit
+- [ ] Tag `v0.15.0`; publish PyPI/crates; create the GitHub release
+
+No 0.15.0 tag or registry publish has been performed. The planned follow-up
+queue is complete; releases wait for explicit confirmation.
+
+---
+
 ## 9. Open decisions / risks
 
 | Topic | Decision needed | Owner / gate |
@@ -1550,11 +1586,11 @@ explicit confirmation.
   0.10.1 released from tag `v0.10.1` (`97e03ab`); 0.10.7 released from tag
   `v0.10.7` (`842c3d9`); PyPI and crates.io published for all three. 0.10.2–0.10.6 were
   development increments folded into 0.10.7 and were not published separately.
-  0.11.0–0.14.0 are implemented on `dev` with releases pending explicit
+  0.11.0–0.15.0 are implemented on `dev` with releases pending explicit
   confirmation.
 - G4/H3/G7/H1/H2/P1/K1a issues are closed as shipped in 0.10.7; G2/G1/K1b,
-  D1/D2, and G5 remain open and linked to PR #2 and this plan; G6 is
-  implemented in 0.14.0; H4 is closed with a recorded spike decision.
+  D1/D2, G6, and G5 are implemented in 0.11.0–0.15.0 and remain open until
+  release; H4 is closed with a recorded spike decision.
 - Issue #1 is linked to K1a/K1b; K1b is implemented and the PySide6 example
   uses the encoder, so #1 can close after a GUI smoke test.
 - Each 0.10.x patch has a CHANGELOG entry and tests; the combined 0.10.7 train

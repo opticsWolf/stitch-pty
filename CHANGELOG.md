@@ -4,7 +4,33 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.14.0...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.15.0...HEAD)
+
+## [0.15.0 — Rust expect()](https://github.com/opticsWolf/stitch-pty/compare/v0.14.0...v0.15.0)
+
+Adds byte-oriented pattern matching to the Rust session, closing the last
+planned follow-up from the 0.10 review.
+
+### Added
+- `ExpectPattern` with `Bytes`, `Str`, and an optional
+  `regex::bytes::Regex` variant (feature `regex`).
+- `PtySession::expect(patterns, timeout)` and
+  `expect_with_options(..., ExpectOptions)`. Patterns are checked in input
+  order after every read, so a match spans read chunks without requiring
+  valid UTF-8 or line boundaries.
+- `ExpectResult` carries the pattern index, matched/before/after bytes, the
+  full buffered output, and the match span. The buffer cap defaults to 4 MiB
+  (`0` = unlimited).
+- `ExpectError` distinguishes timeout, EOF, buffer limit, empty pattern lists,
+  and I/O errors; timeout/EOF/limit errors carry the bytes read so far and do
+  not kill the session.
+- The `regex` feature is optional; the default build adds no mandatory
+  dependency.
+
+### Tests
+- `tests/expect.rs`: split-read matches, input-order multiple patterns,
+  timeout buffer preservation, non-UTF-8 bytes, and the optional regex path;
+  unit tests cover literal/string/empty patterns.
 
 ## [0.14.0 — owned TerminalSession](https://github.com/opticsWolf/stitch-pty/compare/v0.13.0...v0.14.0)
 

@@ -27,6 +27,7 @@ pub use terminal::{
 // High-level Rust session APIs
 pub mod session;
 pub mod terminal_session;
+pub use expect::{ExpectError, ExpectOptions, ExpectPattern, ExpectResult};
 pub use session::{PtyReader, PtySession, PtyWriter};
 pub use terminal_session::TerminalSession;
 pub use winsize::Winsize;
@@ -34,6 +35,7 @@ pub use winsize::Winsize;
 // Cross-platform modules
 pub mod async_io;
 pub mod errors;
+pub mod expect;
 #[cfg(feature = "python")]
 mod python_api;
 #[cfg(feature = "python")]

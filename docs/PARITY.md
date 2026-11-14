@@ -22,7 +22,7 @@ emulation layers. CI's **Rust core (no default features)** job runs
 | Owned PTY + screen | `TerminalSession` | `PtySession` owns `_terminal` | Parity; both auto-feed reads and resize the screen |
 | Assemble custom backends | `from_parts(pty, child)` | not exposed | Rust-only interop |
 | Raw unparsed output tail | not owned | `raw_output` | Python-only convenience; the transport does not retain an output history |
-| Expect-style matching | not owned | `expect` | Python-only convenience; Rust G5 tracks a native design |
+| Expect-style matching | `expect` / `expect_with_options` | `expect` | Parity; Rust uses byte-first `ExpectPattern` and optional `regex` feature |
 | Owned terminal state | `TerminalSession` | `terminal` | Parity via G6; `PtySession` itself stays emulator-free in both layers |
 
 ## Terminal surface

@@ -4,15 +4,16 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **433** | **21** | 413 shared + 20 Windows-only |
-| **Linux / macOS** | **417** | **25** | 413 shared + 4 Unix-only |
+| **Windows** | **435** | **23** | 415 shared + 20 Windows-only |
+| **Linux / macOS** | **419** | **29** | 415 shared + 4 Unix-only |
 
-### Shared Tests (413)
+### Shared Tests (415)
 
 Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, `src/winsize.rs`, and `src/terminal/`.
 
 - **async_io** (13): `read_timeout` logic, buffer handling, duration edge cases
 - **errors** (18): error display formatting, `PtyErrorKind` variants, IO error conversion
+- **expect** (2): literal/string/empty-byte matching; regex is opt-in under `--features regex`
 - **platform** (23): `ExitStatus` display/clone/debug, Python exit-code/signal mapping, trait existence, explicit env dedupe (exact/Windows casing, empty/Unicode values)
 - **terminal/ansi_parser** (30): CSI/DCS/OSC/ESC parsing, UTF-8 handling, parameter overflow
 - **terminal/charsets** (7): ASCII map, DEC special characters, charset designation
@@ -53,10 +54,11 @@ In `src/platform_unix.rs` and `src/errors.rs`.
 ### Integration Tests (`tests/rust_session.rs`)
 
 Real PTYs, end-to-end, via `cargo test` on all three platforms — 18 tests in
-`rust_session.rs` on Windows and 21 on Unix, one parity corpus test, and two
-`terminal_session.rs` tests on Windows / three on Unix (the Windows-only
-interrupt/env tests and Unix-only signal/EOF/from_parts/scrollback tests are
-marked):
+`rust_session.rs` on Windows and 21 on Unix, one parity corpus test, two
+`terminal_session.rs` tests on Windows / three on Unix, and two `expect.rs`
+tests on Windows / four on Unix (the Windows-only interrupt/env tests and
+Unix-only signal/EOF/from_parts/scrollback/expect tests are marked; the regex
+integration test requires `--features regex`):
 
 - spawn → read → wait with `ExitStatus`, plus repeated `wait()`
 - environment inheritance (`spawn`), explicit empty env, exact replacement (`spawn_with_env`), and Windows case-insensitive duplicate-key collapse
@@ -69,6 +71,7 @@ marked):
 - Windows `interrupt()`/`send_signal(2)` return `Unsupported`
 - `from_parts` / `reader()` / `writer()` round-trip on Unix (custom interop)
 - `TerminalSession` auto-feed, dirty rows, resize sync, and Unix scrollback
+- `expect()` literal/multi-pattern/timeout/non-UTF-8 matching (regex under the optional feature)
 
 ### Redirected stdio (`tests/redirected_stdio.rs`)
 
