@@ -123,10 +123,12 @@ impl PtyChild {
 
     fn wait<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
+        let pid = inner.pid();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let exit = inner.wait().await;
             // Already reaped → None; otherwise (pid, exit_code, signal, core_dumped).
-            Ok(exit.map(|exit| (exit.pid, exit.exit_code, exit.signal, false)))
+            // The PID is caller-owned data, not part of Rust's ExitStatus.
+            Ok(exit.map(|exit| (pid, exit.exit_code_option(), exit.signal_number(), false)))
         })
     }
 

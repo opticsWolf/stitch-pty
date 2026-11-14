@@ -4,7 +4,37 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.7...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.11.0...HEAD)
+
+## [0.11.0 — one exit status type](https://github.com/opticsWolf/stitch-pty/compare/v0.10.7...v0.11.0)
+
+### Changed (breaking, Rust only)
+- `ChildBackend::wait()` now returns `Option<ExitStatus>` directly. The legacy
+  `ProcessExit` struct and the `wait_status()` bridge were removed; the PID is
+  available from `ChildBackend::pid()` and is not part of the status. Repeated
+  `wait()` calls keep returning the cached status.
+- Unix signal exits now carry the signal name (`SIGTERM`, `SIGKILL`, …) through
+  `ExitStatus::signal()`; the numeric signal is retained only for the Python
+  compatibility tuple. Windows exit codes are unchanged.
+- Documented the `raw_handle()` ownership contract: platform-gated, borrowed,
+  valid only while the backend is alive, and never caller-owned. Windows
+  `HPCON` is not a kernel `HANDLE`; no `AsHandle` implementation is provided.
+
+**Migration**
+
+```rust
+// Before 0.11.0
+let status: Option<ProcessExit> = child.wait().await;
+let status: Option<ExitStatus> = child.wait_status().await;
+
+// 0.11.0
+let status: Option<ExitStatus> = child.wait().await;
+let pid = child.pid();
+```
+
+Python is unchanged: `await session.wait()` still returns
+`ExitStatus(pid, exit_code, signal, core_dumped)`, including numeric POSIX
+signal values.
 
 ## [0.10.7 — Windows hardening, parser correctness, and Kitty modes](https://github.com/opticsWolf/stitch-pty/compare/v0.10.1...v0.10.7)
 

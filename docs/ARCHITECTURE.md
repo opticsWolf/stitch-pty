@@ -22,7 +22,7 @@ src/
 ├── async_io.rs               # read_timeout() helper (tokio AsyncFd / named pipes)
 ├── platform.rs               # Platform abstraction traits + dispatch
 │   ├── PtyBackend, ChildBackend, ChildKiller traits
-│   ├── ExitStatus, ProcessExit structs
+│   ├── ExitStatus struct
 │   ├── spawn_platform(), open_pty_platform() dispatch
 ├── platform_unix.rs          # POSIX implementation (Linux, macOS, *BSD)
 │   ├── UnixPtyMaster, UnixChildProcess
@@ -62,8 +62,10 @@ pub trait PtyBackend: Send + Sync {
     async fn write(&self, buf: &[u8]) -> io::Result<usize>;
     fn set_winsize(&self, winsize: Winsize) -> PtyResult<()>;
     fn get_winsize(&self) -> PtyResult<Winsize>;
+    #[cfg(unix)]
     fn raw_handle(&self) -> RawFd;          // Unix
-    fn raw_handle(&self) -> *mut c_void;    // Windows
+    #[cfg(windows)]
+    fn raw_handle(&self) -> *mut c_void;    // Windows HPCON
     fn is_open(&self) -> bool;
 }
 
@@ -71,7 +73,7 @@ pub trait PtyBackend: Send + Sync {
 pub trait ChildBackend: ChildKiller + Send + Sync {
     fn pid(&self) -> u32;
     fn is_running(&self) -> bool;
-    async fn wait(&self) -> Option<ProcessExit>;
+    async fn wait(&self) -> Option<ExitStatus>;
     fn signal(&self, sig: i32) -> PtyResult<()>;
 }
 
@@ -84,6 +86,13 @@ pub trait ChildKiller: Send + Sync {
 The Python API works with `Box<dyn PtyBackend>` / `Box<dyn ChildBackend>`,
 so the same Python code runs on all platforms without changes.
 
+**Raw-handle contract.** `raw_handle()` is platform-gated on purpose: Unix
+returns a borrowed `RawFd`, Windows returns a borrowed `HPCON` (`*mut c_void`).
+The handle is owned by the backend, remains valid only while the backend is
+alive, and must not be closed by the caller. `HPCON` is pseudo-console state,
+not an owned kernel handle; it is not an `AsHandle` and must not be passed to
+`CloseHandle`. There is deliberately no unified cross-platform handle type.
+
 ### Exit Status (`platform.rs`)
 
 ```rust
@@ -92,14 +101,13 @@ pub struct ExitStatus {
     signal: Option<String>,
 }
 // .success() → bool, .exit_code() → u32, .signal() → Option<&str>
-
-pub struct ProcessExit {
-    pub pid: u32,
-    pub exit_code: Option<i32>,
-    pub signal: Option<i32>,
-}
-// .to_exit_status() → ExitStatus (legacy bridge)
 ```
+
+There is one public status type. `ChildBackend::wait()` returns
+`Option<ExitStatus>` directly, and the PID is available separately through
+`ChildBackend::pid()`. Repeated waits return the cached status. The Python
+binding internally retains the historical `(pid, exit_code, signal, core_dumped)`
+tuple, but no `ProcessExit` type is exposed from Rust.
 
 ### POSIX Implementation (`platform_unix.rs`)
 
@@ -193,7 +201,7 @@ allowing Windows non-Send types to live across `.await` points.
 `Arc<dyn PtyBackend>` / `Arc<dyn ChildBackend>` pair and adds the helpers the
 Python layer used to implement in the binding: `read`/`read_timeout` (EOF is
 mapped to `Ok(0)` when the platform reports it), `write_all`, `resize`, `wait`
-(returning `ExitStatus` via `ChildBackend::wait_status`), `read_until_exit`,
+(returning `ExitStatus` directly from `ChildBackend::wait`), `read_until_exit`,
 `close`, `shutdown_write`, and `into_parts`. `terminate` uses the shared
 `terminate::terminate_child` policy (signal 15 → bounded grace → kill →
 bounded reap); Rust injects a tokio sleep and the PyO3 adapter injects a

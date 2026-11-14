@@ -553,6 +553,28 @@ async def test_kill_sets_not_alive(idle):
             await asyncio.wait_for(session.wait(), timeout=5.0)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows exit statuses do not carry POSIX signal numbers",
+)
+@pytest.mark.asyncio
+async def test_wait_preserves_signal_number(idle):
+    """Rust now returns ExitStatus; Python still receives (pid, code, signal)."""
+    prog, args = idle()
+    session = await spawn(prog, args)
+    try:
+        session.kill()
+        status = await asyncio.wait_for(session.wait(), timeout=5.0)
+        assert status is not None
+        assert status.exit_code is None
+        assert status.signal == 9
+        assert status.core_dumped is False
+    finally:
+        if session.is_alive:
+            session.kill()
+            await asyncio.wait_for(session.wait(), timeout=5.0)
+
+
 @pytest.mark.asyncio
 async def test_wait_returns_exit_info(shell):
     prog, args = shell("echo done")

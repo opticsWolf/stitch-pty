@@ -196,7 +196,7 @@ impl PtySession {
     /// (for example if the child was reaped externally). Repeated calls after
     /// a normal exit return the same status.
     pub async fn wait(&self) -> Option<ExitStatus> {
-        self.child.wait_status().await
+        self.child.wait().await
     }
 
     /// Read until the child exits, then drain remaining output.

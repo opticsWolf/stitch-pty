@@ -153,6 +153,12 @@ drained output plus the exit status, and later reads report EOF.
 backend idempotently; `shutdown_write()` sends stdin EOF while keeping output
 readable.
 
+> **0.11.0 breaking change:** `ChildBackend::wait()` now returns
+> `Option<ExitStatus>` directly; `ProcessExit` and `wait_status()` were
+> removed. Use `ChildBackend::pid()` for the PID and `ExitStatus::signal()`
+> for the portable signal name. The Python `wait()` result is unchanged. See
+> the [CHANGELOG](CHANGELOG.md#0110--one-exit-status-type) for the migration.
+
 ---
 
 ## Installation
@@ -747,7 +753,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.10.7"
+stitch-pty = "0.11.0"
 ```
 
 To build and test the pure Rust code locally:
@@ -821,7 +827,7 @@ or embedded into this project.
 
 - **`ChildKiller` trait** — deadlock-free kill/wait separation pattern (cloneable killer
   split from `ChildBackend` to avoid blocking `.wait` threads)
-- **`ExitStatus` / `ProcessExit` structs** — unified exit code + signal representation
+- **`ExitStatus` struct** — unified exit code + signal representation
 - **`PtySize` → `Winsize`** — window size struct with rows/cols/pixels
 - **`close_random_fds()`** — macOS Big Sur / Linux FD leak prevention (closes all FDs > 2
   via `/dev/fd` listing)

@@ -605,15 +605,16 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 26 | 0.10.5 | ☑ folded into 0.10.7 — H2/H4: `STARTF_USESTDHANDLES` stdio isolation; ConPTY flags decision |
 | 27 | 0.10.6 | ☑ folded into 0.10.7 — P1: one persistent parser across `feed()` chunks; split CSI/OSC/DCS/UTF-8/alt-screen tests |
 | 28 | 0.10.7 | ☑ released (`v0.10.7`, `842c3d9`) — K1a: Kitty push/pop/query/`CSI =` semantics, per-screen stacks, keyboard_mode accessor; rolls up 0.10.2–0.10.6 |
+| 29 | 0.11.0 | ☑ implemented — G2/G1: one `ExitStatus` return from `ChildBackend::wait`; `ProcessExit`/`wait_status` removed; raw-handle ownership contract documented (release pending confirmation) |
 
-All rows through 0.10.7 are released or folded into a release. Final tally at
-0.10.1 was **402 Rust unit tests + 12 integration + 1 doctest, 195 Python
-tests**; at 0.10.7 it is **424 unit + 19 integration [Windows; 19 Unix] + 1
-doctest, 203 Python passed + 1 skipped (204 collected)**, all green; `fmt
---check`, `clippy -D warnings` (Windows + Linux + macOS targets), `ruff check`,
-`mypy --strict` all clean.
+All rows through 0.11.0 are released or implemented. Final tally at 0.10.1 was
+**402 Rust unit tests + 12 integration + 1 doctest, 195 Python tests**; at
+0.11.0 it is **421 unit + 18 integration [Windows; 20 Unix] + 1 doctest, 203
+Python passed + 2 skipped (205 collected) on Windows (204 passed + 1 skipped on
+Linux/macOS)**, all green; `fmt --check`, `clippy -D warnings` (Windows + Linux
++ macOS targets), `ruff check`, `mypy --strict` all clean.
 
 0.10.0, 0.10.1, and 0.10.7 are published to PyPI and crates.io. Versions
 0.10.2–0.10.6 were development increments folded into 0.10.7 and were not
 published separately. See [`PLAN-0.10.md`](PLAN-0.10.md) for follow-ups; the
-next planned item is 0.11.0 (G2).
+next planned item is K1b (Kitty key encoder).

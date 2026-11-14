@@ -10,7 +10,7 @@
 //! - ChildKiller trait implementation
 
 use crate::errors::{PtyErrorKind, PtyResult};
-use crate::platform::{ChildBackend, ChildKiller, ProcessExit, PtyBackend};
+use crate::platform::{ChildBackend, ChildKiller, ExitStatus, PtyBackend};
 use crate::winsize::Winsize;
 use libc::c_char;
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
@@ -323,7 +323,7 @@ pub struct UnixChildProcess {
 struct UnixChildState {
     pid: Pid,
     running: bool,
-    exit_status: Option<ProcessExit>,
+    exit_status: Option<ExitStatus>,
 }
 
 impl UnixChildProcess {
@@ -358,21 +358,16 @@ impl UnixChildProcess {
                     Ok(WaitStatus::Exited(pid, code)) => {
                         let mut guard = task_state.lock();
                         guard.running = false;
-                        guard.exit_status = Some(ProcessExit {
-                            pid: pid.as_raw() as u32,
-                            exit_code: Some(code),
-                            signal: None,
-                        });
+                        guard.exit_status = Some(ExitStatus::with_exit_code(code as u32));
                         break;
                     }
                     Ok(WaitStatus::Signaled(pid, signal, _core_dumped)) => {
                         let mut guard = task_state.lock();
                         guard.running = false;
-                        guard.exit_status = Some(ProcessExit {
-                            pid: pid.as_raw() as u32,
-                            exit_code: None,
-                            signal: Some(signal as i32),
-                        });
+                        guard.exit_status = Some(ExitStatus::with_signal_number(
+                            signal.as_str(),
+                            signal as i32,
+                        ));
                         break;
                     }
                     Ok(WaitStatus::StillAlive) => {}
@@ -403,7 +398,7 @@ impl ChildBackend for UnixChildProcess {
         self.inner.lock().running
     }
 
-    async fn wait(&self) -> Option<ProcessExit> {
+    async fn wait(&self) -> Option<ExitStatus> {
         loop {
             {
                 let guard = self.inner.lock();

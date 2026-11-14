@@ -49,7 +49,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::{ChildBackend, ChildKiller, ProcessExit};
+    use crate::platform::{ChildBackend, ChildKiller, ExitStatus};
     use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
@@ -126,7 +126,7 @@ mod tests {
             self.state.lock().unwrap().running
         }
 
-        async fn wait(&self) -> Option<ProcessExit> {
+        async fn wait(&self) -> Option<ExitStatus> {
             None
         }
 

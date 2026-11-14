@@ -129,6 +129,22 @@ async fn wait_is_repeatable_after_exit() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn wait_reports_signal_name_after_kill() {
+    let session = PtySession::spawn("sleep", &["30".into()], size(), None)
+        .await
+        .expect("spawn");
+
+    session.kill().expect("kill");
+    let status = tokio::time::timeout(Duration::from_secs(2), session.wait())
+        .await
+        .expect("child should exit after SIGKILL")
+        .expect("status");
+    assert!(!status.success());
+    assert_eq!(status.signal(), Some("SIGKILL"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn read_reports_eof_after_child_exit_on_unix() {
     // The Unix backend maps EIO on the master (slave closed) to Ok(0).
     // Windows is intentionally not asserted here: ConPTY can keep the output

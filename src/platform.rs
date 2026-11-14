@@ -20,19 +20,40 @@ use crate::winsize::Winsize;
 pub struct ExitStatus {
     code: u32,
     signal: Option<String>,
+    /// Numeric signal retained for the Python compatibility layer. The public
+    /// Rust API exposes the portable signal name through [`Self::signal`].
+    #[cfg_attr(not(feature = "python"), allow(dead_code))]
+    signal_number: Option<i32>,
 }
 
 impl ExitStatus {
     /// Construct an ExitStatus from a process return code.
     pub fn with_exit_code(code: u32) -> Self {
-        Self { code, signal: None }
+        Self {
+            code,
+            signal: None,
+            signal_number: None,
+        }
     }
 
-    /// Construct an ExitStatus from a signal.
+    /// Construct an ExitStatus from a signal name.
     pub fn with_signal(signal: &str) -> Self {
         Self {
             code: 1,
             signal: Some(signal.to_string()),
+            signal_number: None,
+        }
+    }
+
+    /// Construct an ExitStatus from a Unix signal, retaining both the name and
+    /// number. The number is only used by the Python API, which historically
+    /// exposes signal numbers.
+    #[cfg_attr(not(feature = "python"), allow(dead_code))]
+    pub(crate) fn with_signal_number(signal: &str, number: i32) -> Self {
+        Self {
+            code: 1,
+            signal: Some(signal.to_string()),
+            signal_number: Some(number),
         }
     }
 
@@ -53,6 +74,24 @@ impl ExitStatus {
     pub fn signal(&self) -> Option<&str> {
         self.signal.as_deref()
     }
+
+    /// Exit code for Python's `ExitStatus.exit_code`, which is `None` when the
+    /// process was killed by a signal. Rust callers should use
+    /// [`Self::exit_code`] plus [`Self::signal`].
+    #[cfg_attr(not(feature = "python"), allow(dead_code))]
+    pub(crate) fn exit_code_option(&self) -> Option<i32> {
+        if self.signal.is_none() {
+            Some(self.code as i32)
+        } else {
+            None
+        }
+    }
+
+    /// Numeric signal for Python's `ExitStatus.signal`.
+    #[cfg_attr(not(feature = "python"), allow(dead_code))]
+    pub(crate) fn signal_number(&self) -> Option<i32> {
+        self.signal_number
+    }
 }
 
 impl std::fmt::Display for ExitStatus {
@@ -64,28 +103,6 @@ impl std::fmt::Display for ExitStatus {
                 Some(sig) => write!(f, "Terminated by {}", sig),
                 None => write!(f, "Exited with code {}", self.code),
             }
-        }
-    }
-}
-
-// ── ProcessExit (legacy alias for Python API) ─────────────────────
-
-/// Legacy struct used by the Python API for backward compatibility.
-/// Internally wraps ExitStatus concepts.
-#[derive(Clone, Debug)]
-pub struct ProcessExit {
-    pub pid: u32,
-    pub exit_code: Option<i32>,
-    pub signal: Option<i32>,
-}
-
-impl ProcessExit {
-    /// Convert to the new ExitStatus type.
-    pub fn to_exit_status(&self) -> ExitStatus {
-        match (self.exit_code, &self.signal) {
-            (Some(code), None) => ExitStatus::with_exit_code(code as u32),
-            (None, Some(sig)) => ExitStatus::with_signal(&format!("SIG{}", sig)),
-            _ => ExitStatus::with_exit_code(1),
         }
     }
 }
@@ -125,10 +142,31 @@ pub trait PtyBackend: Send + Sync {
     /// Get the current terminal window size.
     fn get_winsize(&self) -> PtyResult<Winsize>;
 
-    /// Get the underlying raw handle/FD.
+    /// Borrow the underlying platform handle for this PTY master.
+    ///
+    /// This accessor is deliberately platform-gated instead of returning a
+    /// unified handle type:
+    ///
+    /// - Unix returns a borrowed [`std::os::fd::RawFd`]. It is owned by this
+    ///   backend and remains valid only while the backend is alive; callers
+    ///   must not close it or use it after the backend is dropped.
+    /// - Windows returns a borrowed `HPCON` (`*mut c_void`). `HPCON` is
+    ///   pseudo-console state, not an owned kernel handle, so it must not be
+    ///   wrapped in `AsHandle` or closed with `CloseHandle`. It is valid only
+    ///   while this backend is alive.
+    ///
+    /// The handle is for interoperability (polling, duplication by the owner,
+    /// or passing to a platform API). It conveys no ownership and no
+    /// cross-platform guarantee; use the structured [`PtyBackend`] methods for
+    /// portable operations.
     #[cfg(unix)]
     fn raw_handle(&self) -> std::os::fd::RawFd;
 
+    /// Borrow the underlying platform handle for this PTY master.
+    ///
+    /// See the Unix overload's contract: the returned handle is borrowed,
+    /// valid only while the backend is alive, and must not be closed by the
+    /// caller. On Windows this is an `HPCON`, not a kernel file handle.
     #[cfg(windows)]
     fn raw_handle(&self) -> *mut std::ffi::c_void;
 
@@ -187,17 +225,12 @@ pub trait ChildBackend: ChildKiller + Send + Sync {
     fn is_running(&self) -> bool;
 
     /// Wait for the process to exit asynchronously.
-    /// Takes &self (not &mut) so the future is Send-compatible.
-    async fn wait(&self) -> Option<ProcessExit>;
-
-    /// Wait for the process and return the modern [`ExitStatus`].
     ///
-    /// Convenience over [`ChildBackend::wait`], which still returns the
-    /// legacy [`ProcessExit`] shape kept for Python compatibility.
-    /// Returns `None` when the child was already reaped.
-    async fn wait_status(&self) -> Option<ExitStatus> {
-        self.wait().await.map(|exit| exit.to_exit_status())
-    }
+    /// Takes `&self` (not `&mut`) so the future is `Send`-compatible. Returns
+    /// the cached [`ExitStatus`] on repeated calls after a normal exit, or
+    /// `None` only when the status was already lost (for example, the child was
+    /// reaped externally). Callers that need the PID can use [`Self::pid`].
+    async fn wait(&self) -> Option<ExitStatus>;
 
     /// Send a signal to the process.
     fn signal(&self, sig: i32) -> PtyResult<()>;
@@ -456,77 +489,28 @@ mod tests {
         assert!(debug.contains("42") || debug.contains("1"));
     }
 
-    // ── ProcessExit Tests ─────────────────────────────────────────
-
     #[test]
-    fn test_process_exit_to_exit_status_code() {
-        let pe = ProcessExit {
-            pid: 1234,
-            exit_code: Some(0),
-            signal: None,
-        };
-        let es = pe.to_exit_status();
-        assert!(es.success());
-        assert_eq!(es.exit_code(), 0);
+    fn test_exit_status_python_mapping_for_code() {
+        let es = ExitStatus::with_exit_code(7);
+        assert_eq!(es.exit_code_option(), Some(7));
+        assert_eq!(es.signal_number(), None);
     }
 
     #[test]
-    fn test_process_exit_to_exit_status_failure() {
-        let pe = ProcessExit {
-            pid: 1234,
-            exit_code: Some(1),
-            signal: None,
-        };
-        let es = pe.to_exit_status();
-        assert!(!es.success());
-        assert_eq!(es.exit_code(), 1);
+    fn test_exit_status_python_mapping_for_signal() {
+        let es = ExitStatus::with_signal_number("SIGKILL", 9);
+        assert_eq!(es.exit_code_option(), None);
+        assert_eq!(es.signal_number(), Some(9));
+        assert_eq!(es.signal(), Some("SIGKILL"));
     }
 
     #[test]
-    fn test_process_exit_to_exit_status_signal() {
-        let pe = ProcessExit {
-            pid: 1234,
-            exit_code: None,
-            signal: Some(9),
-        };
-        let es = pe.to_exit_status();
-        assert!(!es.success());
-        assert_eq!(es.signal(), Some("SIG9"));
-    }
-
-    #[test]
-    fn test_process_exit_to_exit_status_both_none() {
-        let pe = ProcessExit {
-            pid: 1234,
-            exit_code: None,
-            signal: None,
-        };
-        let es = pe.to_exit_status();
-        assert!(!es.success());
-        assert_eq!(es.exit_code(), 1);
-    }
-
-    #[test]
-    fn test_process_exit_debug() {
-        let pe = ProcessExit {
-            pid: 42,
-            exit_code: Some(0),
-            signal: None,
-        };
-        let debug = format!("{:?}", pe);
-        assert!(debug.contains("42"));
-    }
-
-    #[test]
-    fn test_process_exit_clone() {
-        let pe1 = ProcessExit {
-            pid: 42,
-            exit_code: Some(0),
-            signal: None,
-        };
-        let pe2 = pe1.clone();
-        assert_eq!(pe1.pid, pe2.pid);
-        assert_eq!(pe1.exit_code, pe2.exit_code);
+    fn test_exit_status_named_signal_has_no_number() {
+        // Public name-only construction (tests and callers that do not have a
+        // platform signal number) must not invent one.
+        let es = ExitStatus::with_signal("SIGTERM");
+        assert_eq!(es.exit_code_option(), None);
+        assert_eq!(es.signal_number(), None);
     }
 
     // ── ChildKiller trait concept Tests ───────────────────────────

@@ -1,7 +1,7 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.10.7 released (2026-11-14)** — the first patch since 0.10.1, rolling up G4 + H3, G7, H1, H2/H4, P1, and K1a. 0.10.2–0.10.6 were not tagged or published separately. 0.10.0 and 0.10.1 remain published.
-> Release branch: `main` and `dev` carry the 0.10.7 release plus post-release notes. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at `842c3d9`.
+> Status: **0.11.0 implemented on `dev`; release pending confirmation.** G2 removes the legacy `ProcessExit`/`wait_status` split; G1 documents the platform-gated raw-handle contract. 0.10.7, 0.10.1, and 0.10.0 are released. 0.10.2–0.10.6 were folded into 0.10.7 and not published separately.
+> Release branch: `main` carries the 0.10.7 release; `dev` adds the unreleased 0.11.0 change. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at `842c3d9`.
 > Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`. Intermediate 0.10.2–0.10.6 commits (`3b3abb2`, `b3f2647`, `de50992`, `5c66fc2`, `deb0df6`) were development increments folded into 0.10.7; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
@@ -52,13 +52,13 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
 | CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.7 release train run [`43596664417`](https://github.com/opticsWolf/stitch-pty/actions/runs/43596664417) at `50fcbf9`: all 6 test jobs and 4 wheel builds green. Tag run [`43598337253`](https://github.com/opticsWolf/stitch-pty/actions/runs/43598337253) at `842c3d9`: 6 test jobs, 4 wheels, PyPI, and crates.io green. |
-| Version | `0.10.7` released; 0.10.2–0.10.6 folded into it (implementation commits listed in §8.6–§8.10); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
-| Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.10.2–0.10.6 were not published separately |
-| Local gates | 0.10.7: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (424 unit + 19 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (424), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.7), `pytest` (203 passed, 1 skipped) |
-| Branch sync | `main` was fast-forwarded from `b0e4510` to the 0.10.7 release; `dev` and `main` carry the post-release notes; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Version | `0.11.0` on `dev` (G2 + G1); `0.10.7` released; 0.10.2–0.10.6 folded into it; `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
+| Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.11.0 is not tagged or published yet; 0.10.2–0.10.6 were not published separately |
+| Local gates | 0.11.0: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (421 unit + 18 integration [Windows; 20 Unix] + 1 doc), `--no-default-features` (421), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.11.0), `pytest` (203 passed, 2 skipped on Windows; 204 passed, 1 skipped on Linux/macOS) |
+| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` is one implementation commit ahead with 0.11.0; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
-| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision |
+| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision; G2 (#4) and G1 (#3) are implemented in 0.11.0 and stay open until release |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
 
 The pre-rebase PR contained the original review commits plus the review follow-ups. The rebase merge rewrote these SHAs on `dev`; the sequence is:
@@ -214,8 +214,8 @@ description is archived. Reference lessons are folded into each item.
 
 | # | Gap | What the code does today | Revised follow-up | Bucket |
 |---|---|---|---|---|
-| 1 | `raw_handle()` has a platform-dependent return type (`RawFd` vs `*mut c_void`) — `src/platform.rs:130` | Callers need `#[cfg]`; `PtyBackend` is object-safe, but the return type is not nameable cross-platform | **Re-scoped:** keep documented platform-gated accessors; optionally add a `RawHandle` enum later. Do not force `AsHandle`; HPCON is not an owned kernel handle | Optional 0.11.0; prefer non-breaking |
-| 2 | `ChildBackend::wait()` returns legacy `ProcessExit` — `src/platform.rs:76,169` | `wait_status()` is the additive bridge; `PtySession::wait` already returns `ExitStatus` | Remove `ProcessExit`; make `wait` return `Option<ExitStatus>`; no `pid` in the status; cache repeatable results | 0.11.0 (breaking) |
+| 1 | `raw_handle()` has a platform-dependent return type (`RawFd` vs `*mut c_void`) — `src/platform.rs:130` | Callers need `#[cfg]`; `PtyBackend` is object-safe, but the return type is not nameable cross-platform | **Re-scoped:** keep documented platform-gated accessors; optionally add a `RawHandle` enum later. Do not force `AsHandle`; HPCON is not an owned kernel handle | 0.11.0 (documented; no breaking change) |
+| 2 | `ChildBackend::wait()` returns legacy `ProcessExit` — `src/platform.rs:76,169` | `wait_status()` is the additive bridge; `PtySession::wait` already returns `ExitStatus` | Remove `ProcessExit`; make `wait` return `Option<ExitStatus>`; no `pid` in the status; cache repeatable results | 0.11.0 (implemented; breaking) |
 | 3 | Windows `interrupt()` does not reach the ConPTY child — `src/platform_windows.rs:265-273` | `signal(2)` maps to `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`, which targets the caller's console group; documented best-effort | **Default:** return an explicit “unsupported on ConPTY” error. Ctrl+Break is a separate opt-in spike with different semantics | 0.10.1 (bug/design) |
 | 4 | No EOF on Windows child exit — `src/platform_windows.rs:322` closes the pseudo console only in `Drop` | Reads block/time out after `is_alive() == false` until the session is dropped; documented | Add a close-order-aware `close()`, `read_until_exit`, and an event-driven child watcher. Drain output before `ClosePseudoConsole`; distinguish stdin EOF from output EOF | 0.10.2 (bug/design) |
 | 5 | `expect()` is Python-only — `python/stitch_pty/__init__.py:536` | Rust users must build matching on raw chunks | Add `ExpectPattern` (`Bytes` / `Str` / regex), a byte-oriented rolling buffer, `ExpectResult`; regex behind a feature | Feature minor after G6 |
@@ -270,11 +270,17 @@ trait; `AsRawFd` / `AsRawHandle` or explicit accessors fit.
 **Risk.** Low if we keep accessors. A unified enum is a breaking trait change
 and should not be forced into 0.11.0 unless there is downstream demand.
 
+**0.11.0 implementation.** Kept the platform-gated accessors and documented the
+full contract on `PtyBackend::raw_handle` and in ARCHITECTURE: the handle is
+borrowed, valid only while the backend is alive, and must not be closed by the
+caller; Windows `HPCON` is pseudo-console state, not a kernel `HANDLE`. No
+`RawHandle` enum and no `AsHandle` implementation were added.
+
 ---
 
 ### 4.3 G2 — `ChildBackend::wait()` should return `ExitStatus`
 
-**Current behavior.** `ChildBackend::wait()` returns the legacy `ProcessExit`
+**Before 0.11.0.** `ChildBackend::wait()` returns the legacy `ProcessExit`
 (`src/platform.rs:76,169`); `wait_status()` is the additive bridge that converts
 to the modern `ExitStatus`, and `PtySession::wait` already exposes
 `Option<ExitStatus>`.
@@ -316,6 +322,14 @@ duplicate `ProcessExit` with `pid`, `exit_code: Option<i32>`, and
 **Risk.** Breaking change; schedule as the focused 0.11.0 release. If we also
 change `ExitStatus` to an enum, do it in the same commit with a single migration
 note.
+
+**0.11.0 implementation.** `ChildBackend::wait()` now returns
+`Option<ExitStatus>`; `ProcessExit` and `wait_status()` are gone. Unix waits
+carry the portable signal name through `ExitStatus::signal()` and retain the
+numeric signal only for the Python adapter, which keeps returning
+`(pid, exit_code, signal, core_dumped)`. The PID comes from
+`ChildBackend::pid()`, never from the status. The cached status still makes
+repeated waits idempotent.
 
 ---
 
@@ -1088,7 +1102,7 @@ the number, not the order, when scheduling.
 | 5 | **0.10.5** | H2 — `STARTF_USESTDHANDLES`; H4 — flags decision (**folded into 0.10.7**) | Windows spawn hardening; no speculative flag change |
 | 6 | **0.10.6** | P1 — persistent parser state across `feed()` chunks (**folded into 0.10.7**) | Critical correctness fix; prerequisite for K1a/K1b |
 | 7 | **0.10.7** | K1a — Kitty parser correctness + mode exposure (**released**) | Parser bug fix; builds on P1 |
-| 8 | **0.11.0** | G2 — remove `ProcessExit`; G1 only if a unified `RawHandle` is actually needed | Breaking Rust API cleanup; one migration |
+| 8 | **0.11.0** | G2 — remove `ProcessExit`; G1 — document platform-gated `raw_handle` (**implemented; release pending confirmation**) | Breaking Rust API cleanup; one migration |
 | 9 | **Next feature minor** | K1b — Kitty key encoder (issue #1) | New API surface; unblocks Shift+Enter and the PySide6 use case |
 | 10 | **Following feature minor** | D1 + D2 — Rust interop surface + no-PyO3/parity gates | New API surface; decouples external Rust crates from the Python wrapper |
 | 11 | **Following feature minor** | G6 — `TerminalSession` | New API surface; do this before G5 because it is the multiplexer use case |
@@ -1139,8 +1153,8 @@ umbrella. Checkboxes track implementation, not filing.
 
 - [x] **G3** — `fix(windows): make interrupt() fail explicitly on ConPTY` (released in 0.10.1)
 - [x] **G4** — `fix(windows): add close()/read_until_exit with drain and close-order safety` (shipped in 0.10.7) ([#5](https://github.com/opticsWolf/stitch-pty/issues/5))
-- [ ] **G2** — `refactor(rust)!: remove ProcessExit and return ExitStatus from wait` ([#4](https://github.com/opticsWolf/stitch-pty/issues/4))
-- [ ] **G1** — `docs(rust): document raw_handle platform contract; optional RawHandle enum` ([#3](https://github.com/opticsWolf/stitch-pty/issues/3))
+- [x] **G2** — `refactor(rust)!: remove ProcessExit and return ExitStatus from wait` (implemented in 0.11.0; release pending) ([#4](https://github.com/opticsWolf/stitch-pty/issues/4))
+- [x] **G1** — `docs(rust): document raw_handle platform contract; optional RawHandle enum` (documented in 0.11.0; release pending) ([#3](https://github.com/opticsWolf/stitch-pty/issues/3))
 - [ ] **G6** — `feat(rust): add TerminalSession with an owned HistoryScreen` ([#8](https://github.com/opticsWolf/stitch-pty/issues/8))
 - [ ] **G5** — `feat(rust): port expect() pattern matching` ([#7](https://github.com/opticsWolf/stitch-pty/issues/7))
 - [x] **G7** — `refactor(python): consolidate terminate() with Rust PtySession` (shipped in 0.10.7) ([#9](https://github.com/opticsWolf/stitch-pty/issues/9))
@@ -1343,8 +1357,22 @@ the aggregated CHANGELOG entry.
 - [x] PyPI 0.10.7 (4 files) and crates.io 0.10.7 published
 - [x] GitHub release <https://github.com/opticsWolf/stitch-pty/releases/tag/v0.10.7> created from the aggregated CHANGELOG entry
 
-This completes the planned 0.10.x follow-up set. The next planned item is
-0.11.0 (G2).
+This completes the planned 0.10.x follow-up set.
+
+### 8.12 0.11.0 (G2 + G1) — implementation complete, release pending
+
+- [x] Version/changelog/docs for 0.11.0, including the Rust migration note
+- [x] Local gates: `fmt`, `clippy` (host + Linux/macOS), `cargo test`
+      (421 unit + 18 integration [Windows; 20 Unix] + 1 doc),
+      `--no-default-features` (421), `check --features python`, `doc`, `ruff`,
+      `mypy`, `maturin develop --release` (0.11.0), `pytest` (203 passed,
+      2 skipped on Windows; 204 passed, 1 skipped on Linux/macOS)
+- [ ] CI on the exact 0.11.0 commit
+- [ ] Tag `v0.11.0`; publish PyPI/crates; create the GitHub release
+
+No 0.11.0 tag or registry publish has been performed. The release waits for
+explicit confirmation. G2 is a Rust-only breaking change; Python's
+`ExitStatus(pid, exit_code, signal, core_dumped)` mapping is unchanged.
 
 ---
 
@@ -1352,8 +1380,8 @@ This completes the planned 0.10.x follow-up set. The next planned item is
 
 | Topic | Decision needed | Owner / gate |
 |---|---|---|
-| G1 unified handle | Do we need a nameable `RawHandle` at all, or are platform-gated accessors enough? | 0.11.0 design; default is accessors |
-| G2 status shape | Keep `ExitStatus { code, signal }` or switch to `Code`/`Signal` enum in the same breaking release? | 0.11.0; one migration |
+| G1 unified handle | Do we need a nameable `RawHandle` at all, or are platform-gated accessors enough? | Answered in 0.11.0: keep platform-gated accessors with a documented ownership contract; no enum |
+| G2 status shape | Keep `ExitStatus { code, signal }` or switch to `Code`/`Signal` enum in the same breaking release? | Answered in 0.11.0: keep `ExitStatus`; remove `ProcessExit` and `wait_status`; migration in CHANGELOG |
 | G3 Windows interrupt | Is Ctrl+Break acceptable, or is explicit “unsupported” the contract? | Answered: explicit unsupported released in 0.10.1; Ctrl+Break remains an optional separate spike |
 | G4 latent Drop | Does the current 0.10.0 `Drop` hang with unread output? | Answered: no; release smoke passed in ~313 µs with unread output, so no guard is needed |
 | G4 close semantics | Does `close()` require an exited child, kill a live child, or error? How is drain guaranteed? | Answered: live child is terminated; drain is bounded; shipped in 0.10.7 |
@@ -1380,6 +1408,7 @@ This completes the planned 0.10.x follow-up set. The next planned item is
   0.10.1 released from tag `v0.10.1` (`97e03ab`); 0.10.7 released from tag
   `v0.10.7` (`842c3d9`); PyPI and crates.io published for all three. 0.10.2–0.10.6 were
   development increments folded into 0.10.7 and were not published separately.
+  0.11.0 is implemented on `dev` with a release pending explicit confirmation.
 - G4/H3/G7/H1/H2/P1/K1a issues are closed as shipped in 0.10.7; G2/G1/G6/G5,
   K1b, and D1/D2 remain open and linked to PR #2 and this plan; H4 is closed
   with a recorded spike decision.
@@ -1391,8 +1420,8 @@ This completes the planned 0.10.x follow-up set. The next planned item is
   an explicit decision.
 - `dev` was fast-forwarded to `main` and tagged only after explicit maintainer
   confirmation.
-- The next breaking Rust API change (G2, plus G1 only if needed) has a migration
-  note ready before its release.
+- The 0.11.0 breaking Rust API change (G2) has a migration note in the
+  CHANGELOG; G1 is documented without a new handle type.
 - The Windows close/EOF path has a test for unread output and a documented
   blocking/close-order contract.
 - `HistoryScreen`/`TerminalState` use one persistent parser; split CSI/OSC/UTF-8

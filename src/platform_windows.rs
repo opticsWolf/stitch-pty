@@ -7,7 +7,7 @@
 //! - Tokio NamedPipeServer connect() to arm mio's IOCP pump
 
 use crate::errors::{PtyErrorKind, PtyResult};
-use crate::platform::{ChildBackend, ChildKiller, ProcessExit, PtyBackend};
+use crate::platform::{ChildBackend, ChildKiller, ExitStatus, PtyBackend};
 use crate::winsize::Winsize;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -257,15 +257,11 @@ impl ChildBackend for WinChildProcess {
         self.is_complete().is_none()
     }
 
-    async fn wait(&self) -> Option<ProcessExit> {
+    async fn wait(&self) -> Option<ExitStatus> {
         let mut rx = self.exit.subscribe();
         loop {
             if let Some(code) = self.is_complete() {
-                return Some(ProcessExit {
-                    pid: self.pid,
-                    exit_code: Some(code as i32),
-                    signal: None,
-                });
+                return Some(ExitStatus::with_exit_code(code));
             }
             // The watcher normally wakes this immediately. The timeout is a
             // fallback for a failed DuplicateHandle/GetExitCodeProcess path;

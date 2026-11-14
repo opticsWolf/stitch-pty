@@ -4,16 +4,16 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **424** | **19** | 404 shared + 20 Windows-only |
-| **Linux / macOS** | **408** | **19** | 404 shared + 4 Unix-only |
+| **Windows** | **421** | **18** | 401 shared + 20 Windows-only |
+| **Linux / macOS** | **405** | **20** | 401 shared + 4 Unix-only |
 
-### Shared Tests (404)
+### Shared Tests (401)
 
 Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, `src/winsize.rs`, and `src/terminal/`.
 
 - **async_io** (13): `read_timeout` logic, buffer handling, duration edge cases
 - **errors** (18): error display formatting, `PtyErrorKind` variants, IO error conversion
-- **platform** (26): `ExitStatus` display/clone/debug, `ProcessExit` conversion, trait existence, explicit env dedupe (exact/Windows casing, empty/Unicode values)
+- **platform** (23): `ExitStatus` display/clone/debug, Python exit-code/signal mapping, trait existence, explicit env dedupe (exact/Windows casing, empty/Unicode values)
 - **terminal/ansi_parser** (30): CSI/DCS/OSC/ESC parsing, UTF-8 handling, parameter overflow
 - **terminal/charsets** (7): ASCII map, DEC special characters, charset designation
 - **terminal/control** (12): C0/C1 control characters, escape sequences, `is_control` helpers
@@ -52,7 +52,7 @@ In `src/platform_unix.rs` and `src/errors.rs`.
 ### Integration Tests (`tests/rust_session.rs`)
 
 Real PTYs, end-to-end, via `cargo test` on all three platforms — 18 tests in
-`rust_session.rs` on Windows and 19 on Unix (the Windows-only interrupt/env
+`rust_session.rs` on Windows and 20 on Unix (the Windows-only interrupt/env
 tests and Unix-only signal/EOF tests are marked):
 
 - spawn → read → wait with `ExitStatus`, plus repeated `wait()`
@@ -60,6 +60,7 @@ tests and Unix-only signal/EOF tests are marked):
 - 24×80 defaults for `spawn(None)` and `open_pty_platform(None)`
 - resize round-trip, interactive `write_all`, read timeout that keeps the session alive
 - `terminate` grace/reap; a SIGTERM-ignoring child is escalated to SIGKILL (Unix)
+- signal exit status reports the portable name (`SIGKILL`) after `kill()` (Unix)
 - `read_until_exit` output/status and large-output draining; `close()` idempotence with unread output
 - stdin EOF via `shutdown_write` (Unix); EOF after child exit (Unix; Windows ConPTY may keep the pipe open)
 - Windows `interrupt()`/`send_signal(2)` return `Unsupported`
@@ -76,8 +77,8 @@ the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 
 | Platform | Count | Breakdown |
 |----------|-------|-----------|
-| **Windows** | **204** | 203 passed + 1 skipped (POSIX-only SIGTERM-ignore escalation; explicit unsupported `interrupt()` path) |
-| **Linux / macOS** | **204** | 203 passed + 1 skipped (Windows-only env-casing test) |
+| **Windows** | **205** | 203 passed + 2 skipped (POSIX-only SIGTERM-ignore and signal-number tests; explicit unsupported `interrupt()` path) |
+| **Linux / macOS** | **205** | 204 passed + 1 skipped (Windows-only env-casing test) |
 
 ### Test Files
 
@@ -85,7 +86,7 @@ the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 |------|-------|-------------|
 | `test_basic.py` | 15 | Core PTY operations: spawn, read, write, kill, resize, signals, interrupt |
 | `test_concurrency.py` | 3 | Concurrent reads conserve bytes, cancel-during-terminate, coherent drains |
-| `test_pty_session.py` | 42 | Session lifecycle: env (inherit/empty/exact, Windows casing dedupe), winsize, concurrent spawn, wait, terminate, split-read parser, escalation/repeat edge cases |
+| `test_pty_session.py` | 43 | Session lifecycle: env (inherit/empty/exact, Windows casing dedupe), winsize, concurrent spawn, wait/signal status, terminate, split-read parser, escalation/repeat edge cases |
 | `test_terminal.py` | 19 | Terminal display: empty, scrollback, cursor, title, history, dirty rows |
 | `test_terminal_altscreen.py` | 10 | Alt screen: enter/exit 1049, 47/1047 swap, scrollback isolation, resize |
 | `test_terminal_display.py` | 56 | Full display rendering: ANSI sequences, SGR colors, cursor movement, erase, scroll, tabs |
@@ -97,7 +98,8 @@ the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 
 `test_interrupt` asserts the explicit `NotImplementedError` path for
 `interrupt()` and `send_signal(2)` on Windows, and sends SIGINT on POSIX.
-There are no skipped Python tests.
+Windows skips the two POSIX signal tests; Linux/macOS skip the Windows
+environment-casing test.
 
 ---
 
