@@ -277,6 +277,9 @@ impl PtySession {
         if self.child.is_running() {
             let _ = self.terminate(Duration::from_millis(250)).await;
         }
+        // Ensure the reaper/watcher has published the exit before returning;
+        // `is_alive()` must be false after a successful close.
+        let _ = tokio::time::timeout(Duration::from_secs(1), self.wait()).await;
 
         let mut buf = [0u8; 8192];
         let deadline = Instant::now() + Duration::from_secs(1);
