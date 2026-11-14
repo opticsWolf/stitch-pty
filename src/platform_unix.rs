@@ -279,6 +279,21 @@ impl PtyBackend for UnixPtyMaster {
         let fd = self.fd();
         unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
     }
+
+    async fn shutdown_write(&self) -> PtyResult<()> {
+        let fd = self.fd();
+        let mut termios: libc::termios = unsafe { std::mem::zeroed() };
+        let eof = if unsafe { libc::tcgetattr(fd, &mut termios) } == 0 {
+            termios.c_cc[libc::VEOF]
+        } else {
+            4 // default ^D
+        };
+        self.write(&[0x0a]).await.map_err(PtyErrorKind::from)?;
+        if eof != 0 {
+            self.write(&[eof]).await.map_err(PtyErrorKind::from)?;
+        }
+        Ok(())
+    }
 }
 
 impl Drop for UnixPtyMaster {

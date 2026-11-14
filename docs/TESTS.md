@@ -4,8 +4,8 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **402** | **12** | 385 shared + 17 Windows-only |
-| **Linux / macOS** | **389** | **13** | 385 shared + 4 Unix-only |
+| **Windows** | **402** | **17** | 385 shared + 17 Windows-only |
+| **Linux / macOS** | **389** | **19** | 385 shared + 4 Unix-only |
 
 ### Shared Tests (385)
 

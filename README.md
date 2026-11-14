@@ -140,9 +140,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 the complete environment, so an empty slice is an empty environment; the
 lower-level `platform::spawn_platform` uses `None` to inherit and
 `Some(&[])` for an empty environment. EOF is reported as `Ok(0)` when the
-platform closes the PTY; on Windows ConPTY can keep the pipe open after the
-child exits, so reads may time out until the session is closed (poll
-`wait`/`is_alive` to detect exit).
+platform closes the PTY.
+
+On Windows, ConPTY can keep the output pipe open after the child exits. Use
+`read_until_exit(drain_timeout)` for finite commands: it returns the complete
+drained output plus the exit status, and later reads report EOF.
+`close()` terminates a live child, drains pending output, and closes the
+backend idempotently; `shutdown_write()` sends stdin EOF while keeping output
+readable.
 
 ---
 
@@ -736,7 +741,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.10.0"
+stitch-pty = "0.10.2"
 ```
 
 To build and test the pure Rust code locally:

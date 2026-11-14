@@ -184,7 +184,15 @@ allowing Windows non-Send types to live across `.await` points.
 Python layer used to implement in the binding: `read`/`read_timeout` (EOF is
 mapped to `Ok(0)` when the platform reports it), `write_all`, `resize`, `wait`
 (returning `ExitStatus` via `ChildBackend::wait_status`), the `terminate`
-ladder (signal 15 → bounded grace → kill), and `into_parts`.
+ladder (signal 15 → bounded grace → kill), `read_until_exit`, `close`,
+`shutdown_write`, and `into_parts`.
+
+`read_until_exit` selects between reads and child exit, then drains ConPTY
+output for a bounded quiet window; after it returns, reads report EOF. `close`
+terminates a live child, drains, and closes the backend idempotently; the
+Windows `ClosePseudoConsole` call runs on a blocking thread. On Windows, child
+exit is published by a dedicated `WaitForSingleObject` watcher thread through a
+`watch` channel, so `wait()` does not rely on the 50 ms fallback poll.
 
 - `spawn` inherits the parent environment; `spawn_with_env` takes the exact
   environment (an empty slice is empty). `spawn_platform` mirrors this with
@@ -461,7 +469,7 @@ WinPtyBackend (owns HPCON + NamedPipeServer handles)
 | Type | Drop Behavior |
 |------|---------------|
 | `UnixPtyMaster` | `close(raw_fd)` |
-| `WinPtyBackend` | `ClosePseudoConsole` + drop named pipes |
+| `WinPtyBackend` | `ClosePseudoConsole` once (explicit `close()` or Drop) + drop named pipes |
 | `UnixChildProcess` | `kill(SIGKILL)` if running |
 | `WinChildProcess` | `TerminateProcess` if running; `CloseHandle` |
 | `SafeAttributeList` | `DeleteProcThreadAttributeList` (scoped block) |

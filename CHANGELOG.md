@@ -4,7 +4,27 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.1...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.2...HEAD)
+
+## [0.10.2 — Windows close/read-until-exit and exit watcher](https://github.com/opticsWolf/stitch-pty/compare/v0.10.1...v0.10.2)
+
+### Added
+- `PtySession::read_until_exit(drain_timeout)` accumulates output until the
+  child exits and drains remaining ConPTY output, returning
+  `(Vec<u8>, Option<ExitStatus>)`.
+- `PtySession::close()` terminates a live child, drains pending output, and
+  closes the backend idempotently. On Windows `ClosePseudoConsole` runs on a
+  blocking thread; repeated calls are safe.
+- `PtySession::shutdown_write()` sends stdin EOF without closing the output
+  side: newline + `VEOF` on Unix, input-pipe disconnect on Windows.
+- `PtyBackend::close()` and `PtyBackend::shutdown_write()` hooks.
+
+### Fixed
+- Windows child exit is now event-driven (`WaitForSingleObject` on a watcher
+  thread + `watch` channel) instead of a 50 ms `GetExitCodeProcess` poll.
+  `wait()` wakes promptly and the polling path remains only as a fallback.
+- `read_until_exit` no longer reports repeated timeouts after child exit on
+  Windows; it drains the pipe and returns the status.
 
 ## [0.10.1 — Windows interrupt is explicitly unsupported](https://github.com/opticsWolf/stitch-pty/compare/v0.10.0...v0.10.1)
 

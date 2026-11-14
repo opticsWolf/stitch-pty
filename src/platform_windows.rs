@@ -12,14 +12,15 @@ use crate::winsize::Winsize;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 
 use windows::Win32::Foundation::{
-    CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, GENERIC_READ, GENERIC_WRITE, HANDLE,
+    INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
 };
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
@@ -27,9 +28,10 @@ use windows::Win32::Storage::FileSystem::{
 use windows::Win32::System::Console::{COORD, PSEUDOCONSOLE_INHERIT_CURSOR};
 use windows::Win32::System::Threading::{
     CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
-    EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess, GetProcessId,
+    EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess, GetProcessId, INFINITE,
     InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
     STARTUPINFOEXW, STARTUPINFOW_FLAGS, TerminateProcess, UpdateProcThreadAttribute,
+    WaitForSingleObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 use windows::core::{PCSTR, PCWSTR, PWSTR};
@@ -189,7 +191,7 @@ pub struct WinChildProcess {
     pid: u32,
     process_handle: SendSyncHandle,
     thread_handle: SendSyncHandle,
-    exit_code: Arc<parking_lot::Mutex<Option<u32>>>,
+    exit: Arc<watch::Sender<Option<u32>>>,
 }
 
 impl Drop for WinChildProcess {
@@ -223,7 +225,7 @@ impl Clone for WinChildProcess {
             pid: self.pid,
             process_handle: self.process_handle.clone(),
             thread_handle: self.thread_handle.clone(),
-            exit_code: self.exit_code.clone(),
+            exit: self.exit.clone(),
         }
     }
 }
@@ -239,25 +241,19 @@ impl ChildBackend for WinChildProcess {
     }
 
     async fn wait(&self) -> Option<ProcessExit> {
-        if let Some(code) = self.is_complete() {
-            *self.exit_code.lock() = Some(code);
-            return Some(ProcessExit {
-                pid: self.pid,
-                exit_code: Some(code as i32),
-                signal: None,
-            });
-        }
-
+        let mut rx = self.exit.subscribe();
         loop {
             if let Some(code) = self.is_complete() {
-                *self.exit_code.lock() = Some(code);
                 return Some(ProcessExit {
                     pid: self.pid,
                     exit_code: Some(code as i32),
                     signal: None,
                 });
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            // The watcher normally wakes this immediately. The timeout is a
+            // fallback for a failed DuplicateHandle/GetExitCodeProcess path;
+            // it is not the primary exit-detection mechanism.
+            let _ = tokio::time::timeout(Duration::from_millis(250), rx.changed()).await;
         }
     }
 
@@ -278,13 +274,22 @@ impl ChildBackend for WinChildProcess {
 
 impl WinChildProcess {
     fn is_complete(&self) -> Option<u32> {
+        if let Some(code) = *self.exit.borrow() {
+            return Some(code);
+        }
+
         let mut code: u32 = 0;
         let result = unsafe { GetExitCodeProcess(self.process_handle.0, &mut code) };
         if result.is_ok() && code != 259 {
+            self.record_exit(code);
             Some(code)
         } else {
             None
         }
+    }
+
+    fn record_exit(&self, code: u32) {
+        let _ = self.exit.send_replace(Some(code));
     }
 
     fn do_kill(&self) -> Result<(), PtyErrorKind> {
@@ -295,11 +300,50 @@ impl WinChildProcess {
     }
 }
 
+/// Wait for the process handle on a dedicated OS thread and publish the exit
+/// code through a `watch` channel. This is the Windows H3 watcher: no polling
+/// in the normal path.
+fn spawn_exit_watcher(process: HANDLE, exit: Arc<watch::Sender<Option<u32>>>) {
+    let current = unsafe { GetCurrentProcess() };
+    let mut duplicate = INVALID_HANDLE_VALUE;
+    let duplicated = unsafe {
+        DuplicateHandle(
+            current,
+            process,
+            current,
+            &mut duplicate,
+            0,
+            false,
+            DUPLICATE_SAME_ACCESS,
+        )
+    };
+    if duplicated.is_err() {
+        return;
+    }
+
+    let handle = SendSyncHandle(duplicate);
+    std::thread::spawn(move || wait_for_exit(handle, exit));
+}
+
+fn wait_for_exit(handle: SendSyncHandle, exit: Arc<watch::Sender<Option<u32>>>) {
+    let waited = unsafe { WaitForSingleObject(handle.0, INFINITE) };
+    if waited == WAIT_OBJECT_0 {
+        let mut code: u32 = 0;
+        if unsafe { GetExitCodeProcess(handle.0, &mut code) }.is_ok() {
+            let _ = exit.send_replace(Some(code));
+        }
+    }
+    unsafe {
+        let _ = CloseHandle(handle.0);
+    }
+}
+
 pub struct WinPtyBackend {
     conpty_handle: SendSyncHandle,
     input_async: Arc<Mutex<NamedPipeServer>>,
     output_async: Arc<Mutex<NamedPipeServer>>,
     size: std::sync::Mutex<Winsize>,
+    closed: Arc<AtomicBool>,
 }
 
 impl Clone for WinPtyBackend {
@@ -310,15 +354,14 @@ impl Clone for WinPtyBackend {
             input_async: self.input_async.clone(),
             output_async: self.output_async.clone(),
             size: std::sync::Mutex::new(size),
+            closed: Arc::clone(&self.closed),
         }
     }
 }
 
 impl Drop for WinPtyBackend {
     fn drop(&mut self) {
-        if let Some(close_fn) = unsafe { CLOSE_PSEUDO_CONSOLE } {
-            let _ = close_fn(self.conpty_handle.0);
-        }
+        let _ = self.close();
     }
 }
 
@@ -340,6 +383,7 @@ impl WinPtyBackend {
             input_async: Arc::new(Mutex::new(input_async)),
             output_async: Arc::new(Mutex::new(output_async)),
             size: std::sync::Mutex::new(size),
+            closed: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -347,17 +391,32 @@ impl WinPtyBackend {
 #[async_trait::async_trait]
 impl PtyBackend for WinPtyBackend {
     async fn read(&self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "ConPTY is closed",
+            ));
+        }
         let mut pipe = self.output_async.lock().await;
         pipe.read(buf).await
     }
 
     async fn write(&self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "ConPTY is closed",
+            ));
+        }
         let mut pipe = self.input_async.lock().await;
         pipe.write_all(buf).await?;
         Ok(buf.len())
     }
 
     fn set_winsize(&self, winsize: Winsize) -> PtyResult<()> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(PtyErrorKind::Closed);
+        }
         if let Some(resize_fn) = unsafe { RESIZE_PSEUDO_CONSOLE } {
             let hr = resize_fn(
                 self.conpty_handle.0,
@@ -382,11 +441,40 @@ impl PtyBackend for WinPtyBackend {
     }
 
     fn raw_handle(&self) -> *mut std::ffi::c_void {
-        self.conpty_handle.0.0
+        if self.closed.load(Ordering::SeqCst) {
+            INVALID_HANDLE_VALUE.0
+        } else {
+            self.conpty_handle.0.0
+        }
     }
 
     fn is_open(&self) -> bool {
-        !self.conpty_handle.0.is_invalid()
+        !self.closed.load(Ordering::SeqCst) && !self.conpty_handle.0.is_invalid()
+    }
+
+    fn close(&self) -> PtyResult<()> {
+        if self.closed.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+        if let Some(close_fn) = unsafe { CLOSE_PSEUDO_CONSOLE } {
+            let hr = close_fn(self.conpty_handle.0);
+            if hr < 0 {
+                return Err(PtyErrorKind::WindowsError(format!(
+                    "ClosePseudoConsole failed: HRESULT {}",
+                    hr
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    async fn shutdown_write(&self) -> PtyResult<()> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(PtyErrorKind::Closed);
+        }
+        let pipe = self.input_async.lock().await;
+        pipe.disconnect()
+            .map_err(|e| PtyErrorKind::AsyncIo(format!("disconnect input pipe: {e}")))
     }
 }
 
@@ -655,6 +743,9 @@ pub async fn spawn(
     let _ = input_server.write_all(b"\x1b[1;1R").await;
 
     let backend = WinPtyBackend::new(conpty_handle, input_server, output_server, ws);
+    let (exit_tx, _) = watch::channel::<Option<u32>>(None);
+    let exit_tx = Arc::new(exit_tx);
+    spawn_exit_watcher(process_handle.0, Arc::clone(&exit_tx));
 
     Ok((
         Arc::new(backend),
@@ -662,7 +753,7 @@ pub async fn spawn(
             pid,
             process_handle,
             thread_handle,
-            exit_code: Arc::new(parking_lot::Mutex::new(None)),
+            exit: exit_tx,
         }),
     ))
 }
@@ -773,7 +864,7 @@ mod tests {
             pid: 42,
             process_handle: SendSyncHandle(HANDLE::default()),
             thread_handle: SendSyncHandle(HANDLE::default()),
-            exit_code: Arc::new(parking_lot::Mutex::new(None)),
+            exit: Arc::new(watch::channel::<Option<u32>>(None).0),
         };
     }
 
@@ -783,7 +874,7 @@ mod tests {
             pid: 42,
             process_handle: SendSyncHandle(HANDLE::default()),
             thread_handle: SendSyncHandle(HANDLE::default()),
-            exit_code: Arc::new(parking_lot::Mutex::new(None)),
+            exit: Arc::new(watch::channel::<Option<u32>>(None).0),
         };
         let cp2 = cp.clone();
         assert_eq!(cp.pid, cp2.pid);

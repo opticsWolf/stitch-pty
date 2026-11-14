@@ -599,12 +599,14 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 20 | 0.9.1 | ☑ landed — `session.resize` forwards to emulator; Windows kill-on-drop (§9) |
 | 21 | 0.10.0 | ☑ released (`v0.10.0`, `e620cc8`) — Rust `PtySession` + explicit env contract |
 | 22 | 0.10.1 | ☑ released (`v0.10.1`, `97e03ab`) — G3: Windows `interrupt()`/`send_signal(2)` return `Unsupported` (`NotImplementedError`) |
+| 23 | 0.10.2 | ☑ implemented — G4/H3: `read_until_exit`, idempotent `close`, `shutdown_write`, event-driven exit watcher (release pending confirmation) |
 
-All rows through 0.10.1 are landed on `dev`, one commit per version.
-Final tally at v0.10.0 was **401 Rust unit tests + 11 integration + 1 doctest,
-195 Python tests**; at 0.10.1 it is **402 unit + 12 integration + 1 doctest,
-195 Python tests**, all green; `fmt --check`, `clippy -D warnings` (Windows +
-Linux + macOS targets), `ruff check`, `mypy --strict` all clean.
+All rows through 0.10.2 are implemented on `dev`; 0.10.2 has not been tagged or
+published yet. Final tally at 0.10.1 was **402 Rust unit tests + 12 integration
++ 1 doctest, 195 Python tests**; at 0.10.2 it is **402 unit + 17 integration
+[Windows; 19 Unix] + 1 doctest, 195 Python tests**, all green; `fmt --check`,
+`clippy -D warnings` (Windows + Linux + macOS targets), `ruff check`,
+`mypy --strict` all clean.
 
-0.10.0 and 0.10.1 are published to PyPI and crates.io. See
-[`PLAN-0.10.md`](PLAN-0.10.md) for the follow-up releases.
+0.10.0 and 0.10.1 are published to PyPI and crates.io; 0.10.2 awaits explicit
+release confirmation. See [`PLAN-0.10.md`](PLAN-0.10.md) for follow-ups.

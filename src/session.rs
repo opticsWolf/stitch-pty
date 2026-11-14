@@ -40,7 +40,8 @@
 use crate::errors::{PtyErrorKind, PtyResult};
 use crate::platform::{ArcChildBackend, ArcPtyBackend, ExitStatus};
 use crate::winsize::Winsize;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 /// A child process attached to a PTY.
 ///
@@ -54,6 +55,8 @@ use std::time::Duration;
 pub struct PtySession {
     pty: ArcPtyBackend,
     child: ArcChildBackend,
+    closed: AtomicBool,
+    eof: AtomicBool,
 }
 
 impl PtySession {
@@ -69,7 +72,12 @@ impl PtySession {
     ) -> PtyResult<Self> {
         let (pty, child) =
             crate::platform::spawn_platform(program, args, None, winsize, cwd).await?;
-        Ok(Self { pty, child })
+        Ok(Self {
+            pty,
+            child,
+            closed: AtomicBool::new(false),
+            eof: AtomicBool::new(false),
+        })
     }
 
     /// Spawn `program` with an explicit environment.
@@ -86,7 +94,12 @@ impl PtySession {
     ) -> PtyResult<Self> {
         let (pty, child) =
             crate::platform::spawn_platform(program, args, Some(env), winsize, cwd).await?;
-        Ok(Self { pty, child })
+        Ok(Self {
+            pty,
+            child,
+            closed: AtomicBool::new(false),
+            eof: AtomicBool::new(false),
+        })
     }
 
     /// The underlying PTY handle. Use `Arc::clone` to keep it after the
@@ -119,9 +132,13 @@ impl PtySession {
     /// output pipe can stay open after the child exits, so a read may instead
     /// wait until data arrives or the timeout expires; use [`PtySession::wait`]
     /// or [`PtySession::is_alive`] to detect child exit rather than relying on
-    /// EOF alone. Other I/O errors are returned as
-    /// [`PtyErrorKind::AsyncIo`].
+    /// EOF alone. After [`PtySession::read_until_exit`] or
+    /// [`PtySession::close`], this returns `Ok(0)` immediately. Other I/O
+    /// errors are returned as [`PtyErrorKind::AsyncIo`].
     pub async fn read(&self, buf: &mut [u8]) -> PtyResult<usize> {
+        if self.eof.load(Ordering::SeqCst) {
+            return Ok(0);
+        }
         match self.pty.read(buf).await {
             Ok(n) => Ok(n),
             Err(err) => match PtyErrorKind::from_read_error(err) {
@@ -174,6 +191,127 @@ impl PtySession {
     /// a normal exit return the same status.
     pub async fn wait(&self) -> Option<ExitStatus> {
         self.child.wait_status().await
+    }
+
+    /// Read until the child exits, then drain remaining output.
+    ///
+    /// Returns `(output, status)`. Output is accumulated while the child is
+    /// alive and for up to `drain_timeout` after exit; the drain stops on EOF
+    /// or after a 100 ms quiet period. `status` is `None` only if it was
+    /// already lost.
+    ///
+    /// This is the preferred normal-exit path on Windows, where the ConPTY
+    /// output pipe can remain open after the child exits. After it returns,
+    /// [`PtySession::read`] returns `Ok(0)`. It does not close the PTY; call
+    /// [`PtySession::close`] for explicit teardown.
+    pub async fn read_until_exit(
+        &self,
+        drain_timeout: Duration,
+    ) -> PtyResult<(Vec<u8>, Option<ExitStatus>)> {
+        let mut output = Vec::new();
+        let mut buf = vec![0u8; 8192];
+        let wait = self.wait();
+        tokio::pin!(wait);
+        let status;
+
+        loop {
+            tokio::select! {
+                biased;
+                result = self.read(&mut buf) => match result {
+                    Ok(0) => {
+                        status = tokio::time::timeout(Duration::from_secs(5), &mut wait)
+                            .await
+                            .ok()
+                            .flatten();
+                        break;
+                    }
+                    Ok(n) => output.extend_from_slice(&buf[..n]),
+                    Err(err) => return Err(err),
+                },
+                result = &mut wait => {
+                    status = result;
+                    break;
+                }
+            }
+        }
+
+        let deadline = Instant::now() + drain_timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match tokio::time::timeout(
+                remaining.min(Duration::from_millis(100)),
+                self.read(&mut buf),
+            )
+            .await
+            {
+                Ok(Ok(0)) | Err(_) => break,
+                Ok(Ok(n)) => output.extend_from_slice(&buf[..n]),
+                Ok(Err(err)) => return Err(err),
+            }
+        }
+
+        self.eof.store(true, Ordering::SeqCst);
+        Ok((output, status))
+    }
+
+    /// Close the session and release the PTY.
+    ///
+    /// A live child is terminated first. Remaining output is drained for a
+    /// bounded time (1 s, stopping early on EOF/quiet) so Windows
+    /// `ClosePseudoConsole` does not deadlock on an unread pipe. On Windows
+    /// the close call runs on a blocking thread because it may wait for the
+    /// ConPTY output pipe to drain.
+    ///
+    /// Idempotent: repeated calls return `Ok(())`. Reads after close return
+    /// `Ok(0)`. Do not read concurrently with `close()`. On Unix the master fd
+    /// is released when the session is dropped; this call still terminates the
+    /// child and drains pending output.
+    pub async fn close(&self) -> PtyResult<()> {
+        if self.closed.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        if self.child.is_running() {
+            let _ = self.terminate(Duration::from_millis(250)).await;
+        }
+
+        let mut buf = [0u8; 8192];
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match tokio::time::timeout(
+                remaining.min(Duration::from_millis(100)),
+                self.read(&mut buf),
+            )
+            .await
+            {
+                Ok(Ok(0)) | Err(_) => break,
+                Ok(Ok(_)) => continue,
+                Ok(Err(_)) => break,
+            }
+        }
+
+        self.eof.store(true, Ordering::SeqCst);
+        let pty = self.pty.clone();
+        tokio::task::spawn_blocking(move || pty.close())
+            .await
+            .map_err(|err| PtyErrorKind::AsyncIo(format!("close task failed: {err}")))??;
+        Ok(())
+    }
+
+    /// Close only the input side, leaving output readable.
+    ///
+    /// Unix sends a newline plus the terminal `VEOF`; Windows disconnects the
+    /// input pipe. Useful for signaling EOF to a line-oriented child without
+    /// closing the PTY.
+    pub async fn shutdown_write(&self) -> PtyResult<()> {
+        self.pty.shutdown_write().await
     }
 
     /// Force-kill the child.

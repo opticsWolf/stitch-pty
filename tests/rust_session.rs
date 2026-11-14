@@ -454,3 +454,115 @@ async fn interrupt_is_explicitly_unsupported_on_windows() {
     let _ = session.kill();
     let _ = session.wait().await;
 }
+
+#[tokio::test]
+async fn read_until_exit_returns_output_and_status() {
+    let (program, args) = shell("echo stitch-read-until-exit");
+    let session = PtySession::spawn(program, &args, size(), None)
+        .await
+        .expect("spawn");
+
+    let (output, status) = session
+        .read_until_exit(Duration::from_secs(2))
+        .await
+        .expect("read_until_exit");
+
+    let text = String::from_utf8_lossy(&output);
+    assert!(
+        text.contains("stitch-read-until-exit"),
+        "missing child output; got {text:?}"
+    );
+    assert!(status.expect("status should be available").success());
+}
+
+#[tokio::test]
+async fn read_until_exit_drains_large_output() {
+    let command = if cfg!(windows) {
+        "for /L %i in (1,1,1000) do @echo 0123456789"
+    } else {
+        "for i in $(seq 1 1000); do echo 0123456789; done"
+    };
+    let (program, args) = shell(command);
+    let session = PtySession::spawn(program, &args, size(), None)
+        .await
+        .expect("spawn");
+
+    let (output, status) = session
+        .read_until_exit(Duration::from_secs(5))
+        .await
+        .expect("read_until_exit");
+
+    assert!(output.len() > 10_000, "drained only {} bytes", output.len());
+    assert!(status.expect("status should be available").success());
+}
+
+#[tokio::test]
+async fn close_is_idempotent_and_does_not_hang_with_unread_output() {
+    let (program, args) = quiet_long_running();
+    let session = PtySession::spawn(program, &args, size(), None)
+        .await
+        .expect("spawn");
+
+    let started = std::time::Instant::now();
+    session.close().await.expect("first close");
+    session.close().await.expect("second close");
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "close took {:?}",
+        started.elapsed()
+    );
+    assert!(!session.is_alive(), "close left the child running");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn shutdown_write_sends_eof_without_closing_output() {
+    let session = PtySession::spawn("cat", &[], size(), None)
+        .await
+        .expect("spawn");
+
+    session.shutdown_write().await.expect("shutdown_write");
+    let status = tokio::time::timeout(Duration::from_secs(2), session.wait())
+        .await
+        .expect("cat should exit after VEOF")
+        .expect("status");
+    assert!(status.success());
+}
+
+#[tokio::test]
+async fn close_with_unread_output_does_not_hang() {
+    let (program, args) = shell("echo stitch-close-unread");
+    let session = PtySession::spawn(program, &args, size(), None)
+        .await
+        .expect("spawn");
+
+    let started = std::time::Instant::now();
+    session.close().await.expect("close");
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "close with unread output took {:?}",
+        started.elapsed()
+    );
+    assert!(!session.is_alive());
+}
+
+#[tokio::test]
+async fn read_after_read_until_exit_returns_eof() {
+    let (program, args) = shell("echo stitch-eof");
+    let session = PtySession::spawn(program, &args, size(), None)
+        .await
+        .expect("spawn");
+
+    let (output, status) = session
+        .read_until_exit(Duration::from_secs(2))
+        .await
+        .expect("read_until_exit");
+    assert!(String::from_utf8_lossy(&output).contains("stitch-eof"));
+    assert!(status.expect("status").success());
+
+    let mut buf = [0u8; 64];
+    let eof = session
+        .read_timeout(&mut buf, Duration::from_millis(250))
+        .await;
+    assert_eq!(eof, Ok(0), "expected EOF after read_until_exit");
+}

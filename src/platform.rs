@@ -135,6 +135,28 @@ pub trait PtyBackend: Send + Sync {
     /// Check if the PTY is still open.
     fn is_open(&self) -> bool;
 
+    /// Close the PTY backend.
+    ///
+    /// The default is a no-op for backends whose handles close on drop. The
+    /// Windows ConPTY backend overrides this to call `ClosePseudoConsole`
+    /// exactly once; callers must drain unread output first. The call may
+    /// block until the ConPTY output pipe is drained, so async callers should
+    /// run it on a blocking thread.
+    fn close(&self) -> PtyResult<()> {
+        Ok(())
+    }
+
+    /// Close only the input/write side, leaving output readable.
+    ///
+    /// Unix sends a newline plus the terminal `VEOF`; Windows disconnects the
+    /// input pipe. Backends that cannot express this return
+    /// [`PtyErrorKind::Unsupported`].
+    async fn shutdown_write(&self) -> PtyResult<()> {
+        Err(PtyErrorKind::Unsupported(
+            "shutdown_write is not implemented for this PTY backend".to_string(),
+        ))
+    }
+
     /// Write the whole buffer, looping over partial writes.
     ///
     /// Returns [`std::io::ErrorKind::WriteZero`] if the backend reports a
