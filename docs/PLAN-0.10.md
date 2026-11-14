@@ -1,8 +1,8 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.10.0 release-ready; publish/tag pending** (release commit `e6f10d2`; local gates and exact-commit CI green)
-> Release branch: `dev`
-> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; pre-rebase PR head was `5e68aa1`
+> Status: **0.10.0 released** (tag `v0.10.0`; PyPI and crates.io published; follow-ups pending)
+> Release branch: `dev` (fast-forwarded to `main`; both contain tag commit `e620cc8`)
+> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
 > [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md)
@@ -51,10 +51,11 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | Release-commit run `43577417909` on `e6f10d2`: all 6 test jobs + all 4 wheel builds pass; publish jobs skipped. Earlier post-merge run `43573691893` was green. |
-| Version | `0.10.0` on `dev` at `e6f10d2`; not yet tagged or published |
+| CI | Tag run `43579326214`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io publish jobs green. Pre-release run `43577417909` on `e6f10d2` had publish jobs skipped. |
+| Version | `0.10.0` released; tag `v0.10.0` at `e620cc8` |
+| Publication | PyPI 0.10.0 (4 files) and crates.io 0.10.0 published |
 | Local gates | Release gates green: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (401 unit + 11 integration + 1 doc), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.0), `pytest` (195), README example, Windows unread-output Drop smoke (~313 µs) |
-| Branch sync | `dev` contains release commit `e6f10d2`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Branch sync | `dev` and `main` contain tag commit `e620cc8`; tag `v0.10.0` points there; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
@@ -80,11 +81,14 @@ The release work on top of that sequence is:
 f6d73a2 docs: add 0.10 release and follow-up plan
 99f7af7 test(rust): wait for ConPTY setup output before timeout assertion
 e6f10d2 release: 0.10.0 (v0.10.0)
+e620cc8 docs: record 0.10.0 release readiness (tag v0.10.0)
 ```
 
 The release commit contains only the version bump and CHANGELOG update;
 `99f7af7` is the separate test-stability fix for a delayed ConPTY setup-output
 race. The docs-only run before the release exposed that race on Windows py3.13.
+The tag points at `e620cc8`, the docs commit after the version bump, matching
+the `v0.9.1` tag convention.
 
 CI trigger note: the workflow originally ran `pull_request` checks only for
 `main`. PR #2 adds `dev` to that trigger so retargeted PRs are tested
@@ -1018,7 +1022,7 @@ the number, not the order, when scheduling.
 
 | Order | Version | Work | Why this bucket |
 |---|---|---|---|
-| 0 | **0.10.0** | PR #2 merged; version/changelog commit `e6f10d2`; local gates + exact-commit CI green | Release-ready; publish/tag awaiting go-ahead |
+| 0 | **0.10.0** | PR #2 merged; version/changelog commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; PyPI + crates.io published | Released |
 | 1 | **0.10.1** | G3 — Windows interrupt: explicit unsupported error | Bug/behavior fix; no new API surface |
 | 2 | **0.10.2** | G4 + H3 — close/read-until-exit, drain, child watcher | Incremental fix on the just-landed `PtySession`; pairs with G6 |
 | 3 | **0.10.3** | G7 — Python terminate consolidation | Tech debt; behavior-preserving, macOS-verified |
@@ -1114,9 +1118,10 @@ only says “fix this”.
 
 ## 8. 0.10.0 release gate
 
-The pre-publish gate was completed on `dev` at release commit `e6f10d2`. The
-release commit contains only the version bump and CHANGELOG update; `99f7af7`
-is the separate Windows ConPTY test-stability fix.
+The release gate was completed on `dev`. The version-bump commit is `e6f10d2`
+and the tag is `v0.10.0` at the post-docs commit `e620cc8`. The release commit
+contains only the version bump and CHANGELOG update; `99f7af7` is the separate
+Windows ConPTY test-stability fix.
 
 ### 8.1 Version and changelog
 
@@ -1162,17 +1167,22 @@ An earlier docs-only run on `f6d73a2` exposed a Windows py3.13 flake in
 output arrived after the test's first quiet read. `99f7af7` waits for a
 sustained quiet window; the release commit includes that fix.
 
-### 8.4 Post-release (explicit go-ahead only)
+### 8.4 Post-release (maintainer-authorized)
 
-> Awaiting explicit maintainer go-ahead. Do not tag or publish from this plan
-> alone.
+Tag and registry publication are complete:
 
-- [ ] `cargo publish`
-- [ ] `uvx maturin build --release`; upload `dist/*` to PyPI
-- [ ] Tag `v0.10.0`; create the GitHub release from the CHANGELOG entry
+- [x] `cargo publish` — crates.io 0.10.0 published
+- [x] `uvx maturin build --release`; upload `dist/*` to PyPI — PyPI 0.10.0
+      published (4 files)
+- [x] Tag `v0.10.0` at `e620cc8`
+- [ ] Create the GitHub release from the CHANGELOG entry
 - [ ] Bump Kilim's `stitch-pty` dependency
 - [ ] Announce the breaking low-level env signature and the Windows EOF
       caveat
+
+Tag CI: <https://github.com/opticsWolf/stitch-pty/actions/runs/43579326214> —
+all 6 test jobs, all 4 wheels, PyPI, and crates.io green. The first tag run hit
+a stale `CARGO_REGISTRY_TOKEN`; after refresh, the rerun published cleanly.
 
 ---
 
@@ -1203,8 +1213,8 @@ sustained quiet window; the release commit includes that fix.
 
 ## 10. Definition of done for the 0.10 series
 
-- PR #2 merged to `dev`; 0.10.0 release commit `e6f10d2` is green.
-  Publish/tag remain gated on explicit maintainer go-ahead.
+- PR #2 merged to `dev`; 0.10.0 released from tag `v0.10.0` (`e620cc8`);
+  PyPI and crates.io published.
 - All seven original gaps, H1–H3, K1a/K1b, P1, and D1/D2 have open issues
   linked to PR #2 and this plan; H4 has a recorded spike decision.
 - Issue #1 is linked to K1a/K1b and is not closed before the PySide6 example
