@@ -355,13 +355,13 @@ impl UnixChildProcess {
                 let result = waitpid(pid, Some(WaitPidFlag::WNOHANG));
 
                 match result {
-                    Ok(WaitStatus::Exited(pid, code)) => {
+                    Ok(WaitStatus::Exited(_pid, code)) => {
                         let mut guard = task_state.lock();
                         guard.running = false;
                         guard.exit_status = Some(ExitStatus::with_exit_code(code as u32));
                         break;
                     }
-                    Ok(WaitStatus::Signaled(pid, signal, _core_dumped)) => {
+                    Ok(WaitStatus::Signaled(_pid, signal, _core_dumped)) => {
                         let mut guard = task_state.lock();
                         guard.running = false;
                         guard.exit_status = Some(ExitStatus::with_signal_number(
