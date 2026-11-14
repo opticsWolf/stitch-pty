@@ -26,7 +26,7 @@ pub use terminal::{
 
 // High-level Rust session API
 pub mod session;
-pub use session::PtySession;
+pub use session::{PtyReader, PtySession, PtyWriter};
 pub use winsize::Winsize;
 
 // Cross-platform modules

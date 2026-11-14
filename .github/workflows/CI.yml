@@ -59,6 +59,30 @@ jobs:
           pip install -e .[dev] pytest-timeout
           pytest tests/ -v --timeout=60 --timeout-method=thread
 
+  # ── Rust core without PyO3 ───────────────────────────────────────
+
+  rust-core:
+    name: Rust core (no default features)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check and test without PyO3
+        run: |
+          cargo check --no-default-features --lib
+          cargo test --no-default-features --lib
+          cargo check --no-default-features --all-targets
+      - name: Assert PyO3 is absent from the default tree
+        run: |
+          if cargo tree --no-default-features -e normal -i pyo3 >/tmp/pyo3-tree.txt 2>&1; then
+            echo "pyo3 must not be in the default dependency tree"
+            cat /tmp/pyo3-tree.txt
+            exit 1
+          fi
+          echo "pyo3 is absent (cargo tree reported: $(head -1 /tmp/pyo3-tree.txt))"
+
   # ── Build Wheels ─────────────────────────────────────────────────
 
   build-wheels:

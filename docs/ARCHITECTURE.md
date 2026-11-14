@@ -228,6 +228,16 @@ exit is published by a dedicated `WaitForSingleObject` watcher thread through a
   exited.
 - Dropping the last child handle kills a still-running child.
 
+**Interop.** `PtySession::from_parts(pty, child)` wraps handles from a custom
+backend or an external spawner; it shares ownership and documents kill-on-drop.
+`reader()` / `writer()` return `PtyReader` / `PtyWriter` handles that hold an
+`Arc<PtySession>` and therefore observe the same EOF/close state without a
+second locking layer. `into_parts()` remains the inverse for taking ownership
+back. `open_pty_platform` is master-only (Unix closes the slave; Windows has no
+attached child); `spawn_platform` is the native spawn route. See
+[`PARITY.md`](PARITY.md) for the Rust/Python surface table and the external
+`vt100` example.
+
 ## Terminal Emulation Layer (`terminal/`)
 
 Embedded from [pyte_rs](https://github.com/python-pyte/pyte). Provides:

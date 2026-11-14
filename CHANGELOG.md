@@ -4,7 +4,39 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.12.0...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.13.0...HEAD)
+
+## [0.13.0 — Rust interop and no-PyO3 parity](https://github.com/opticsWolf/stitch-pty/compare/v0.12.0...v0.13.0)
+
+Makes the Rust core composable for external crates and proves it builds and
+tests without PyO3.
+
+### Added
+- `PtySession::from_parts(pty, child)` accepts already-open backend handles;
+  ownership and kill-on-drop behavior are documented.
+- `PtySession::reader()` and `PtySession::writer()` return `PtyReader` /
+  `PtyWriter` handles sharing the session's `Arc`, EOF, and close state.
+  They are exported from the crate root.
+- `examples/external_emulator.rs` feeds a session into the external `vt100`
+  crate using the reader handle; it compiles with `--no-default-features`.
+- `docs/PARITY.md` classifies the Rust/Python surfaces, including the
+  `raw_output` decision, and documents the fixed parity corpus.
+- CI job **Rust core (no default features)** runs `cargo check/test
+  --no-default-features`, checks all targets, and asserts `pyo3` is absent
+  from the default dependency tree.
+- Rust (`tests/terminal_parity.rs`) and Python
+  (`tests/test_terminal_parity.py`) tests assert identical rows, styles, and
+  title for a fixed ANSI/OSC/UTF-8 corpus split into 1/3/7-byte and whole
+  chunks.
+
+### Changed
+- `open_pty_platform` is documented as a master-only API: Unix closes the
+  slave before return and Windows has no attached child. `spawn_platform`
+  remains the native spawn route; custom backends use `from_parts`.
+- `Cargo.toml` describes the crate as usable from Rust and Python, not as a
+  Python-only binding.
+- `raw_output` is explicitly classified as a Python-only convenience; the Rust
+  transport does not retain output history.
 
 ## [0.12.0 — Kitty key encoder](https://github.com/opticsWolf/stitch-pty/compare/v0.11.0...v0.12.0)
 

@@ -4,8 +4,8 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **433** | **18** | 413 shared + 20 Windows-only |
-| **Linux / macOS** | **417** | **20** | 413 shared + 4 Unix-only |
+| **Windows** | **433** | **19** | 413 shared + 20 Windows-only |
+| **Linux / macOS** | **417** | **22** | 413 shared + 4 Unix-only |
 
 ### Shared Tests (413)
 
@@ -53,8 +53,9 @@ In `src/platform_unix.rs` and `src/errors.rs`.
 ### Integration Tests (`tests/rust_session.rs`)
 
 Real PTYs, end-to-end, via `cargo test` on all three platforms — 18 tests in
-`rust_session.rs` on Windows and 20 on Unix (the Windows-only interrupt/env
-tests and Unix-only signal/EOF tests are marked):
+`rust_session.rs` on Windows and 21 on Unix, plus the parity corpus test in
+`terminal_parity.rs` (the Windows-only interrupt/env tests and Unix-only
+signal/EOF/from_parts tests are marked):
 
 - spawn → read → wait with `ExitStatus`, plus repeated `wait()`
 - environment inheritance (`spawn`), explicit empty env, exact replacement (`spawn_with_env`), and Windows case-insensitive duplicate-key collapse
@@ -65,6 +66,7 @@ tests and Unix-only signal/EOF tests are marked):
 - `read_until_exit` output/status and large-output draining; `close()` idempotence with unread output
 - stdin EOF via `shutdown_write` (Unix); EOF after child exit (Unix; Windows ConPTY may keep the pipe open)
 - Windows `interrupt()`/`send_signal(2)` return `Unsupported`
+- `from_parts` / `reader()` / `writer()` round-trip on Unix (custom interop)
 
 ### Redirected stdio (`tests/redirected_stdio.rs`)
 
@@ -78,8 +80,8 @@ the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 
 | Platform | Count | Breakdown |
 |----------|-------|-----------|
-| **Windows** | **213** | 211 passed + 2 skipped (POSIX-only SIGTERM-ignore and signal-number tests; explicit unsupported `interrupt()` path) |
-| **Linux / macOS** | **213** | 212 passed + 1 skipped (Windows-only env-casing test) |
+| **Windows** | **217** | 215 passed + 2 skipped (POSIX-only SIGTERM-ignore and signal-number tests; explicit unsupported `interrupt()` path) |
+| **Linux / macOS** | **217** | 216 passed + 1 skipped (Windows-only env-casing test) |
 
 ### Test Files
 
@@ -95,6 +97,7 @@ the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 | `test_keyboard.py` | 8 | Kitty encoder: Shift+Enter, Ctrl+I vs Tab, legacy fallback, flag 8, event types, alternates, associated text, `PtySession.encode_key` |
 | `test_terminal_scrollback.py` | 15 | Scrollback: capacity limits, trim, absolute cursor, history-aware resize |
 | `test_terminal_styled.py` | 20 | Styled cells: color (named/256/truecolor), attributes (bold/dim/italic/underline/blink/reverse/hidden/strikethrough) |
+| `test_terminal_parity.py` | 4 | Fixed ANSI/OSC/UTF-8 corpus at 1/3/7/whole-buffer chunk sizes; same rows/styles/title as `tests/terminal_parity.rs` |
 
 ### Platform-specific behavior
 

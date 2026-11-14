@@ -1,9 +1,9 @@
 [package]
 name = "stitch-pty"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2024"
 authors = ["stitch-pty authors"]
-description = "Cross-platform async PTY with integrated terminal emulation for Python"
+description = "Cross-platform async PTY with integrated terminal emulation for Rust and Python"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/opticsWolf/stitch-pty"
 readme = "README.md"
@@ -61,6 +61,7 @@ windows = { version = "0.62", features = [
 [dev-dependencies]
 tokio-test = "0.4"
 proptest = "1"
+vt100 = "0.18"
 
 [profile.release]
 opt-level = 3

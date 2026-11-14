@@ -607,16 +607,17 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 28 | 0.10.7 | ☑ released (`v0.10.7`, `842c3d9`) — K1a: Kitty push/pop/query/`CSI =` semantics, per-screen stacks, keyboard_mode accessor; rolls up 0.10.2–0.10.6 |
 | 29 | 0.11.0 | ☑ implemented — G2: one `ExitStatus` return from `ChildBackend::wait`, `ProcessExit`/`wait_status` removed; G1: raw-handle ownership contract documented; Unix signal-name status plus immediate-kill PID fallback (release pending confirmation) |
 | 30 | 0.12.0 | ☑ implemented — K1b: `terminal::keyboard` encoder (`KeyboardFlags`, `Modifiers`, `KeyCode`, `KeyEvent`), flag 1/2/4/8/16 semantics, Python `TerminalState.encode_key`/`PtySession.encode_key`, PySide6 example routed through the encoder (release pending confirmation) |
+| 31 | 0.13.0 | ☑ implemented — D1/D2: `PtySession::from_parts`, `reader()`/`writer()` handles, external `vt100` example, no-PyO3 CI gate, `docs/PARITY.md`, shared chunked corpus tests, master-only `open_pty_platform` contract (release pending confirmation) |
 
-All rows through 0.12.0 are released or implemented. Final tally at 0.10.1 was
+All rows through 0.13.0 are released or implemented. Final tally at 0.10.1 was
 **402 Rust unit tests + 12 integration + 1 doctest, 195 Python tests**; at
-0.12.0 it is **433 unit + 18 integration [Windows; 20 Unix] + 1 doctest, 211
-Python passed + 2 skipped (213 collected) on Windows (212 passed + 1 skipped on
+0.13.0 it is **433 unit + 19 integration [Windows; 22 Unix] + 1 doctest, 215
+Python passed + 2 skipped (217 collected) on Windows (216 passed + 1 skipped on
 Linux/macOS)**, all green; `fmt --check`, `clippy -D warnings` (Windows + Linux
 + macOS targets), `ruff check`, `mypy --strict` all clean.
 
 0.10.0, 0.10.1, and 0.10.7 are published to PyPI and crates.io. Versions
 0.10.2–0.10.6 were development increments folded into 0.10.7 and were not
-published separately. 0.11.0 and 0.12.0 are implemented on `dev` and await
-explicit release confirmation. See [`PLAN-0.10.md`](PLAN-0.10.md) for the
-remaining D1/D2, G6, and G5 follow-ups.
+published separately. 0.11.0, 0.12.0, and 0.13.0 are implemented on `dev` and
+await explicit release confirmation. See [`PLAN-0.10.md`](PLAN-0.10.md) for the
+remaining G6 and G5 follow-ups.

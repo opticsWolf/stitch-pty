@@ -357,10 +357,18 @@ pub async fn spawn_platform(
     }
 }
 
-/// Open a PTY pair without spawning a child.
+/// Open the PTY master without spawning a child.
 ///
 /// `winsize` defaults to 24×80 when `None`, on every platform.
 /// Windows: async for the same IOCP pump reason as `spawn_platform`.
+///
+/// **Spawner limitation.** This is a master-only API. On Unix the slave fd is
+/// closed before return, and on Windows there is no child attached to the
+/// ConPTY. It is intended for callers that only need the master side (for
+/// example, to wrap a backend through [`crate::PtySession::from_parts`]), not
+/// as a general external-spawner API. The supported native spawn route is
+/// [`spawn_platform`]; a custom backend can implement [`PtyBackend`] itself and
+/// pass it to `from_parts`.
 pub async fn open_pty_platform(winsize: Option<Winsize>) -> PtyResult<ArcPtyBackend> {
     let winsize = Some(winsize.unwrap_or_else(|| Winsize::new(24, 80, 0, 0)));
 

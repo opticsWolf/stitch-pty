@@ -40,6 +40,7 @@
 use crate::errors::{PtyErrorKind, PtyResult};
 use crate::platform::{ArcChildBackend, ArcPtyBackend, ExitStatus};
 use crate::winsize::Winsize;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -108,6 +109,29 @@ impl PtySession {
         })
     }
 
+    /// Assemble a session from already-open backend handles.
+    ///
+    /// This is the interop entry point for a custom PTY backend, an external
+    /// spawner, or a caller that obtained the handles from [`Self::into_parts`].
+    /// The session does not validate that the two handles belong together.
+    ///
+    /// Ownership follows the backends' `Arc` contract: the session holds a
+    /// strong reference to both handles, and dropping the last child handle
+    /// kills a still-running child (see [`ChildBackend`]). Clone the `Arc`s
+    /// before constructing the session if the child must outlive it. The
+    /// returned session starts with `closed = false` and `eof = false`, even
+    /// if the handles came from a session that had already reached EOF.
+    ///
+    /// [`ChildBackend`]: crate::platform::ChildBackend
+    pub fn from_parts(pty: ArcPtyBackend, child: ArcChildBackend) -> Self {
+        Self {
+            pty,
+            child,
+            closed: AtomicBool::new(false),
+            eof: AtomicBool::new(false),
+        }
+    }
+
     /// The underlying PTY handle. Use `Arc::clone` to keep it after the
     /// session is dropped.
     pub fn pty(&self) -> &ArcPtyBackend {
@@ -118,6 +142,23 @@ impl PtySession {
     /// after the session is dropped.
     pub fn child(&self) -> &ArcChildBackend {
         &self.child
+    }
+
+    /// Create a read-only handle that shares this session's PTY and EOF/close
+    /// state. The session must be held in an `Arc` so the handle can outlive
+    /// the local reference.
+    pub fn reader(self: &Arc<Self>) -> PtyReader {
+        PtyReader {
+            session: Arc::clone(self),
+        }
+    }
+
+    /// Create a write-only handle that shares this session's PTY and close
+    /// state. The session must be held in an `Arc`.
+    pub fn writer(self: &Arc<Self>) -> PtyWriter {
+        PtyWriter {
+            session: Arc::clone(self),
+        }
     }
 
     /// Child process id.
@@ -368,6 +409,62 @@ impl PtySession {
     /// Split into the raw backend handles, skipping the session wrapper.
     pub fn into_parts(self) -> (ArcPtyBackend, ArcChildBackend) {
         (self.pty, self.child)
+    }
+}
+
+/// A read-only handle sharing a [`PtySession`].
+///
+/// The handle owns an `Arc<PtySession>`, so it observes the same EOF and
+/// close state as the session and can be moved to a dedicated reader task.
+pub struct PtyReader {
+    session: Arc<PtySession>,
+}
+
+impl PtyReader {
+    /// Read from the PTY. See [`PtySession::read`].
+    pub async fn read(&self, buf: &mut [u8]) -> PtyResult<usize> {
+        self.session.read(buf).await
+    }
+
+    /// Read with a timeout. See [`PtySession::read_timeout`].
+    pub async fn read_timeout(&self, buf: &mut [u8], timeout: Duration) -> PtyResult<usize> {
+        self.session.read_timeout(buf, timeout).await
+    }
+
+    /// The session shared by this handle.
+    pub fn session(&self) -> &Arc<PtySession> {
+        &self.session
+    }
+}
+
+/// A write-only handle sharing a [`PtySession`].
+///
+/// The handle owns an `Arc<PtySession>`, so writes and shutdown observe the
+/// same close state as the session. Use [`PtySession::reader`] for the paired
+/// read side.
+pub struct PtyWriter {
+    session: Arc<PtySession>,
+}
+
+impl PtyWriter {
+    /// Write bytes. See [`PtySession::write`].
+    pub async fn write(&self, data: &[u8]) -> PtyResult<usize> {
+        self.session.write(data).await
+    }
+
+    /// Write all bytes. See [`PtySession::write_all`].
+    pub async fn write_all(&self, data: &[u8]) -> PtyResult<()> {
+        self.session.write_all(data).await
+    }
+
+    /// Close the input side. See [`PtySession::shutdown_write`].
+    pub async fn shutdown_write(&self) -> PtyResult<()> {
+        self.session.shutdown_write().await
+    }
+
+    /// The session shared by this handle.
+    pub fn session(&self) -> &Arc<PtySession> {
+        &self.session
     }
 }
 

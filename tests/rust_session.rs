@@ -3,6 +3,8 @@
 //! These run the real platform backend (openpty/fork on Unix, ConPTY on
 //! Windows); CI executes them on all three platforms.
 
+#[cfg(unix)]
+use std::sync::Arc;
 use std::time::Duration;
 use stitch_pty::platform::open_pty_platform;
 use stitch_pty::{PtySession, Winsize};
@@ -144,6 +146,48 @@ async fn wait_reports_signal_name_after_kill() {
         .expect("status");
     assert!(!status.success());
     assert_eq!(status.signal(), Some("SIGKILL"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn from_parts_roundtrip_supports_reader_and_writer_handles() {
+    let session = PtySession::spawn("cat", &[], size(), None)
+        .await
+        .expect("spawn cat");
+    let (pty, child) = session.into_parts();
+    let session = Arc::new(PtySession::from_parts(pty, child));
+
+    let writer = session.writer();
+    writer
+        .write_all(
+            b"stitch-parts-ok
+",
+        )
+        .await
+        .expect("write through handle");
+
+    let reader = session.reader();
+    let mut buf = [0u8; 4096];
+    let mut out = String::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        match reader
+            .read_timeout(&mut buf, Duration::from_millis(250))
+            .await
+        {
+            Ok(0) => break,
+            Ok(n) => {
+                out.push_str(&String::from_utf8_lossy(&buf[..n]));
+                if out.contains("stitch-parts-ok") {
+                    break;
+                }
+            }
+            Err(stitch_pty::errors::PtyErrorKind::Timeout(_)) => continue,
+            Err(err) => panic!("unexpected read error: {err:?}"),
+        }
+    }
+    assert!(out.contains("stitch-parts-ok"), "got {out:?}");
+    session.kill().expect("kill cat");
 }
 
 #[cfg(unix)]

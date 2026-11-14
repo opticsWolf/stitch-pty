@@ -7,10 +7,12 @@
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/pypi/l/stitch-pty.svg)](https://pypi.org/project/stitch-pty/)
 
-**stitch-pty** is a high-performance, cross-platform pseudo-terminal (PTY) library for Python,
-written in Rust with PyO3 bindings. It provides true PTY semantics on Linux, macOS, and Windows,
-with a built-in VT100/VT220/xterm-compatible terminal emulator for rendering ANSI escape sequences
-with scrollback history.
+**stitch-pty** is a high-performance, cross-platform pseudo-terminal (PTY) library
+written in Rust, with optional PyO3 bindings for Python. It provides true PTY
+semantics on Linux, macOS, and Windows, plus a built-in VT100/VT220/xterm-
+compatible terminal emulator with scrollback history. The Rust core builds and
+tests without Python (`--no-default-features`); the `python` feature adds the
+binding layer.
 
 ---
 
@@ -107,7 +109,9 @@ asyncio.run(main())
 The PTY and emulator layers are usable without PyO3. `PtySession` assembles
 the platform handles and adds the helpers the Python layer has (`write_all`,
 `read_timeout`, `terminate`); the terminal emulator stays separate so a
-multiplexer can own one screen per pane:
+multiplexer can own one screen per pane. See
+[`docs/PARITY.md`](docs/PARITY.md) for the Rust/Python surface table and the
+checked-in parity corpus:
 
 ```rust
 use stitch_pty::{HistoryScreen, PtySession, Winsize};
@@ -136,6 +140,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+For external crates, `PtySession::from_parts` wraps handles from a custom
+backend, and `reader()` / `writer()` create shareable handles without
+reimplementing the session's locking or EOF state. See
+`examples/external_emulator.rs` for a compile-checked integration with the
+external `vt100` emulator crate. `open_pty_platform` is master-only (Unix
+closes the slave; Windows has no attached child); use `spawn_platform` for the
+native spawn path or implement `PtyBackend` and call `from_parts`.
 
 `PtySession::spawn` inherits the parent environment. `spawn_with_env` takes
 the complete environment, so an empty slice is an empty environment; the
@@ -780,7 +792,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.12.0"
+stitch-pty = "0.13.0"
 ```
 
 To build and test the pure Rust code locally:

@@ -1,7 +1,7 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.11.0 and 0.12.0 implemented on `dev`; releases pending confirmation.** G2 removes the legacy `ProcessExit`/`wait_status` split; G1 documents the platform-gated raw-handle contract; K1b adds the Kitty key encoder and Python `encode_key` surface. 0.10.7, 0.10.1, and 0.10.0 are released. 0.10.2–0.10.6 were folded into 0.10.7 and not published separately.
-> Release branch: `main` carries the 0.10.7 release; `dev` adds the unreleased 0.11.0 and 0.12.0 changes. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at `842c3d9`.
+> Status: **0.11.0, 0.12.0, and 0.13.0 implemented on `dev`; releases pending confirmation.** G2 removes the legacy `ProcessExit`/`wait_status` split; G1 documents the platform-gated raw-handle contract; K1b adds the Kitty key encoder and Python `encode_key` surface; D1/D2 add Rust interop (`from_parts`, reader/writer), no-PyO3 CI, and the parity corpus. 0.10.7, 0.10.1, and 0.10.0 are released. 0.10.2–0.10.6 were folded into 0.10.7 and not published separately.
+> Release branch: `main` carries the 0.10.7 release; `dev` adds the unreleased 0.11.0, 0.12.0, and 0.13.0 changes. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at `842c3d9`.
 > Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`. Intermediate 0.10.2–0.10.6 commits (`3b3abb2`, `b3f2647`, `de50992`, `5c66fc2`, `deb0df6`) were development increments folded into 0.10.7; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
@@ -52,13 +52,13 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
 | CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.7 release train run [`43596664417`](https://github.com/opticsWolf/stitch-pty/actions/runs/43596664417) at `50fcbf9`: all 6 test jobs and 4 wheel builds green. Tag run [`43598337253`](https://github.com/opticsWolf/stitch-pty/actions/runs/43598337253) at `842c3d9`: 6 test jobs, 4 wheels, PyPI, and crates.io green. |
-| Version | `0.12.0` on `dev` (K1b) with `0.11.0` (G2 + G1) also unreleased; `0.10.7` released; 0.10.2–0.10.6 folded into it; `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
-| Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.11.0 and 0.12.0 are not tagged or published yet; 0.10.2–0.10.6 were not published separately |
-| Local gates | 0.12.0: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (433 unit + 18 integration [Windows; 20 Unix] + 1 doc), `--no-default-features` (433), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.12.0), `pytest` (211 passed, 2 skipped on Windows; 212 passed, 1 skipped on Linux/macOS) |
-| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` is at `69b71a3` with the unreleased 0.11.0 and 0.12.0 implementations; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Version | `0.13.0` on `dev` (D1 + D2) with 0.11.0 (G2 + G1) and 0.12.0 (K1b) also unreleased; `0.10.7` released; 0.10.2–0.10.6 folded into it; `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
+| Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.11.0, 0.12.0, and 0.13.0 are not tagged or published yet; 0.10.2–0.10.6 were not published separately |
+| Local gates | 0.13.0: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (433 unit + 19 integration [Windows; 22 Unix] + 1 doc), `--no-default-features` (433 + examples), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.13.0), `pytest` (215 passed, 2 skipped on Windows; 216 passed, 1 skipped on Linux/macOS) |
+| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` has the unreleased 0.11.0, 0.12.0, and 0.13.0 implementations; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
-| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision; G2 (#4) and G1 (#3) are implemented in 0.11.0; K1b (#14) is implemented in 0.12.0; all three stay open until release |
+| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision; G2 (#4) and G1 (#3) are implemented in 0.11.0; K1b (#14) is implemented in 0.12.0; D1 (#16) and D2 (#17) are implemented in 0.13.0; all five stay open until release |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
 
 The pre-rebase PR contained the original review commits plus the review follow-ups. The rebase merge rewrote these SHAs on `dev`; the sequence is:
@@ -1063,6 +1063,18 @@ cannot compose it as freely as they should:
 
 ---
 
+**0.13.0 implementation.** Added `PtySession::from_parts(ArcPtyBackend,
+ArcChildBackend)` with explicit ownership/kill-on-drop docs, plus
+`PtySession::reader()`/`writer()` returning `PtyReader`/`PtyWriter` handles
+that share the session's `Arc`, EOF, and close state. `from_parts` does not
+validate that the handles belong together; that is documented. The
+`open_pty_platform` docs now state it is master-only (Unix closes the slave,
+Windows has no child), with `spawn_platform` as the native spawn route and
+custom backends routed through `from_parts`. `examples/external_emulator.rs`
+compiles with `--no-default-features` and feeds a session into `vt100` through
+the reader handle. An integration test exercises `into_parts` → `from_parts` →
+reader/writer on Unix. `PtySession` remains emulator-free.
+
 ### 5.9 D2 — Rust/Python parity and no-PyO3 CI
 
 **Problem.** PyO3 is optional, but the repository does not continuously prove
@@ -1116,6 +1128,17 @@ land earlier as a patch if desired.
 **Risk.** CI time and dependency-tree assertions can be brittle; pin the
 commands and keep them separate from the Python-wheel jobs.
 
+**0.13.0 implementation.** CI now has a **Rust core (no default features)**
+job: `cargo check --no-default-features --lib`, `cargo test
+--no-default-features --lib`, `cargo check --no-default-features --all-targets`,
+and a `cargo tree` assertion that `pyo3` is absent. `docs/PARITY.md` classifies
+the Rust/Python session and terminal surfaces and records the `raw_output`
+decision (Python-only; the Rust transport keeps no output history). Fixed
+corpora in `tests/terminal_parity.rs` and `tests/test_terminal_parity.py` assert
+identical rows, styles, and title for ANSI/OSC/UTF-8 bytes split into
+1/3/7-byte and whole chunks. `Cargo.toml` and the README describe the Rust core
+as usable without Python.
+
 ---
 
 ## 6. Sequencing and version buckets
@@ -1137,7 +1160,7 @@ the number, not the order, when scheduling.
 | 7 | **0.10.7** | K1a — Kitty parser correctness + mode exposure (**released**) | Parser bug fix; builds on P1 |
 | 8 | **0.11.0** | G2 — remove `ProcessExit`; G1 — document platform-gated `raw_handle` (**implemented; release pending confirmation**) | Breaking Rust API cleanup; one migration |
 | 9 | **0.12.0** | K1b — Kitty key encoder (issue #1) (**implemented; release pending confirmation**) | New API surface; unblocks Shift+Enter and the PySide6 use case |
-| 10 | **Following feature minor** | D1 + D2 — Rust interop surface + no-PyO3/parity gates | New API surface; decouples external Rust crates from the Python wrapper |
+| 10 | **0.13.0** | D1 + D2 — Rust interop surface + no-PyO3/parity gates (**implemented; release pending confirmation**) | New API surface; decouples external Rust crates from the Python wrapper |
 | 11 | **Following feature minor** | G6 — `TerminalSession` | New API surface; do this before G5 because it is the multiplexer use case |
 | 12 | **Following feature minor** | G5 — Rust `expect()` | New API surface; larger design surface |
 
@@ -1210,8 +1233,8 @@ umbrella. Checkboxes track implementation, not filing.
 **Post-merge parser / decoupling findings**
 
 - [x] **P1** — `fix(terminal): persist parser state across feed() chunks` (shipped in 0.10.7) ([#15](https://github.com/opticsWolf/stitch-pty/issues/15))
-- [ ] **D1** — `feat(rust): add PtySession::from_parts and reader/writer interop` ([#16](https://github.com/opticsWolf/stitch-pty/issues/16))
-- [ ] **D2** — `test(ci): enforce no-PyO3 core build and Rust/Python parity` ([#17](https://github.com/opticsWolf/stitch-pty/issues/17))
+- [x] **D1** — `feat(rust): add PtySession::from_parts and reader/writer interop` (implemented in 0.13.0; release pending) ([#16](https://github.com/opticsWolf/stitch-pty/issues/16))
+- [x] **D2** — `test(ci): enforce no-PyO3 core build and Rust/Python parity` (implemented in 0.13.0; release pending) ([#17](https://github.com/opticsWolf/stitch-pty/issues/17))
 
 Suggested labels (create if missing): `bug`, `windows`, `rust`, `python`,
 `breaking`, `feature`, `tech-debt`, `macos`, `spike`, `keyboard`, `protocol`,
@@ -1434,6 +1457,31 @@ against a Kitty-enabled child.
 
 ---
 
+### 8.14 0.13.0 (D1 + D2) — implementation complete, release pending
+
+- [x] `PtySession::from_parts`, `reader()`/`writer()` handles and docs
+- [x] `open_pty_platform` master-only limitation documented; `spawn_platform`
+      remains the native spawn path
+- [x] `examples/external_emulator.rs` compiles with
+      `--no-default-features` and uses the external `vt100` crate
+- [x] No-PyO3 CI job with `cargo check/test --no-default-features`, all-target
+      check, and `cargo tree` PyO3-absence assertion
+- [x] `docs/PARITY.md` checked in; `raw_output` classified Python-only
+- [x] Shared Rust/Python chunked corpus tests (`terminal_parity`)
+- [x] Version/changelog/docs for 0.13.0
+- [x] Local gates: `fmt`, `clippy` (host + Linux/macOS), `cargo test`
+      (433 unit + 19 integration [Windows; 22 Unix] + 1 doc),
+      `--no-default-features` (433), `check --features python`, `doc`, `ruff`,
+      `mypy`, `maturin develop --release` (0.13.0), `pytest` (215 passed,
+      2 skipped on Windows; 216 passed, 1 skipped on Linux/macOS)
+- [ ] CI on the exact 0.13.0 commit
+- [ ] Tag `v0.13.0`; publish PyPI/crates; create the GitHub release
+
+No 0.13.0 tag or registry publish has been performed. The release waits for
+explicit confirmation.
+
+---
+
 ## 9. Open decisions / risks
 
 | Topic | Decision needed | Owner / gate |
@@ -1453,8 +1501,8 @@ against a Kitty-enabled child.
 | K1b placement | Encoder on `TerminalState`/`HistoryScreen` vs a standalone `KeyboardEncoder` | Answered in 0.12.0: `Screen`/`HistoryScreen` `encode_key`; Python delegates from `TerminalState`/`PtySession`; no duplicate stateful encoder; `PtySession` stays transport-only in Rust |
 | K1b flags | Start with flag 1 only, or also 2/8 in the first release? | Answered in 0.12.0: support flags 1/2/4/8/16 explicitly; flag 1 covers Shift+Enter, flag 8 covers all keys, 2/4/16 are opt-in |
 | P1 parser ownership | Should `HistoryScreen` own the parser, or should `TerminalState` feed its stored parser? | Answered: `HistoryScreen` owns the sole persistent parser; `TerminalState` delegates. Shipped in 0.10.7 |
-| D1 interop | `from_parts` + slave/pair API + AsyncRead/handles; which shape? | D1 design; keep `PtySession` emulator-free |
-| D2 parity scope | Which Python-only conveniences stay Python-only (`raw_output`, `expect`, owned terminal)? | D1/D2; classify in parity table |
+| D1 interop | `from_parts` + slave/pair API + AsyncRead/handles; which shape? | Answered in 0.13.0: `from_parts` + Arc-sharing `reader()`/`writer()` handles; `open_pty_platform` documented master-only; external `vt100` example; `PtySession` remains emulator-free |
+| D2 parity scope | Which Python-only conveniences stay Python-only (`raw_output`, `expect`, owned terminal)? | Answered in 0.13.0: `raw_output` is Python-only, `expect`/owned terminal remain Python conveniences tracked as G5/G6; table in `docs/PARITY.md` |
 | Python surface | Should Python expose `close()`/`read_until_exit`/`take_writer`? | Rust-only in 0.10.2; decide with the G4 follow-up |
 | Version numbering | Do G6/G5 land as separate minors or one batched release? | Scheduling; follow `IMPROVEMENT_PLAN.md` bump rules |
 
@@ -1466,10 +1514,10 @@ against a Kitty-enabled child.
   0.10.1 released from tag `v0.10.1` (`97e03ab`); 0.10.7 released from tag
   `v0.10.7` (`842c3d9`); PyPI and crates.io published for all three. 0.10.2–0.10.6 were
   development increments folded into 0.10.7 and were not published separately.
-  0.11.0 and 0.12.0 are implemented on `dev` with releases pending explicit
-  confirmation.
+  0.11.0, 0.12.0, and 0.13.0 are implemented on `dev` with releases pending
+  explicit confirmation.
 - G4/H3/G7/H1/H2/P1/K1a issues are closed as shipped in 0.10.7; G2/G1/K1b,
-  G6/G5, and D1/D2 remain open and linked to PR #2 and this plan; H4 is closed
+  D1/D2, G6/G5 remain open and linked to PR #2 and this plan; H4 is closed
   with a recorded spike decision.
 - Issue #1 is linked to K1a/K1b; K1b is implemented and the PySide6 example
   uses the encoder, so #1 can close after a GUI smoke test.
