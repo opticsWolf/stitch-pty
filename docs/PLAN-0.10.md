@@ -51,7 +51,7 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 CI runs on push; release is gated on confirmation. |
+| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 push run [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) at `3b3abb2`: 6 test jobs + 4 wheel builds green; publish jobs skipped. Release is gated on confirmation. |
 | Version | `0.10.2` on `dev` (G4 + H3); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
 | Publication | PyPI/crates.io 0.10.1 and 0.10.0 published; 0.10.2 not published |
 | Local gates | 0.10.2: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (402 unit + 17 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (402), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.2), `pytest` (195) |
@@ -1211,7 +1211,9 @@ all 6 test jobs, all 4 wheels, PyPI, and crates.io green.
       (402 unit + 17 integration [Windows; 19 Unix] + 1 doc),
       `--no-default-features` (402), `check --features python`, `doc`, `ruff`,
       `mypy`, `maturin develop --release` (0.10.2), `pytest` (195)
-- [ ] CI on the exact 0.10.2 commit
+- [x] CI on the exact 0.10.2 commit (`3b3abb2`): run
+      [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) — 6 test jobs,
+      4 wheel builds green; publish jobs skipped
 - [ ] Tag `v0.10.2`; publish PyPI/crates; create the GitHub release
 
 No tag or registry publish has been performed. Do not run the final step until
