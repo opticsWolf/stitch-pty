@@ -6,9 +6,46 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
 ## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.7...HEAD)
 
-## [0.10.7 — Kitty keyboard parser correctness](https://github.com/opticsWolf/stitch-pty/compare/v0.10.6...v0.10.7)
+## [0.10.7 — Windows hardening, parser correctness, and Kitty modes](https://github.com/opticsWolf/stitch-pty/compare/v0.10.1...v0.10.7)
+
+First published patch since 0.10.1. It rolls up the unpublished 0.10.2–0.10.6
+development increments (close/drain, terminate policy, env dedupe, ConPTY
+stdio, persistent parser) plus the 0.10.7 Kitty keyboard parser corrections.
+The intermediate versions were not tagged or published separately.
+
+### Added
+- `PtySession::read_until_exit(drain_timeout)` accumulates output until the
+  child exits, drains remaining ConPTY output, and returns
+  `(Vec<u8>, Option<ExitStatus>)`.
+- `PtySession::close()` terminates a live child, drains pending output, and
+  closes the backend idempotently. On Windows `ClosePseudoConsole` runs on a
+  blocking thread; repeated calls are safe.
+- `PtySession::shutdown_write()` sends stdin EOF without closing the output
+  side: newline + `VEOF` on Unix, input-pipe disconnect on Windows.
+- `PtyBackend::close()` and `PtyBackend::shutdown_write()` hooks.
+- `TerminalState.keyboard_mode` and the Python `PtySession.keyboard_mode` /
+  `TerminalState.keyboard_mode` properties expose the active screen's Kitty
+  keyboard enhancement flags. No key encoder is added; K1b remains the
+  follow-up.
+
+### Changed
+- Python `PtyChild.terminate()` and `PtySession.terminate()` now delegate to
+  one Rust escalation policy instead of wrapping each call in a 100 ms
+  `asyncio.wait_for` loop that could re-issue SIGTERM. `PtySession::terminate`
+  and the PyO3 adapter share the SIGTERM → grace → SIGKILL → bounded-reap
+  ladder; the adapter injects blocking sleeps so the Python path does not
+  depend on tokio timers firing through the PyO3 bridge on macOS.
+- `terminate()` remains idempotent and best-effort: an already-exited child or
+  a failed signal is ignored.
+- `dedupe_env` lifetime elided so Linux clippy (`needless_lifetimes`) stays
+  warning-free.
 
 ### Fixed
+- `HistoryScreen` now owns one persistent `Parser` across `feed()` calls, so
+  CSI, OSC, DCS, alt-screen, and UTF-8 sequences split across PTY reads render
+  correctly. `PtySession.read()` and `TerminalState.feed()` now share this
+  parser state instead of creating a fresh parser per chunk. `reset()` clears
+  the persistent parser state.
 - Kitty keyboard push now saves the current flags and sets the requested flags
   (`CSI > flags u`); pop restores saved flags and resets to zero when the stack
   is exhausted (`CSI < n u`). The stack is bounded to 16 entries with
@@ -17,15 +54,42 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   survive alt-screen transitions.
 - `CSI ? u` replies with the spec form `CSI ? flags u`.
 - `CSI = flags ; mode u` implements replace/union/difference (modes 1/2/3)
-  instead of the incorrect legacy `flags=u` form; the old tests were replaced
-  with direct spec vectors.
-- Exposed `keyboard_mode` through `Screen`, `HistoryScreen`, `TerminalState`,
-  and the Python `PtySession`/`TerminalState` properties. No key encoder is
-  added; K1b remains the follow-up.
-- Elided the `dedupe_env` lifetime in `platform.rs` so Linux clippy
-  (`needless_lifetimes`) stays warning-free.
+  instead of the incorrect legacy `flags=u` form.
+- Windows child exit is now event-driven (`WaitForSingleObject` on a watcher
+  thread + `watch` channel) instead of a 50 ms `GetExitCodeProcess` poll.
+  `wait()` wakes promptly and the polling path remains only as a fallback.
+- `read_until_exit` no longer reports repeated timeouts after child exit on
+  Windows; it drains the pipe and returns the status.
+- Explicit `env` entries now collapse duplicate keys to the last occurrence,
+  including its key spelling and value. Windows compares keys ASCII
+  case-insensitively, so `PATH` plus `Path` can no longer produce an ambiguous
+  environment block; Unix collapses exact-key duplicates with the same
+  last-wins rule. Empty env remains empty, and the `None` inheritance path is
+  unchanged (`vars_os()` on Unix, a null block on Windows).
+- Python `spawn()` now forwards environment entries as ordered pairs instead
+  of an unordered `HashMap`, so the Windows last-wins result is deterministic.
+- Windows `CreateProcessW` now sets `STARTF_USESTDHANDLES` with invalid
+  standard handles, so a ConPTY child cannot inherit the parent's redirected
+  stdout/stderr. The ConPTY process attribute still supplies the actual child
+  console; a dedicated redirected-parent integration test verifies that child
+  output reaches the PTY, not the parent's log.
+- Added split-boundary parser regression tests for SGR/cursor, OSC titles,
+  DCS, UTF-8, alt-screen mode, reset, and a Python one-byte-at-a-time `read()`
+  test.
+- Added Rust policy tests for terminate already-exited, graceful,
+  SIGTERM-ignoring, and repeated calls, plus Python tests for the same edge
+  cases.
 
-## [0.10.6 — persistent terminal parser state](https://github.com/opticsWolf/stitch-pty/compare/v0.10.5...v0.10.6)
+### Notes
+- The ConPTY creation-flag decision is documented: keep
+  `PSEUDOCONSOLE_INHERIT_CURSOR` only. `RESIZE_QUIRK` has no reproducible bug
+  in the current matrix, and `WIN32_INPUT_MODE` would break raw byte input.
+- Explicit `String` entries cannot represent non-Unicode keys/values;
+  inheritance does not have that limitation.
+
+## [0.10.6 — persistent terminal parser state]
+
+Unpublished development increment, folded into 0.10.7.
 
 ### Fixed
 - `HistoryScreen` now owns one persistent `Parser` across `feed()` calls, so
@@ -37,7 +101,9 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 - Added split-boundary regression tests for SGR/cursor, OSC titles, DCS, UTF-8,
   alt-screen mode, reset, and a Python one-byte-at-a-time `read()` test.
 
-## [0.10.5 — ConPTY stdio isolation and flag decision](https://github.com/opticsWolf/stitch-pty/compare/v0.10.4...v0.10.5)
+## [0.10.5 — ConPTY stdio isolation and flag decision]
+
+Unpublished development increment, folded into 0.10.7.
 
 ### Fixed
 - Windows `CreateProcessW` now sets `STARTF_USESTDHANDLES` with invalid
@@ -49,7 +115,9 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `PSEUDOCONSOLE_INHERIT_CURSOR` only. `RESIZE_QUIRK` has no reproducible bug
   in the current matrix, and `WIN32_INPUT_MODE` would break raw byte input.
 
-## [0.10.4 — explicit environment deduplication](https://github.com/opticsWolf/stitch-pty/compare/v0.10.3...v0.10.4)
+## [0.10.4 — explicit environment deduplication]
+
+Unpublished development increment, folded into 0.10.7.
 
 ### Fixed
 - Explicit `env` entries now collapse duplicate keys to the last occurrence,
@@ -63,7 +131,9 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 - Documented that explicit `String` entries cannot represent non-Unicode
   keys/values; inheritance does not have that limitation.
 
-## [0.10.3 — shared terminate policy](https://github.com/opticsWolf/stitch-pty/compare/v0.10.2...v0.10.3)
+## [0.10.3 — shared terminate policy]
+
+Unpublished development increment, folded into 0.10.7.
 
 ### Changed
 - Python `PtyChild.terminate()` and `PtySession.terminate()` now delegate to
@@ -77,7 +147,9 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   graceful, SIGTERM-ignoring, and repeated calls, plus Python tests for the
   same edge cases.
 
-## [0.10.2 — Windows close/read-until-exit and exit watcher](https://github.com/opticsWolf/stitch-pty/compare/v0.10.1...v0.10.2)
+## [0.10.2 — Windows close/read-until-exit and exit watcher]
+
+Unpublished development increment, folded into 0.10.7.
 
 ### Added
 - `PtySession::read_until_exit(drain_timeout)` accumulates output until the

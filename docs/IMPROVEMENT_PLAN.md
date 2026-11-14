@@ -599,20 +599,21 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 20 | 0.9.1 | ☑ landed — `session.resize` forwards to emulator; Windows kill-on-drop (§9) |
 | 21 | 0.10.0 | ☑ released (`v0.10.0`, `e620cc8`) — Rust `PtySession` + explicit env contract |
 | 22 | 0.10.1 | ☑ released (`v0.10.1`, `97e03ab`) — G3: Windows `interrupt()`/`send_signal(2)` return `Unsupported` (`NotImplementedError`) |
-| 23 | 0.10.2 | ☑ implemented — G4/H3: `read_until_exit`, idempotent `close`, `shutdown_write`, event-driven exit watcher (release pending confirmation) |
-| 24 | 0.10.3 | ☑ implemented — G7: one shared terminate policy; Python delegates once instead of re-issuing SIGTERM every 100 ms (release pending confirmation) |
-| 25 | 0.10.4 | ☑ implemented — H1: explicit env dedupe last-wins; Windows ASCII case-insensitive; Python forwards ordered pairs (release pending confirmation) |
-| 26 | 0.10.5 | ☑ implemented — H2/H4: `STARTF_USESTDHANDLES` stdio isolation; ConPTY flags decision (release pending confirmation) |
-| 27 | 0.10.6 | ☑ implemented — P1: one persistent parser across `feed()` chunks; split CSI/OSC/DCS/UTF-8/alt-screen tests (release pending confirmation) |
-| 28 | 0.10.7 | ☑ implemented — K1a: Kitty push/pop/query/`CSI =` semantics, per-screen stacks, keyboard_mode accessor (release pending confirmation) |
+| 23 | 0.10.2 | ☑ folded into 0.10.7 — G4/H3: `read_until_exit`, idempotent `close`, `shutdown_write`, event-driven exit watcher |
+| 24 | 0.10.3 | ☑ folded into 0.10.7 — G7: one shared terminate policy; Python delegates once instead of re-issuing SIGTERM every 100 ms |
+| 25 | 0.10.4 | ☑ folded into 0.10.7 — H1: explicit env dedupe last-wins; Windows ASCII case-insensitive; Python forwards ordered pairs |
+| 26 | 0.10.5 | ☑ folded into 0.10.7 — H2/H4: `STARTF_USESTDHANDLES` stdio isolation; ConPTY flags decision |
+| 27 | 0.10.6 | ☑ folded into 0.10.7 — P1: one persistent parser across `feed()` chunks; split CSI/OSC/DCS/UTF-8/alt-screen tests |
+| 28 | 0.10.7 | ☑ released (`v0.10.7`) — K1a: Kitty push/pop/query/`CSI =` semantics, per-screen stacks, keyboard_mode accessor; rolls up 0.10.2–0.10.6 |
 
-All rows through 0.10.7 are implemented on `dev`; 0.10.2 through 0.10.7 have
-not been tagged or published yet. Final tally at 0.10.1 was **402 Rust unit
-tests + 12 integration + 1 doctest, 195 Python tests**; at 0.10.7 it is **424
-unit + 19 integration [Windows; 19 Unix] + 1 doctest, 203 Python passed + 1
-skipped (204 collected)**, all green; `fmt --check`, `clippy -D warnings`
-(Windows + Linux + macOS targets), `ruff check`, `mypy --strict` all clean.
+All rows through 0.10.7 are released or folded into a release. Final tally at
+0.10.1 was **402 Rust unit tests + 12 integration + 1 doctest, 195 Python
+tests**; at 0.10.7 it is **424 unit + 19 integration [Windows; 19 Unix] + 1
+doctest, 203 Python passed + 1 skipped (204 collected)**, all green; `fmt
+--check`, `clippy -D warnings` (Windows + Linux + macOS targets), `ruff check`,
+`mypy --strict` all clean.
 
-0.10.0 and 0.10.1 are published to PyPI and crates.io; 0.10.2 through 0.10.7
-await explicit release confirmation. See [`PLAN-0.10.md`](PLAN-0.10.md) for
-follow-ups; the next planned item is 0.11.0 (G2).
+0.10.0, 0.10.1, and 0.10.7 are published to PyPI and crates.io. Versions
+0.10.2–0.10.6 were development increments folded into 0.10.7 and were not
+published separately. See [`PLAN-0.10.md`](PLAN-0.10.md) for follow-ups; the
+next planned item is 0.11.0 (G2).

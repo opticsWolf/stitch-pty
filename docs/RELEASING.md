@@ -42,11 +42,39 @@ If any suite is red, fix forward **within the same version** before pushing.
 
 ## Publishing (crates.io + PyPI) — requires explicit maintainer go-ahead
 
+The release is tag-driven. Once the maintainer authorizes the release:
+
 ```bash
-cargo publish            # Rust crate, from the green version commit
-uvx maturin build --release
-# upload dist/* to PyPI, tag vX.Y.Z, create the GitHub release
+git checkout dev
+git pull --ff-only
+git checkout main
+git merge --ff-only dev          # main must be a fast-forward
+git tag vX.Y.Z                    # lightweight tag, matching v0.10.x
+git push origin main
+git push origin vX.Y.Z
 ```
+
+The `v*` tag triggers `.github/workflows/CI.yml`, which:
+
+1. runs the full test/lint matrix on the tagged commit;
+2. builds the Linux x86_64/aarch64, macOS universal2, and Windows wheels;
+3. publishes to PyPI via trusted publishing;
+4. publishes the Rust crate to crates.io.
+
+Then create the GitHub release from the matching CHANGELOG section:
+
+```bash
+# Extract the vX.Y.Z section to a notes file, then:
+gh release create vX.Y.Z --title "vX.Y.Z — <summary>" --notes-file /tmp/notes.md
+```
+
+If a publish job fails (for example, a stale `CARGO_REGISTRY_TOKEN`), fix the
+secret or workflow and rerun that job; do not move the tag. If the tagged
+commit itself is red, fix forward in a new patch version.
+
+A release tag may point at a docs-only commit after the green version-bump
+commit (the 0.10.x convention), as long as the version fields, CHANGELOG, and
+tests are identical to the green commit.
 
 ## Downstream
 
