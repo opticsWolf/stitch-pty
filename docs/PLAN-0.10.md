@@ -1,8 +1,8 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.10.0 release pending** (PR #2 merged 2026-11-14 via rebase; post-merge CI green)
+> Status: **0.10.0 release-ready; publish/tag pending** (release commit `e6f10d2`; local gates and exact-commit CI green)
 > Release branch: `dev`
-> Baseline: `dev` after the PR #2 merge (`26ab236`); pre-rebase PR head was `5e68aa1`
+> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
 > [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md)
@@ -51,10 +51,10 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | Post-merge `dev` run `43573691893`: all 6 test jobs + all 4 wheel builds pass; publish jobs skipped |
-| Version | Still `0.9.1`; the 0.10.0 release bump is the next release commit |
-| Local gates | Pre-merge `fmt`, `clippy` (host + Linux/macOS cross-targets), `test`, `doc`, `check --features python`, `ruff`, `maturin develop` + `pytest` all green |
-| Branch sync | `dev` contains the rebase merge `26ab236`; the local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| CI | Release-commit run `43577417909` on `e6f10d2`: all 6 test jobs + all 4 wheel builds pass; publish jobs skipped. Earlier post-merge run `43573691893` was green. |
+| Version | `0.10.0` on `dev` at `e6f10d2`; not yet tagged or published |
+| Local gates | Release gates green: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (401 unit + 11 integration + 1 doc), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.0), `pytest` (195), README example, Windows unread-output Drop smoke (~313 µs) |
+| Branch sync | `dev` contains release commit `e6f10d2`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
@@ -73,6 +73,18 @@ a8313a4 fix(rust): default winsize to 24x80 on all platforms
 a32746b fix: unblock clippy on Rust 1.100 (needless_range_loop)
 7831173 feat: first-class Rust PtySession + spawn/env fixes
 ```
+
+The release work on top of that sequence is:
+
+```text
+f6d73a2 docs: add 0.10 release and follow-up plan
+99f7af7 test(rust): wait for ConPTY setup output before timeout assertion
+e6f10d2 release: 0.10.0 (v0.10.0)
+```
+
+The release commit contains only the version bump and CHANGELOG update;
+`99f7af7` is the separate test-stability fix for a delayed ConPTY setup-output
+race. The docs-only run before the release exposed that race on Windows py3.13.
 
 CI trigger note: the workflow originally ran `pull_request` checks only for
 `main`. PR #2 adds `dev` to that trigger so retargeted PRs are tested
@@ -1006,7 +1018,7 @@ the number, not the order, when scheduling.
 
 | Order | Version | Work | Why this bucket |
 |---|---|---|---|
-| 0 | **0.10.0** | PR #2 merged; bump all three version fields; add a `[0.10.0]` heading below `[Unreleased]`; release | Release pending |
+| 0 | **0.10.0** | PR #2 merged; version/changelog commit `e6f10d2`; local gates + exact-commit CI green | Release-ready; publish/tag awaiting go-ahead |
 | 1 | **0.10.1** | G3 — Windows interrupt: explicit unsupported error | Bug/behavior fix; no new API surface |
 | 2 | **0.10.2** | G4 + H3 — close/read-until-exit, drain, child watcher | Incremental fix on the just-landed `PtySession`; pairs with G6 |
 | 3 | **0.10.3** | G7 — Python terminate consolidation | Tech debt; behavior-preserving, macOS-verified |
@@ -1102,47 +1114,58 @@ only says “fix this”.
 
 ## 8. 0.10.0 release gate
 
-Run from a clean `dev` checkout after PR #2 is merged. The release commit
-contains only the version bump and CHANGELOG update.
+The pre-publish gate was completed on `dev` at release commit `e6f10d2`. The
+release commit contains only the version bump and CHANGELOG update; `99f7af7`
+is the separate Windows ConPTY test-stability fix.
 
 ### 8.1 Version and changelog
 
-- [ ] `Cargo.toml` → `version = "0.10.0"`
-- [ ] `pyproject.toml` → `version = "0.10.0"`
-- [ ] `python/stitch_pty/__init__.py` → `__version__ = "0.10.0"`
-- [ ] `CHANGELOG.md`: add a `[0.10.0] — <release title>` heading below
-      `[Unreleased]` (keep `[Unreleased]` for the next cycle), add the compare
-      link, and confirm the env/winsize/EOF/write_all entries are present
-- [ ] The three version fields agree in the release commit
+- [x] `Cargo.toml` → `version = "0.10.0"`
+- [x] `pyproject.toml` → `version = "0.10.0"`
+- [x] `python/stitch_pty/__init__.py` → `__version__ = "0.10.0"`
+- [x] `CHANGELOG.md`: added a
+      `[0.10.0 — Rust PtySession + explicit environment contract]` heading
+      below `[Unreleased]`, kept `[Unreleased]` for the next cycle, added
+      compare links, and confirmed the env/winsize/EOF/write_all entries
+- [x] The three version fields agree in the release commit (`0.10.0`;
+      `Cargo.lock` and `uv.lock` updated too)
 
 ### 8.2 Local gates
 
-- [ ] `cargo fmt --all --check`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo clippy --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`
-- [ ] `cargo clippy --all-targets --target aarch64-apple-darwin -- -D warnings`
-- [ ] `cargo test` (unit + integration + doc)
-- [ ] `cargo check --features python`
-- [ ] `cargo doc --no-deps`
-- [ ] `ruff check python/ tests/`
-- [ ] `uvx maturin develop --release` in the venv
-- [ ] `uv run python -m pytest tests/ -q` (expect 195 tests at the time of
-      writing; refresh the count if it changes)
-- [ ] README Rust example compiles
-- [ ] **Windows unread-output Drop smoke test:** spawn a child that writes more
-      than the ConPTY pipe capacity, never read, and drop the session under a
-      10 s timeout. If this hangs, stop the release and promote the minimal
-      G4 close/drain guard before tagging 0.10.0.
+- [x] `cargo fmt --all --check`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo clippy --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`
+- [x] `cargo clippy --all-targets --target aarch64-apple-darwin -- -D warnings`
+- [x] `cargo test` — 401 unit + 11 integration + 1 doc test passed
+- [x] `cargo check --features python`
+- [x] `cargo doc --no-deps` — one pre-existing rustdoc warning; command passed
+- [x] `ruff check python/ tests/`
+- [x] `uvx maturin develop --release` — built and installed 0.10.0
+- [x] `uv run python -m pytest tests/ -q` — 195 passed
+- [x] README Rust example compiles — checked in a temporary path-dependency crate
+- [x] **Windows unread-output Drop smoke test** — passed in ~313 µs with the
+      child alive and output unread; no G4 close/drain guard needed
 
 ### 8.3 CI gate
 
-- [ ] All 6 test jobs pass: ubuntu/macos/windows × py3.12/3.13
-- [ ] All 4 wheel builds pass: macos universal2, ubuntu x86_64/aarch64,
+- [x] All 6 test jobs pass: ubuntu/macos/windows × py3.12/3.13
+- [x] All 4 wheel builds pass: macos universal2, ubuntu x86_64/aarch64,
       windows x86_64
-- [ ] Publish jobs remain skipped until the explicit release go-ahead
-- [ ] CI runs on the exact commit that carries the version bump
+- [x] Publish jobs remain skipped until the explicit release go-ahead
+- [x] CI runs on the exact commit that carries the version bump
+      (`43577417909` on `e6f10d2`)
+
+CI run: <https://github.com/opticsWolf/stitch-pty/actions/runs/43577417909>
+
+An earlier docs-only run on `f6d73a2` exposed a Windows py3.13 flake in
+`read_timeout_returns_timeout_without_killing_the_session`: ConPTY setup
+output arrived after the test's first quiet read. `99f7af7` waits for a
+sustained quiet window; the release commit includes that fix.
 
 ### 8.4 Post-release (explicit go-ahead only)
+
+> Awaiting explicit maintainer go-ahead. Do not tag or publish from this plan
+> alone.
 
 - [ ] `cargo publish`
 - [ ] `uvx maturin build --release`; upload `dist/*` to PyPI
@@ -1160,7 +1183,7 @@ contains only the version bump and CHANGELOG update.
 | G1 unified handle | Do we need a nameable `RawHandle` at all, or are platform-gated accessors enough? | 0.11.0 design; default is accessors |
 | G2 status shape | Keep `ExitStatus { code, signal }` or switch to `Code`/`Signal` enum in the same breaking release? | 0.11.0; one migration |
 | G3 Windows interrupt | Is Ctrl+Break acceptable, or is explicit “unsupported” the contract? | 0.10.1; explicit unsupported by default |
-| G4 latent Drop | Does the current 0.10.0 `Drop` hang with unread output? | 0.10.0 release gate; promote a minimal guard if red |
+| G4 latent Drop | Does the current 0.10.0 `Drop` hang with unread output? | Answered: no; release smoke passed in ~313 µs with unread output, so no guard is needed |
 | G4 close semantics | Does `close()` require an exited child, kill a live child, or error? How is drain guaranteed? | 0.10.2 design; large-output/unread-output tests |
 | G4 blocking | Is `ClosePseudoConsole` ever called from the async executor, or always from a blocking thread? | 0.10.2; document and test |
 | G7 macOS timers | Is the Rust terminate path safe through PyO3 on current macOS? | 0.10.3; macOS CI/manual verification |
@@ -1180,7 +1203,8 @@ contains only the version bump and CHANGELOG update.
 
 ## 10. Definition of done for the 0.10 series
 
-- PR #2 merged to `dev` and 0.10.0 published from a green version commit.
+- PR #2 merged to `dev`; 0.10.0 release commit `e6f10d2` is green.
+  Publish/tag remain gated on explicit maintainer go-ahead.
 - All seven original gaps, H1–H3, K1a/K1b, P1, and D1/D2 have open issues
   linked to PR #2 and this plan; H4 has a recorded spike decision.
 - Issue #1 is linked to K1a/K1b and is not closed before the PySide6 example

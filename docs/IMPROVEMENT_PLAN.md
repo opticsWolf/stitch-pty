@@ -597,8 +597,13 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 18 | 0.8.2 | ☑ landed — wrap-flag model, no behavior change (§9) |
 | 19 | 0.9.0 | ☑ landed — reflow on column resize + anchors (§9) |
 | 20 | 0.9.1 | ☑ landed — `session.resize` forwards to emulator; Windows kill-on-drop (§9) |
+| 21 | 0.10.0 | ☑ release-ready (`e6f10d2`) — Rust `PtySession` + explicit env contract; publish pending |
 
-All rows landed, one commit per version, all pushed to `dev`.
-Final tally at v0.9.1: **399 Rust tests, 193 Python tests**, all green;
+All rows through 0.10.0 are landed on `dev`, one commit per version.
+Final tally at v0.9.1 was **399 Rust tests, 193 Python tests**; at the 0.10.0
+release commit it is **401 Rust tests, 195 Python tests**, all green;
 `fmt --check`, `clippy -D warnings` (Windows + Linux + macOS targets),
 `ruff check`, `mypy --strict` all clean.
+
+0.10.0 is release-ready but not yet tagged or published; see
+[`PLAN-0.10.md`](PLAN-0.10.md) for the publish gate and follow-ups.

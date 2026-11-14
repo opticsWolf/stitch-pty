@@ -736,7 +736,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.9.0"
+stitch-pty = "0.10.0"
 ```
 
 To build and test the pure Rust code locally:
