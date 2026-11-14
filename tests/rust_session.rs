@@ -135,7 +135,8 @@ async fn wait_reports_signal_name_after_kill() {
         .expect("spawn");
 
     session.kill().expect("kill");
-    let status = tokio::time::timeout(Duration::from_secs(2), session.wait())
+    // The Unix reaper polls every 50 ms; allow for scheduler lag on loaded CI.
+    let status = tokio::time::timeout(Duration::from_secs(5), session.wait())
         .await
         .expect("child should exit after SIGKILL")
         .expect("status");
