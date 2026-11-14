@@ -4,7 +4,9 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased]
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.0...HEAD)
+
+## [0.10.0 — Rust PtySession + explicit environment contract](https://github.com/opticsWolf/stitch-pty/compare/v0.9.1...v0.10.0)
 
 ### Added
 - `PtySession` Rust API (`stitch_pty::PtySession`): `spawn`,
