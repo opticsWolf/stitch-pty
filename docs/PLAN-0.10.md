@@ -1,7 +1,7 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.11.0 implemented on `dev`; release pending confirmation.** G2 removes the legacy `ProcessExit`/`wait_status` split; G1 documents the platform-gated raw-handle contract. 0.10.7, 0.10.1, and 0.10.0 are released. 0.10.2–0.10.6 were folded into 0.10.7 and not published separately.
-> Release branch: `main` carries the 0.10.7 release; `dev` adds the unreleased 0.11.0 change. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at `842c3d9`.
+> Status: **0.11.0 and 0.12.0 implemented on `dev`; releases pending confirmation.** G2 removes the legacy `ProcessExit`/`wait_status` split; G1 documents the platform-gated raw-handle contract; K1b adds the Kitty key encoder and Python `encode_key` surface. 0.10.7, 0.10.1, and 0.10.0 are released. 0.10.2–0.10.6 were folded into 0.10.7 and not published separately.
+> Release branch: `main` carries the 0.10.7 release; `dev` adds the unreleased 0.11.0 and 0.12.0 changes. Tags: `v0.10.0` at `e620cc8`, `v0.10.1` at `97e03ab`, and `v0.10.7` at `842c3d9`.
 > Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`. Intermediate 0.10.2–0.10.6 commits (`3b3abb2`, `b3f2647`, `de50992`, `5c66fc2`, `deb0df6`) were development increments folded into 0.10.7; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
@@ -52,13 +52,13 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
 | CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.7 release train run [`43596664417`](https://github.com/opticsWolf/stitch-pty/actions/runs/43596664417) at `50fcbf9`: all 6 test jobs and 4 wheel builds green. Tag run [`43598337253`](https://github.com/opticsWolf/stitch-pty/actions/runs/43598337253) at `842c3d9`: 6 test jobs, 4 wheels, PyPI, and crates.io green. |
-| Version | `0.11.0` on `dev` (G2 + G1); `0.10.7` released; 0.10.2–0.10.6 folded into it; `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
-| Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.11.0 is not tagged or published yet; 0.10.2–0.10.6 were not published separately |
-| Local gates | 0.11.0: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (421 unit + 18 integration [Windows; 20 Unix] + 1 doc), `--no-default-features` (421), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.11.0), `pytest` (203 passed, 2 skipped on Windows; 204 passed, 1 skipped on Linux/macOS) |
-| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` is at `5808387` with the 0.11.0 implementation; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Version | `0.12.0` on `dev` (K1b) with `0.11.0` (G2 + G1) also unreleased; `0.10.7` released; 0.10.2–0.10.6 folded into it; `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
+| Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.11.0 and 0.12.0 are not tagged or published yet; 0.10.2–0.10.6 were not published separately |
+| Local gates | 0.12.0: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (433 unit + 18 integration [Windows; 20 Unix] + 1 doc), `--no-default-features` (433), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.12.0), `pytest` (211 passed, 2 skipped on Windows; 212 passed, 1 skipped on Linux/macOS) |
+| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` has the unreleased 0.11.0 and 0.12.0 implementations; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
-| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision; G2 (#4) and G1 (#3) are implemented in 0.11.0 and stay open until release |
+| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision; G2 (#4) and G1 (#3) are implemented in 0.11.0; K1b (#14) is implemented in 0.12.0; all three stay open until release |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
 
 The pre-rebase PR contained the original review commits plus the review follow-ups. The rebase merge rewrote these SHAs on `dev`; the sequence is:
@@ -853,7 +853,7 @@ terminal state. No encoder was added. Shipped in 0.10.7.
 
 ---
 
-### 5.6 K1b — Kitty key encoder (issue #1)
+### 5.6 K1b — Kitty key encoder (issue #1) (implemented in 0.12.0)
 
 **Problem.** There is no key-event encoder. The PySide6 example's
 `_key_to_bytes()` (`examples/terminal_emulator.py`) is VT100-only and returns
@@ -914,6 +914,39 @@ are subtle (especially Enter/Tab/Backspace and event types). Use official Kitty
 `kitten show-key` output or `key_encoding.c` as test vectors before shipping.
 
 ---
+
+**0.12.0 implementation.** Added `terminal::keyboard` with `KeyboardFlags`,
+`Modifiers`, `KeyCode`, `KeyEvent`, `KeyEventKind`, and `encode_key`;
+`Screen`/`HistoryScreen` expose `encode_key` using the active screen's recorded
+flags. The encoder is toolkit-neutral and never activates a mode itself.
+
+- Flag 1 disambiguates modified keys, Esc, and Ctrl+I (so Ctrl+I no longer
+  aliases Tab). Unmodified Enter/Tab/Backspace remain legacy; modified
+  Enter/Tab/Backspace become `CSI u` (`Shift+Enter` → `CSI 13;2u`).
+- Flag 8 reports all keys as escape sequences, including plain text and
+  Enter/Tab/Backspace (`CSI u`; functional keys keep canonical CSI/SS3); flag
+  2 adds `:1`/`:2`/`:3` event types, flag 4 adds
+  shifted/base-layout alternates, and flag 16 adds associated text. Flags 2,
+  4, and 16 are opt-in and only affect events already represented as escape
+  codes.
+- Functional keys keep their canonical CSI/SS3 forms; keypad, media, and F13+
+  keys use Kitty's Private Use Area codes. Events the active flags cannot
+  represent (for example a text-key release without flag 8) return empty
+  bytes rather than inventing a sequence.
+- Python exposes `TerminalState.encode_key(...)` and the
+  `PtySession.encode_key(...)` convenience (delegating to the session's
+  terminal state), plus `KeyboardFlags`/`Modifiers` `IntFlag` constants.
+  `PtySession` remains transport-only in Rust.
+- The PySide6 example sends a toolkit-neutral `KeyInput` to the PTY thread and
+  calls `PtySession.encode_key`; its local `_key_to_bytes` is removed.
+- Fixed test vectors cover Shift+Enter, the Enter/Tab/Backspace exceptions,
+  Ctrl+I vs Tab, Esc vs Alt+key, Ctrl+Shift, Alt+Enter, event types,
+  alternates, associated text, legacy fallbacks, and flag 8.
+
+**Decision.** No standalone stateful `KeyboardEncoder` was added: the flags
+already live on the screen, so a second object would duplicate state. The
+`Screen::encode_key` method is the Rust surface; Python delegates from
+`TerminalState`/`PtySession`.
 
 ### 5.7 P1 — Parser state is lost across `feed()` chunks
 
@@ -1103,7 +1136,7 @@ the number, not the order, when scheduling.
 | 6 | **0.10.6** | P1 — persistent parser state across `feed()` chunks (**folded into 0.10.7**) | Critical correctness fix; prerequisite for K1a/K1b |
 | 7 | **0.10.7** | K1a — Kitty parser correctness + mode exposure (**released**) | Parser bug fix; builds on P1 |
 | 8 | **0.11.0** | G2 — remove `ProcessExit`; G1 — document platform-gated `raw_handle` (**implemented; release pending confirmation**) | Breaking Rust API cleanup; one migration |
-| 9 | **Next feature minor** | K1b — Kitty key encoder (issue #1) | New API surface; unblocks Shift+Enter and the PySide6 use case |
+| 9 | **0.12.0** | K1b — Kitty key encoder (issue #1) (**implemented; release pending confirmation**) | New API surface; unblocks Shift+Enter and the PySide6 use case |
 | 10 | **Following feature minor** | D1 + D2 — Rust interop surface + no-PyO3/parity gates | New API surface; decouples external Rust crates from the Python wrapper |
 | 11 | **Following feature minor** | G6 — `TerminalSession` | New API surface; do this before G5 because it is the multiplexer use case |
 | 12 | **Following feature minor** | G5 — Rust `expect()` | New API surface; larger design surface |
@@ -1169,7 +1202,7 @@ umbrella. Checkboxes track implementation, not filing.
 **Kitty keyboard follow-up (issue #1)**
 
 - [x] **K1a** — `fix(terminal): correct Kitty push/pop/query, alt-screen stacks, and expose keyboard_mode` (released in 0.10.7) ([#13](https://github.com/opticsWolf/stitch-pty/issues/13))
-- [ ] **K1b** — `feat(terminal): add a Kitty key encoder and Python PtySession.encode_key` ([#14](https://github.com/opticsWolf/stitch-pty/issues/14))
+- [x] **K1b** — `feat(terminal): add a Kitty key encoder and Python PtySession.encode_key` (implemented in 0.12.0; release pending) ([#14](https://github.com/opticsWolf/stitch-pty/issues/14))
 - [ ] Keep [issue #1](https://github.com/opticsWolf/stitch-pty/issues/1) as the
       umbrella for the user report and link K1a/K1b back to it. Do not close it
       until K1b lands and the PySide6 example uses the encoder.
@@ -1376,6 +1409,31 @@ explicit confirmation. G2 is a Rust-only breaking change; Python's
 
 ---
 
+### 8.13 0.12.0 (K1b) — implementation complete, release pending
+
+- [x] `terminal::keyboard` model (`KeyboardFlags`, `Modifiers`, `KeyCode`,
+      `KeyEvent`, `KeyEventKind`) and `encode_key`
+- [x] `Screen`/`HistoryScreen` encoder using the active screen's flags
+- [x] Flag 1 Enter/Tab/Backspace exceptions, flag 8 all-keys path, flag 2
+      event types, flag 4 alternates, flag 16 associated text
+- [x] Python `TerminalState.encode_key`, `PtySession.encode_key`,
+      `KeyboardFlags`, and `Modifiers`
+- [x] PySide6 example routes `KeyInput` through `PtySession.encode_key`
+- [x] Version/changelog/docs for 0.12.0
+- [x] Local gates: `fmt`, `clippy` (host + Linux/macOS), `cargo test`
+      (433 unit + 18 integration [Windows; 20 Unix] + 1 doc),
+      `--no-default-features` (433), `check --features python`, `doc`, `ruff`,
+      `mypy`, `maturin develop --release` (0.12.0), `pytest` (211 passed,
+      2 skipped on Windows; 212 passed, 1 skipped on Linux/macOS)
+- [ ] CI on the exact 0.12.0 commit
+- [ ] Tag `v0.12.0`; publish PyPI/crates; create the GitHub release
+
+No 0.12.0 tag or registry publish has been performed. The release waits for
+explicit confirmation, and issue #1 stays open until the example is smoke-tested
+against a Kitty-enabled child.
+
+---
+
 ## 9. Open decisions / risks
 
 | Topic | Decision needed | Owner / gate |
@@ -1392,8 +1450,8 @@ explicit confirmation. G2 is a Rust-only breaking change; Python's
 | H3 watcher | Replace the 50 ms exit poll with an event-driven watcher? | Answered: watcher shipped in 0.10.7 |
 | H4 flags | Is `RESIZE_QUIRK` needed for a reproducible bug? Is `WIN32_INPUT_MODE` ever desirable? | Answered in 0.10.5: neither; keep `INHERIT_CURSOR` only until a failing test exists |
 | K1a parser | Fix push/pop tests to the spec; separate main/alt stacks | Answered: spec push/pop, per-screen stacks, query and `CSI =` modes shipped in 0.10.7 |
-| K1b placement | Encoder on `TerminalState`/`HistoryScreen` vs a standalone `KeyboardEncoder` | K1b design; keep `PtySession` transport-only in Rust |
-| K1b flags | Start with flag 1 only, or also 2/8 in the first release? | K1b; flag 1 covers Shift+Enter, 8 covers all keys |
+| K1b placement | Encoder on `TerminalState`/`HistoryScreen` vs a standalone `KeyboardEncoder` | Answered in 0.12.0: `Screen`/`HistoryScreen` `encode_key`; Python delegates from `TerminalState`/`PtySession`; no duplicate stateful encoder; `PtySession` stays transport-only in Rust |
+| K1b flags | Start with flag 1 only, or also 2/8 in the first release? | Answered in 0.12.0: support flags 1/2/4/8/16 explicitly; flag 1 covers Shift+Enter, flag 8 covers all keys, 2/4/16 are opt-in |
 | P1 parser ownership | Should `HistoryScreen` own the parser, or should `TerminalState` feed its stored parser? | Answered: `HistoryScreen` owns the sole persistent parser; `TerminalState` delegates. Shipped in 0.10.7 |
 | D1 interop | `from_parts` + slave/pair API + AsyncRead/handles; which shape? | D1 design; keep `PtySession` emulator-free |
 | D2 parity scope | Which Python-only conveniences stay Python-only (`raw_output`, `expect`, owned terminal)? | D1/D2; classify in parity table |
@@ -1408,12 +1466,13 @@ explicit confirmation. G2 is a Rust-only breaking change; Python's
   0.10.1 released from tag `v0.10.1` (`97e03ab`); 0.10.7 released from tag
   `v0.10.7` (`842c3d9`); PyPI and crates.io published for all three. 0.10.2–0.10.6 were
   development increments folded into 0.10.7 and were not published separately.
-  0.11.0 is implemented on `dev` with a release pending explicit confirmation.
-- G4/H3/G7/H1/H2/P1/K1a issues are closed as shipped in 0.10.7; G2/G1/G6/G5,
-  K1b, and D1/D2 remain open and linked to PR #2 and this plan; H4 is closed
+  0.11.0 and 0.12.0 are implemented on `dev` with releases pending explicit
+  confirmation.
+- G4/H3/G7/H1/H2/P1/K1a issues are closed as shipped in 0.10.7; G2/G1/K1b,
+  G6/G5, and D1/D2 remain open and linked to PR #2 and this plan; H4 is closed
   with a recorded spike decision.
-- Issue #1 is linked to K1a/K1b and is not closed before the PySide6 example
-  uses the encoder.
+- Issue #1 is linked to K1a/K1b; K1b is implemented and the PySide6 example
+  uses the encoder, so #1 can close after a GUI smoke test.
 - Each 0.10.x patch has a CHANGELOG entry and tests; the combined 0.10.7 train
   has a green CI run.
 - No deferred gap is silently dropped or “fixed” by documentation alone without
@@ -1421,7 +1480,8 @@ explicit confirmation. G2 is a Rust-only breaking change; Python's
 - `dev` was fast-forwarded to `main` and tagged only after explicit maintainer
   confirmation.
 - The 0.11.0 breaking Rust API change (G2) has a migration note in the
-  CHANGELOG; G1 is documented without a new handle type.
+  CHANGELOG; G1 is documented without a new handle type. K1b is additive and
+  leaves `PtySession` transport-only in Rust.
 - The Windows close/EOF path has a test for unread output and a documented
   blocking/close-order contract.
 - `HistoryScreen`/`TerminalState` use one persistent parser; split CSI/OSC/UTF-8

@@ -109,6 +109,7 @@ exit within `timeout` seconds.
 | `await interact(input_data=None, timeout=None)` | Write input, read until EOF |
 | `await expect(patterns, timeout=30.0)` | pexpect-style: `bytes`/`str`/`re.Pattern`/list → `ExpectResult(index, match, buffer)`; timeouts carry `.buffer` |
 | `await read_all(timeout=1.0)` | Read all output until timeout |
+| `encode_key(key, modifiers=0, kind="press", ...)` | Encode a key with the active Kitty flags (returns `bytes`) |
 | `poll_events()` | Drain ordered events → `list[(tag, payload)]` (log capped at 1024 entries, drop-oldest) |
 | `visible_lines` / `visible_columns` | Visible grid geometry, O(1) — prefer over `len(display)` |
 | `take_bell()` | Edge-triggered BEL check (resets the flag) |
@@ -176,6 +177,7 @@ exit within `timeout` seconds.
 | `scrollback_lines` | Scrollback capacity |
 | `keyboard_mode` | Current Kitty keyboard enhancement flags (active screen) |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
+| `encode_key(key, modifiers=0, kind="press", ...)` | Encode with this screen's current Kitty flags |
 
 ## Error Types
 

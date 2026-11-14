@@ -37,6 +37,7 @@ with scrollback history.
 - [API Reference](#api-reference)
   - [Core Functions](#core-functions)
   - [ExitStatus](#exitstatus)
+  - [KeyboardFlags and Modifiers](#keyboardflags-and-modifiers)
   - [PtySession](#ptysession)
   - [PtyMaster](#ptymaster)
   - [PtyChild](#ptychild)
@@ -263,6 +264,14 @@ if status:
 | `signal` | `int \| None` | Signal number, or `None` if exited normally |
 | `core_dumped` | `bool` | Whether a core dump was produced |
 
+### KeyboardFlags and Modifiers
+
+`KeyboardFlags` mirrors the Kitty progressive-enhancement bits (`DISAMBIGUATE`,
+`REPORT_EVENT_TYPES`, `REPORT_ALTERNATE_KEYS`, `REPORT_ALL_KEYS`,
+`REPORT_ASSOCIATED_TEXT`). `Modifiers` supplies `SHIFT`, `ALT`, `CTRL`,
+`SUPER`, `HYPER`, `META`, `CAPS_LOCK`, and `NUM_LOCK` for
+`encode_key(...)`. Both are `IntFlag`s, so passing a raw integer works too.
+
 ---
 
 ### PtySession
@@ -307,6 +316,7 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `visible_columns` | `int` | Visible width in columns, O(1) |
 | `raw_output` | `bytes` | Last `raw_output_cap` raw bytes read (unparsed; sliding window, default 1 MiB) |
 | `keyboard_mode` | `int` | Current Kitty keyboard enhancement flags on the active screen |
+| `encode_key(...)` | `bytes` | Encode a key event with the active flags (Shift+Enter → `CSI 13;2u` under flag 1) |
 
 **Context Manager:**
 
@@ -349,6 +359,7 @@ Child process management.
 | `kill` | `kill() → None` | Force kill |
 | `interrupt` | `interrupt() → None` | Send Ctrl+C (SIGINT) on POSIX; raises `NotImplementedError` on Windows |
 | `send_signal` | `send_signal(num) → None` | Send signal number; Windows supports 9/15 only (2 raises `NotImplementedError`) |
+| `encode_key` | `encode_key(key, modifiers=0, kind="press", text=None, shifted_key=None, base_layout_key=None, flags=None) → bytes` | Encode a key event with the active Kitty mode; names, single characters, or numeric codes |
 
 ---
 
@@ -372,6 +383,7 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `resize` | `resize(lines, cols) → None` | Resize screen buffer (column change reflows; zero clamps to 1) |
 | `reset` | `reset() → None` | Reset terminal + clear history |
 | `set_scrollback_lines` | `set_scrollback_lines(n) → None` | Set capacity (trims excess) |
+| `encode_key` | `encode_key(key, modifiers=0, kind="press", text=None, shifted_key=None, base_layout_key=None, flags=None) → bytes` | Encode a key event using this screen's current Kitty flags |
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -384,6 +396,21 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `history_size` | `int` | Current scrollback line count |
 | `scrollback_lines` | `int` | Scrollback capacity |
 | `keyboard_mode` | `int` | Current Kitty keyboard enhancement flags (active screen) |
+
+**Kitty key encoding:**
+
+```python
+from stitch_pty import Modifiers, spawn
+
+session = await spawn("my-kitty-app")
+# The app emits CSI > 1 u; read() feeds it into session.terminal automatically.
+await session.read(4096)
+data = session.encode_key("enter", modifiers=Modifiers.SHIFT)
+await session.write(data)          # b"\x1b[13;2u" when flag 1 is active
+```
+
+`encode_key` falls back to legacy bytes when the child has not enabled Kitty
+mode, and returns `b""` for events the active flags cannot represent.
 
 **Styled Viewport Cell Layout:**
 
@@ -545,7 +572,7 @@ ECMA-48 state machine with 14 states:
 | **Modes** | Public (IRM, LNM) + Private (DECOM, DECAWM, DECCOLM, DECTCEM, DECSCNM) + Extended (mouse, bracketed paste) |
 | **Character sets** | G0/G1 with DEC Special line drawing |
 | **Unicode** | Width-1/2 chars, combining marks, CJK, emoji |
-| **Kitty Keyboard Protocol** | Per-screen push/pop, query, and `CSI = flags ; mode` set |
+| **Kitty Keyboard Protocol** | Per-screen push/pop, query, `CSI = flags ; mode` set, and key encoding (flags 1/2/4/8/16) |
 | **Shell cwd** | OSC 7 / OSC 9;9 tracking, survives alt-screen and reset |
 | **Dirty tracking** | `BTreeSet<usize>` peek (`dirty()`) + drain (`take_dirty_rows()`) + ordered event log (`poll_events()`) + bell flag (`take_bell()`) |
 | **Wrap flags** | Per-row soft-wrap tracking (content-flow semantics — travel with rows, clear on line-unit replace) |
@@ -753,7 +780,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.11.0"
+stitch-pty = "0.12.0"
 ```
 
 To build and test the pure Rust code locally:
@@ -872,7 +899,7 @@ or embedded into this project.
 - **CSI cursor movement** — CUU/CUD/CUF/CUB/CUP/CNL/CPL/CHA
 - **CSI erase** — ED (display), EL (line), DC (characters), DL/IL (lines)
 - **Unicode handling** — `unicode-width` for width-1/width-2 chars, combining marks
-- **Kitty Keyboard Protocol** — per-screen push/pop, query, replace/union/difference
+- **Kitty Keyboard Protocol** — per-screen push/pop, query, replace/union/difference, and a toolkit-neutral `encode_key` encoder
 - **Device status** — DA0/DA1 identification, cursor position report
 
 **What changed:**

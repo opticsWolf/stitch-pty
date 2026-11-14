@@ -32,6 +32,7 @@ import os
 import re
 from collections import deque
 from dataclasses import dataclass
+from enum import IntFlag
 from typing import Any, cast
 
 # Import the Rust extension module
@@ -60,7 +61,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -69,6 +70,8 @@ __all__ = [
     "Winsize",
     "ExitStatus",
     "ExpectResult",
+    "KeyboardFlags",
+    "Modifiers",
     "spawn",
     "open_pty",
     "PtyError",
@@ -78,6 +81,34 @@ __all__ = [
 
 # Re-export types for convenience
 TerminalState = _TerminalState
+
+
+class KeyboardFlags(IntFlag):
+    """Kitty keyboard progressive-enhancement flags.
+
+    The child requests these with ``CSI = flags ; mode u``; the terminal
+    records them per screen and exposes them through
+    :attr:`PtySession.keyboard_mode`.
+    """
+
+    DISAMBIGUATE = 1
+    REPORT_EVENT_TYPES = 2
+    REPORT_ALTERNATE_KEYS = 4
+    REPORT_ALL_KEYS = 8
+    REPORT_ASSOCIATED_TEXT = 16
+
+
+class Modifiers(IntFlag):
+    """Modifier bits accepted by :meth:`PtySession.encode_key`."""
+
+    SHIFT = 1
+    ALT = 2
+    CTRL = 4
+    SUPER = 8
+    HYPER = 16
+    META = 32
+    CAPS_LOCK = 64
+    NUM_LOCK = 128
 
 
 @dataclass(frozen=True)
@@ -347,6 +378,51 @@ class PtySession:
     def keyboard_mode(self) -> int:
         """Current Kitty keyboard enhancement flags (active screen)."""
         return int(self._terminal.keyboard_mode)
+
+    def encode_key(
+        self,
+        key: str | int,
+        modifiers: int = 0,
+        kind: str = "press",
+        text: str | None = None,
+        shifted_key: str | int | None = None,
+        base_layout_key: str | int | None = None,
+        flags: int | None = None,
+    ) -> bytes:
+        """Encode one key event for the child using the session's Kitty flags.
+
+        ``key`` may be a named key (``"enter"``, ``"left"``, ``"f1"``,
+        ``"kp_enter"``, …), a single printable character, or a numeric key
+        code. ``modifiers`` is a :class:`Modifiers` bitmask. ``kind`` is
+        ``"press"``, ``"repeat"``, or ``"release"``.
+
+        By default the active screen's current keyboard mode is used, so
+        Shift+Enter becomes ``b"[13;2u"`` when the child enabled flag 1
+        and stays ``b"
+"`` otherwise. ``flags`` overrides the mode for tests
+        or custom frontends. The result is empty when the active flags cannot
+        represent the event.
+        """
+        def _point(value: str | int | None) -> int | None:
+            if value is None:
+                return None
+            if isinstance(value, str):
+                if len(value) != 1:
+                    raise ValueError("alternate keys must be one character")
+                return ord(value)
+            return int(value)
+
+        return bytes(
+            self._terminal.encode_key(
+                key,
+                int(modifiers),
+                kind,
+                text,
+                _point(shifted_key),
+                _point(base_layout_key),
+                None if flags is None else int(flags),
+            )
+        )
 
     async def read(self, size: int = 4096) -> bytes:
         """Read from the PTY and feed data through the terminal emulator.

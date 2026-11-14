@@ -24,11 +24,13 @@ pub mod escape;
 pub mod events;
 pub mod graphics;
 pub mod history;
+pub mod keyboard;
 pub mod modes;
 pub mod parser;
 pub mod screen;
 
 // Re-export core types for convenience
 pub use history::HistoryScreen;
+pub use keyboard::{KeyCode, KeyEvent, KeyEventKind, KeyboardFlags, Modifiers, encode_key};
 pub use parser::{Parser, Stream};
 pub use screen::{Char, Cursor, Margins, Screen};

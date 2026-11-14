@@ -1150,6 +1150,17 @@ impl Screen {
         self.keyboard_mode
     }
 
+    /// Encode a key event using the active screen's Kitty flags.
+    ///
+    /// This is the encoder frontends should call after feeding PTY output:
+    /// the flags are whatever the child last requested on this screen.
+    pub fn encode_key(&self, event: &crate::terminal::keyboard::KeyEvent) -> Vec<u8> {
+        crate::terminal::keyboard::encode_key(
+            event,
+            crate::terminal::keyboard::KeyboardFlags::from_bits_truncate(self.keyboard_mode),
+        )
+    }
+
     /// `CSI > flags u`: save the current flags, then set the requested flags.
     ///
     /// The stack is bounded; the oldest entry is evicted when full.

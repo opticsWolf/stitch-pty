@@ -4,7 +4,44 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.11.0...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.12.0...HEAD)
+
+## [0.12.0 — Kitty key encoder](https://github.com/opticsWolf/stitch-pty/compare/v0.11.0...v0.12.0)
+
+Completes the Kitty keyboard protocol work started in 0.10.7. The terminal
+state now turns toolkit-independent key events into the bytes a child expects,
+including Shift+Enter (`CSI 13;2u`) when the child requested flag 1.
+
+### Added
+- `terminal::keyboard` (re-exported at the crate root): `KeyboardFlags`,
+  `Modifiers`, `KeyCode`, `KeyEvent`, `KeyEventKind`, and `encode_key`.
+- `Screen::encode_key` and `HistoryScreen::encode_key` encode an event using
+  the active screen's recorded flags; the encoder never invents activation.
+- Python `TerminalState.encode_key(...)` and the
+  `PtySession.encode_key(...)` convenience, plus `KeyboardFlags` and
+  `Modifiers` `IntFlag` constants.
+- Python key names cover printable characters, Enter/Tab/Backspace/Escape,
+  arrows, navigation, F1–F35, keypad keys, and modifier keys; numeric key
+  codes are also accepted.
+
+### Changed
+- The PySide6 example now sends a toolkit-neutral `KeyInput` to the PTY thread
+  and calls `PtySession.encode_key`; its local `_key_to_bytes` implementation
+  is gone.
+
+### Encoding behavior
+- With no flags, the encoder emits legacy VT100/xterm bytes.
+- Flag 1 disambiguates modified keys, Esc, and Ctrl+I (which no longer aliases
+  Tab) while keeping unmodified Enter/Tab/Backspace legacy for shell recovery.
+  Modified Enter/Tab/Backspace use `CSI u` under flag 1.
+- Flag 8 reports every key as an escape sequence, including plain text and
+  Enter/Tab/Backspace (`CSI u`; functional keys keep canonical CSI/SS3); flag
+  2 adds `:1`/`:2`/`:3` event types, flag 4 adds
+  shifted/base-layout alternate keys, and flag 16 adds associated text.
+- Functional keys keep their canonical CSI/SS3 forms; keypad, media, and
+  F13+ keys use Kitty's Private Use Area `CSI u` codes.
+- Events the active flags cannot represent (for example a text-key release
+  without flag 8) encode to empty bytes instead of inventing a sequence.
 
 ## [0.11.0 — one exit status type](https://github.com/opticsWolf/stitch-pty/compare/v0.10.7...v0.11.0)
 

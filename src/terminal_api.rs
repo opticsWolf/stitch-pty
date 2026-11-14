@@ -4,8 +4,13 @@
 //! + `Parser` combo, providing `feed()`, `display()`, `history_display()`, etc.
 
 use crate::terminal::HistoryScreen;
+use crate::terminal::keyboard::{
+    KeyCode, KeyEvent, KeyEventKind, KeyboardFlags, Modifiers, encode_key,
+};
 use crate::terminal::modes as mo;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 
 /// PyO3 wrapper that links the pyte_rs terminal emulator state machine to Python.
 ///
@@ -210,6 +215,57 @@ impl TerminalState {
         self.screen.keyboard_mode()
     }
 
+    /// Encode a key event using the active screen's Kitty flags.
+    ///
+    /// ``key`` is a named key (``"enter"``, ``"left"``, ``"f1"``,
+    /// ``"kp_enter"``, …), a single printable character, or a numeric key code.
+    /// ``modifiers`` is a bitmask (shift=1, alt=2, ctrl=4, super=8,
+    /// hyper=16, meta=32, caps_lock=64, num_lock=128). ``flags`` defaults to
+    /// the active screen's current ``keyboard_mode``; pass an integer to
+    /// override it for tests or a custom frontend.
+    ///
+    /// Returns the bytes to write to the PTY. The result is empty when the
+    /// active flags cannot represent the event (for example, a release event
+    /// for a text key without ``REPORT_ALL_KEYS``).
+    #[pyo3(signature = (key, modifiers=0, kind="press", text=None, shifted_key=None, base_layout_key=None, flags=None))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_key<'py>(
+        &self,
+        py: Python<'py>,
+        key: &Bound<'_, PyAny>,
+        modifiers: u16,
+        kind: &str,
+        text: Option<&str>,
+        shifted_key: Option<&Bound<'_, PyAny>>,
+        base_layout_key: Option<&Bound<'_, PyAny>>,
+        flags: Option<u16>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let code = parse_key_code(key)?;
+        let kind = match kind.to_ascii_lowercase().as_str() {
+            "press" | "down" => KeyEventKind::Press,
+            "repeat" => KeyEventKind::Repeat,
+            "release" | "up" => KeyEventKind::Release,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown event kind: {other}"
+                )));
+            }
+        };
+        let flags = flags.map_or_else(
+            || KeyboardFlags::from_bits_truncate(self.screen.keyboard_mode()),
+            KeyboardFlags::from_bits_truncate,
+        );
+        let event = KeyEvent {
+            code,
+            modifiers: Modifiers::from_bits_truncate(modifiers),
+            kind,
+            text: text.map(str::to_owned),
+            shifted_key: code_point(shifted_key, "shifted_key")?,
+            base_layout_key: code_point(base_layout_key, "base_layout_key")?,
+        };
+        Ok(PyBytes::new(py, &encode_key(&event, flags)))
+    }
+
     /// DECTCEM (?25) — whether the text cursor is visible.
     #[getter]
     pub fn cursor_visible(&self) -> bool {
@@ -260,4 +316,43 @@ impl TerminalState {
             self.screen.history_size()
         )
     }
+}
+
+fn parse_key_code(key: &Bound<'_, PyAny>) -> PyResult<KeyCode> {
+    if let Ok(name) = key.extract::<String>() {
+        return KeyCode::from_name(&name)
+            .ok_or_else(|| PyValueError::new_err(format!("unknown key name: {name}")));
+    }
+    if let Ok(code) = key.extract::<u32>() {
+        return Ok(KeyCode::from_u32(code));
+    }
+    Err(PyTypeError::new_err(
+        "key must be a key name (str), a single character, or an integer code",
+    ))
+}
+
+fn code_point(value: Option<&Bound<'_, PyAny>>, field: &str) -> PyResult<Option<char>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if let Ok(text) = value.extract::<String>() {
+        let mut chars = text.chars();
+        let ch = chars
+            .next()
+            .ok_or_else(|| PyValueError::new_err(format!("{field} must be one character")))?;
+        if chars.next().is_some() {
+            return Err(PyValueError::new_err(format!(
+                "{field} must be one character"
+            )));
+        }
+        return Ok(Some(ch));
+    }
+    if let Ok(number) = value.extract::<u32>() {
+        return char::from_u32(number).map(Some).ok_or_else(|| {
+            PyValueError::new_err(format!("{field} is not a Unicode code point: {number}"))
+        });
+    }
+    Err(PyTypeError::new_err(format!(
+        "{field} must be a character or integer code point"
+    )))
 }

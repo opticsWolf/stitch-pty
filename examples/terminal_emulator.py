@@ -71,7 +71,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stitch_pty import PtyError, PtySession, Winsize, spawn
+from stitch_pty import Modifiers, PtyError, PtySession, Winsize, spawn
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -131,6 +131,15 @@ _A_BLINK, _A_REVERSE, _A_HIDDEN, _A_STRIKE = 1 << 4, 1 << 5, 1 << 6, 1 << 7
 # ─────────────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
+class KeyInput:
+    """A toolkit-neutral key event; the session encodes it with its flags."""
+    key:       str
+    modifiers: int = 0
+    kind:      str = "press"
+    text:      str | None = None
+
+
+@dataclass(frozen=True)
 class Frame:
     """One snapshot of terminal state, emitted by the bg thread.
 
@@ -164,7 +173,7 @@ class TerminalWidget(QTextEdit):
     vertical scrollbar is disabled.
     """
 
-    key_pressed  = Signal(bytes)   # forward keystrokes via signal
+    key_pressed  = Signal(object)  # KeyInput; encoded in the PTY thread
     scroll_lines = Signal(int)     # local scrollback request (+down / -up)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -344,9 +353,9 @@ class TerminalWidget(QTextEdit):
             event.accept()
             return
 
-        keystroke = _key_to_bytes(event)
-        if keystroke:
-            self.key_pressed.emit(keystroke)
+        key_input = _qt_key_input(event)
+        if key_input is not None:
+            self.key_pressed.emit(key_input)
         event.accept()  # eat it — don't let QTextEdit blink its own cursor
 
     def wheelEvent(self, event) -> None:
@@ -374,52 +383,92 @@ def _esc(s: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Key → PTY byte translation
+# Qt key → toolkit-neutral KeyInput
 # ─────────────────────────────────────────────────────────────────────
 
-def _key_to_bytes(event) -> bytes | None:
-    key     = event.key()
-    text    = event.text()
-    ctrl    = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+_QT_SPECIAL_KEYS = {
+    Qt.Key.Key_Return: "enter",
+    Qt.Key.Key_Enter: "enter",
+    Qt.Key.Key_Tab: "tab",
+    Qt.Key.Key_Backspace: "backspace",
+    Qt.Key.Key_Escape: "escape",
+    Qt.Key.Key_Space: "space",
+    Qt.Key.Key_Insert: "insert",
+    Qt.Key.Key_Delete: "delete",
+    Qt.Key.Key_Left: "left",
+    Qt.Key.Key_Right: "right",
+    Qt.Key.Key_Up: "up",
+    Qt.Key.Key_Down: "down",
+    Qt.Key.Key_PageUp: "pageup",
+    Qt.Key.Key_PageDown: "pagedown",
+    Qt.Key.Key_Home: "home",
+    Qt.Key.Key_End: "end",
+}
 
-    special = {
-        Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right,
-        Qt.Key.Key_Home, Qt.Key.Key_End, Qt.Key.Key_PageUp,
-        Qt.Key.Key_PageDown, Qt.Key.Key_Backspace, Qt.Key.Key_Delete,
-        Qt.Key.Key_Insert, Qt.Key.Key_Tab, Qt.Key.Key_Escape,
-        Qt.Key.Key_Return, Qt.Key.Key_Enter,
-    }
+_QT_PUNCTUATION = {
+    Qt.Key.Key_Comma: ",",
+    Qt.Key.Key_Period: ".",
+    Qt.Key.Key_Slash: "/",
+    Qt.Key.Key_Semicolon: ";",
+    Qt.Key.Key_Apostrophe: "'",
+    Qt.Key.Key_BracketLeft: "[",
+    Qt.Key.Key_BracketRight: "]",
+    Qt.Key.Key_Backslash: "\\",
+    Qt.Key.Key_Minus: "-",
+    Qt.Key.Key_Equal: "=",
+    Qt.Key.Key_QuoteLeft: "`",
+}
 
-    # Printable
-    if text and key not in special:
-        if ctrl:
-            ch = text.upper()
-            if ch.isalpha() and len(ch) == 1:
-                return bytes([ord(ch) - 0x40])
-        return text.encode("utf-8", errors="replace")
 
-    # Arrows / navigation
-    if key == Qt.Key.Key_Up:    return b"\x1b[A"
-    if key == Qt.Key.Key_Down:  return b"\x1b[B"
-    if key == Qt.Key.Key_Right: return b"\x1b[C"
-    if key == Qt.Key.Key_Left:  return b"\x1b[D"
-    if key == Qt.Key.Key_Home:  return b"\x1b[H"
-    if key == Qt.Key.Key_End:   return b"\x1b[F"
-    if key == Qt.Key.Key_PageUp:    return b"\x1b[5~"
-    if key == Qt.Key.Key_PageDown:  return b"\x1b[6~"
-    if key == Qt.Key.Key_Backspace: return b"\x7f"
-    if key == Qt.Key.Key_Delete:    return b"\x1b[3~"
-    if key == Qt.Key.Key_Insert:    return b"\x1b[2~"
-    if key == Qt.Key.Key_Tab:       return b"\t"
-    if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter): return b"\r"
-    if key == Qt.Key.Key_Escape:    return b"\x1b"
+def _modifier_bits(mods) -> int:
+    bits = 0
+    if mods & Qt.KeyboardModifier.ShiftModifier:
+        bits |= Modifiers.SHIFT
+    if mods & Qt.KeyboardModifier.AltModifier:
+        bits |= Modifiers.ALT
+    if mods & Qt.KeyboardModifier.ControlModifier:
+        bits |= Modifiers.CTRL
+    if mods & Qt.KeyboardModifier.MetaModifier:
+        bits |= Modifiers.SUPER
+    return int(bits)
 
-    # Ctrl shortcuts
-    if ctrl and key == Qt.Key.Key_C: return b"\x03"
-    if ctrl and key == Qt.Key.Key_D: return b"\x04"
-    if ctrl and key == Qt.Key.Key_L: return b"\x0c"
 
+def _qt_key_name(event) -> str | None:
+    key = event.key()
+    if key in _QT_SPECIAL_KEYS:
+        return _QT_SPECIAL_KEYS[key]
+    if Qt.Key.Key_F1 <= key <= Qt.Key.Key_F35:
+        return f"f{int(key) - int(Qt.Key.Key_F1) + 1}"
+    if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+        return chr(ord("a") + int(key) - int(Qt.Key.Key_A))
+    if Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+        digit = chr(ord("0") + int(key) - int(Qt.Key.Key_0))
+        if event.modifiers() & Qt.KeyboardModifier.KeypadModifier:
+            return f"kp_{digit}"
+        return digit
+    if key in _QT_PUNCTUATION:
+        return _QT_PUNCTUATION[key]
+    text = event.text()
+    if text and len(text) == 1 and ord(text) >= 0x20:
+        # Layout fallback: the encoder wants the unshifted key where possible.
+        return text.lower() if text.isalpha() else text
     return None
+
+
+def _qt_key_input(event) -> KeyInput | None:
+    """Translate a Qt key event; return None for keys we cannot encode."""
+    key = _qt_key_name(event)
+    if key is None:
+        return None
+    text = event.text()
+    if not text or any(ord(c) < 0x20 for c in text):
+        text = None
+    return KeyInput(
+        key=key,
+        modifiers=_modifier_bits(event.modifiers()),
+        kind="repeat" if event.isAutoRepeat() else "press",
+        text=text,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -562,6 +611,18 @@ class _AsyncRunner(QObject):
         if self.loop:
             self.loop.call_soon_threadsafe(
                 lambda: asyncio.create_task(self._do_write(data)))
+
+    async def _do_key(self, key: KeyInput) -> None:
+        if self.session:
+            data = self.session.encode_key(
+                key.key, key.modifiers, key.kind, key.text)
+            if data:
+                await self.session.write(data)
+
+    def schedule_key(self, key: KeyInput) -> None:
+        if self.loop:
+            self.loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(self._do_key(key)))
 
     # ── resize (called from main thread, forwarded to bg) ───────
 
@@ -737,8 +798,8 @@ class MainWindow(QMainWindow):
 
     # ── input ───────────────────────────────────────────────────
 
-    def on_key(self, keystroke: bytes) -> None:
-        self.runner.schedule_write(keystroke)
+    def on_key(self, key: KeyInput) -> None:
+        self.runner.schedule_key(key)
 
     # ── resize ──────────────────────────────────────────────────
 

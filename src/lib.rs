@@ -19,7 +19,10 @@ mod platform_windows;
 
 // Terminal emulation (embedded pyte_rs)
 pub mod terminal;
-pub use terminal::{Char, Cursor, HistoryScreen, Parser, Screen};
+pub use terminal::{
+    Char, Cursor, HistoryScreen, KeyCode, KeyEvent, KeyEventKind, KeyboardFlags, Modifiers, Parser,
+    Screen, encode_key,
+};
 
 // High-level Rust session API
 pub mod session;

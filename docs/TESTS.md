@@ -4,10 +4,10 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **421** | **18** | 401 shared + 20 Windows-only |
-| **Linux / macOS** | **405** | **20** | 401 shared + 4 Unix-only |
+| **Windows** | **433** | **18** | 413 shared + 20 Windows-only |
+| **Linux / macOS** | **417** | **20** | 413 shared + 4 Unix-only |
 
-### Shared Tests (401)
+### Shared Tests (413)
 
 Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, `src/winsize.rs`, and `src/terminal/`.
 
@@ -21,7 +21,8 @@ Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, 
 - **terminal/escape** (8): CSI param/intermediate/final character classification
 - **terminal/events** (1): event tag mapping/ordering
 - **terminal/graphics** (24): Color (RGB/256/named), SGR attributes, text formatting
-- **terminal/history** (54): Scrollback, alt screen swap, resize, cursor delegation, split-feed parser state (P1), keyboard-mode accessor
+- **terminal/keyboard** (11): Kitty key encoding — flag 1 exceptions, flag 8 all keys, event types, alternates, associated text, legacy fallback, functional/keypad codes
+- **terminal/history** (55): Scrollback, alt screen swap, resize, cursor delegation, split-feed parser state (P1), keyboard-mode accessor and screen-flag encoder
 - **terminal/modes** (7): Public/private modes, mouse modes, cursor style
 - **terminal/parser** (83): Full parser — CSI/OSC/ESC/SGR handling, cursor positioning, screen manipulation, Kitty keyboard spec vectors
 - **terminate** (5): shared escalation policy — already-exited, graceful, SIGTERM-ignoring, repeated, injected sleep
@@ -77,8 +78,8 @@ the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 
 | Platform | Count | Breakdown |
 |----------|-------|-----------|
-| **Windows** | **205** | 203 passed + 2 skipped (POSIX-only SIGTERM-ignore and signal-number tests; explicit unsupported `interrupt()` path) |
-| **Linux / macOS** | **205** | 204 passed + 1 skipped (Windows-only env-casing test) |
+| **Windows** | **213** | 211 passed + 2 skipped (POSIX-only SIGTERM-ignore and signal-number tests; explicit unsupported `interrupt()` path) |
+| **Linux / macOS** | **213** | 212 passed + 1 skipped (Windows-only env-casing test) |
 
 ### Test Files
 
@@ -91,6 +92,7 @@ the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 | `test_terminal_altscreen.py` | 10 | Alt screen: enter/exit 1049, 47/1047 swap, scrollback isolation, resize |
 | `test_terminal_display.py` | 56 | Full display rendering: ANSI sequences, SGR colors, cursor movement, erase, scroll, tabs |
 | `test_terminal_modes.py` | 24 | Mode toggles: DECCKM, DECTCEM, bracketed paste, mouse protocol, cursor style, Kitty keyboard flags/stacks |
+| `test_keyboard.py` | 8 | Kitty encoder: Shift+Enter, Ctrl+I vs Tab, legacy fallback, flag 8, event types, alternates, associated text, `PtySession.encode_key` |
 | `test_terminal_scrollback.py` | 15 | Scrollback: capacity limits, trim, absolute cursor, history-aware resize |
 | `test_terminal_styled.py` | 20 | Styled cells: color (named/256/truecolor), attributes (bold/dim/italic/underline/blink/reverse/hidden/strikethrough) |
 

@@ -684,6 +684,11 @@ impl HistoryScreen {
     pub fn keyboard_mode(&self) -> u16 {
         self.inner.keyboard_mode()
     }
+
+    /// Encode a key event using the active screen's Kitty flags.
+    pub fn encode_key(&self, event: &super::keyboard::KeyEvent) -> Vec<u8> {
+        self.inner.encode_key(event)
+    }
     pub fn icon_name(&self) -> &str {
         &self.inner.icon_name
     }
@@ -1269,6 +1274,22 @@ mod tests {
         hs.feed(b"\x1b[?10");
         hs.feed(b"49l");
         assert!(!hs.alt_screen());
+    }
+
+    #[test]
+    fn test_keyboard_encoder_uses_screen_flags() {
+        use super::super::keyboard::{KeyCode, KeyEvent, Modifiers};
+        let mut hs = HistoryScreen::new(80, 24, 100);
+
+        let shift_enter = KeyEvent::new(KeyCode::ENTER, Modifiers::SHIFT);
+        assert_eq!(hs.encode_key(&shift_enter), b"\r");
+
+        hs.feed(b"\x1b[>1u");
+        assert_eq!(hs.encode_key(&shift_enter), b"\x1b[13;2u");
+        assert_eq!(
+            hs.encode_key(&KeyEvent::new(KeyCode::TAB, Modifiers::empty())),
+            b"\t"
+        );
     }
 
     #[test]

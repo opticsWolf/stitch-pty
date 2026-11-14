@@ -40,6 +40,7 @@ src/
 │   ├── parser.rs             # Performer + Parser + Stream (pyte.Stream)
 │   ├── screen.rs             # Screen buffer, Char, Cursor, SGR
 │   ├── history.rs            # HistoryScreen with scrollback
+│   ├── keyboard.rs           # Kitty key model + encoder (flags 1/2/4/8/16)
 │   ├── cwd.rs                # OSC 7 / OSC 9;9 shell working-directory parsing
 │   ├── events.rs             # TermEvent enum + stable string tags
 │   ├── charsets.rs           # G0/G1 character set mappings
@@ -373,6 +374,28 @@ pub struct Cursor {
 | `X10_MOUSE` (1000) | private | off | Mouse tracking |
 | `BRACKETED_PASTE` (2004) | private | off | Paste mode |
 
+### Kitty Key Encoder (`terminal/keyboard.rs`)
+
+`encode_key(&KeyEvent, KeyboardFlags) -> Vec<u8>` is toolkit-neutral and
+consumes the flags recorded by the active screen; it never turns a mode on by
+itself. `Screen::encode_key` and `HistoryScreen::encode_key` use the active
+screen's current `keyboard_mode`, so a frontend can feed PTY output and then
+encode the next keystroke without re-scanning the byte stream.
+
+The model is `KeyCode` (Unicode/PUA code), `Modifiers` (shift/alt/ctrl/super/
+hyper/meta/locks), `KeyEventKind` (press/repeat/release), and `KeyEvent`
+(unshifted code, modifiers, kind, text, shifted key, base-layout key).
+Flag behavior:
+
+- no flags → legacy VT100/xterm bytes;
+- flag 1 → disambiguated modified keys and Esc, with unmodified
+  Enter/Tab/Backspace kept legacy;
+- flag 2 → `:type` event suffixes;
+- flag 4 → shifted/base-layout alternate fields;
+- flag 8 → every key as an escape sequence (text and Enter/Tab/Backspace as
+  `CSI u`; functional keys keep canonical CSI/SS3);
+- flag 16 → associated text codepoints.
+
 ### `HistoryScreen` — Scrollback Buffer
 
 Extends `Screen` with a fixed-capacity scrollback history:
@@ -403,6 +426,7 @@ pub struct HistoryScreen {
 | `take_dirty_rows()` | Drain dirty rows (sorted, empty afterwards) |
 | `take_bell()` | Edge-triggered BEL check (resets the flag) |
 | `take_events()` | Drain the ordered event log (trailing `ScrollbackGrew`) |
+| `encode_key(event)` | Encode a `KeyEvent` using the active Kitty flags |
 | `set_cwd(cwd)` / `cwd()` | Record / read shell cwd (OSC 7 / 9;9) |
 | `reset()` | Reset terminal + clear history (cwd survives) |
 | `resize(lines, cols)` | Resize screen buffer |
@@ -622,6 +646,7 @@ returning `ExitStatus | None`.
 | `history_size` | Current scrollback line count |
 | `scrollback_lines` | Scrollback capacity |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
+| `encode_key(...)` | Encode a named/character/numeric key with the active Kitty flags |
 | `styled_viewport()` | Full buffer as styled cells |
 | `total_lines()` | Total lines = history + visible |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |

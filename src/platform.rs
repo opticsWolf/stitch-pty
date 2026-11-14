@@ -48,7 +48,7 @@ impl ExitStatus {
     /// Construct an ExitStatus from a Unix signal, retaining both the name and
     /// number. The number is only used by the Python API, which historically
     /// exposes signal numbers.
-    #[cfg_attr(not(feature = "python"), allow(dead_code))]
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub(crate) fn with_signal_number(signal: &str, number: i32) -> Self {
         Self {
             code: 1,
