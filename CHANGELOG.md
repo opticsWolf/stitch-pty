@@ -13,6 +13,9 @@ Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
   `ProcessExit` struct and the `wait_status()` bridge were removed; the PID is
   available from `ChildBackend::pid()` and is not part of the status. Repeated
   `wait()` calls keep returning the cached status.
+- Unix signal delivery falls back to the child PID when the process group has
+  not been established yet, so an immediate post-spawn `kill()` is not a silent
+  no-op.
 - Unix signal exits now carry the signal name (`SIGTERM`, `SIGKILL`, …) through
   `ExitStatus::signal()`; the numeric signal is retained only for the Python
   compatibility tuple. Windows exit codes are unchanged.

@@ -424,10 +424,15 @@ impl ChildBackend for UnixChildProcess {
         match kill(pgid, signal) {
             Ok(_) => Ok(()),
             // macOS returns EPERM when sending signals to a zombie process group.
-            // ESRCH means the process/group no longer exists.
-            // Both are no-ops for an already-dead process.
             Err(nix::errno::Errno::EPERM) => Ok(()),
-            Err(nix::errno::Errno::ESRCH) => Ok(()),
+            // The child may not have completed `setsid()` yet, so its PID is
+            // not a process-group id. Fall back to the PID once; this keeps an
+            // immediate post-spawn kill from silently becoming a no-op.
+            Err(nix::errno::Errno::ESRCH) => match kill(pid, signal) {
+                Ok(_) => Ok(()),
+                Err(nix::errno::Errno::EPERM) | Err(nix::errno::Errno::ESRCH) => Ok(()),
+                Err(e) => Err(PtyErrorKind::SignalError(e.to_string())),
+            },
             Err(e) => Err(PtyErrorKind::SignalError(e.to_string())),
         }
     }

@@ -130,13 +130,11 @@ async fn wait_is_repeatable_after_exit() {
 #[cfg(unix)]
 #[tokio::test]
 async fn wait_reports_signal_name_after_kill() {
-    // Wait for the child to finish setsid/exec before signaling its process
-    // group; an immediate group signal can race the child's session setup.
-    let (program, args) = shell("echo stitch-ready; sleep 30");
-    let session = PtySession::spawn(program, &args, size(), None)
+    // Kill immediately after spawn: the PID fallback in the Unix backend must
+    // handle a child that has not completed setsid() yet.
+    let session = PtySession::spawn("sleep", &["30".into()], size(), None)
         .await
         .expect("spawn");
-    read_until_contains(&session, "stitch-ready", Duration::from_secs(5)).await;
 
     session.kill().expect("kill");
     // The Unix reaper polls every 50 ms; allow for scheduler lag on loaded CI.
