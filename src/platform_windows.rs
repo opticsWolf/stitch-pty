@@ -569,6 +569,27 @@ pub async fn open_pty(
     Ok(Arc::new(backend))
 }
 
+/// Build a UTF-16 environment block for `CreateProcessW`.
+///
+/// Duplicate keys are collapsed case-insensitively (ASCII) with last-wins.
+/// An empty explicit environment becomes the required double-null block.
+fn build_env_block(env: &[(String, String)]) -> Vec<u16> {
+    let entries = crate::platform::dedupe_env_windows(env);
+    if entries.is_empty() {
+        return vec![0, 0];
+    }
+
+    let mut block: Vec<u16> = Vec::new();
+    for (key, value) in entries {
+        block.extend(key.encode_utf16());
+        block.push('=' as u16);
+        block.extend(value.encode_utf16());
+        block.push(0);
+    }
+    block.push(0);
+    block
+}
+
 pub async fn spawn(
     program: &str,
     args: &[String],
@@ -633,22 +654,9 @@ pub async fn spawn(
 
         // Build the environment block. `None` means inherit: pass a null
         // lpEnvironment. `Some(&[])` is an explicit empty environment, which
-        // Windows represents as a lone null entry (`\0\0` overall) — the same
-        // block std builds for `Command::env_clear()`.
-        let env_block: Option<Vec<u16>> = env.map(|env| {
-            let mut block: Vec<u16> = Vec::new();
-            if env.is_empty() {
-                block.push(0);
-            }
-            for (k, v) in env {
-                block.extend(k.encode_utf16());
-                block.push('=' as u16);
-                block.extend(v.encode_utf16());
-                block.push(0);
-            }
-            block.push(0);
-            block
-        });
+        // Windows represents as a double-null block -- the same block std
+        // builds for `Command::env_clear()`.
+        let env_block: Option<Vec<u16>> = env.map(build_env_block);
 
         // --------------------------------------------------------------------
         // ConPTY attribute list setup (required for EXTENDED_STARTUPINFO_PRESENT)
@@ -912,5 +920,34 @@ mod tests {
         let b = counter.fetch_add(1, Ordering::SeqCst);
         assert_eq!(a, 1);
         assert_eq!(b, 2);
+    }
+
+    fn decode_env_block(block: &[u16]) -> Vec<String> {
+        block
+            .split(|&unit| unit == 0)
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| String::from_utf16(entry).expect("valid UTF-16 env entry"))
+            .collect()
+    }
+
+    #[test]
+    fn test_build_env_block_empty_is_double_null() {
+        assert_eq!(build_env_block(&[]), vec![0, 0]);
+    }
+
+    #[test]
+    fn test_build_env_block_dedupes_casing_and_encodes_unicode() {
+        let env = vec![
+            ("Path".to_string(), "first".to_string()),
+            ("PATH".to_string(), "second".to_string()),
+            ("EMPTY".to_string(), String::new()),
+            ("ЮНИКОД".to_string(), "значение".to_string()),
+        ];
+        let block = build_env_block(&env);
+        assert_eq!(
+            decode_env_block(&block),
+            vec!["PATH=second", "EMPTY=", "ЮНИКОД=значение",]
+        );
+        assert_eq!(block.last(), Some(&0));
     }
 }

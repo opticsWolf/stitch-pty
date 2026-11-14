@@ -4,7 +4,21 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.3...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.4...HEAD)
+
+## [0.10.4 — explicit environment deduplication](https://github.com/opticsWolf/stitch-pty/compare/v0.10.3...v0.10.4)
+
+### Fixed
+- Explicit `env` entries now collapse duplicate keys to the last occurrence,
+  including its key spelling and value. Windows compares keys ASCII
+  case-insensitively, so `PATH` plus `Path` can no longer produce an ambiguous
+  environment block; Unix collapses exact-key duplicates with the same
+  last-wins rule. Empty env remains empty, and the `None` inheritance path is
+  unchanged (`vars_os()` on Unix, a null block on Windows).
+- Python `spawn()` now forwards environment entries as ordered pairs instead of
+  an unordered `HashMap`, so the Windows last-wins result is deterministic.
+- Documented that explicit `String` entries cannot represent non-Unicode
+  keys/values; inheritance does not have that limitation.
 
 ## [0.10.3 — shared terminate policy](https://github.com/opticsWolf/stitch-pty/compare/v0.10.2...v0.10.3)
 

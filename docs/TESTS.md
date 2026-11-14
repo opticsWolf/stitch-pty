@@ -4,16 +4,16 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **407** | **17** | 390 shared + 17 Windows-only |
-| **Linux / macOS** | **394** | **19** | 390 shared + 4 Unix-only |
+| **Windows** | **412** | **18** | 393 shared + 19 Windows-only |
+| **Linux / macOS** | **397** | **19** | 393 shared + 4 Unix-only |
 
-### Shared Tests (390)
+### Shared Tests (393)
 
 Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, `src/winsize.rs`, and `src/terminal/`.
 
 - **async_io** (13): `read_timeout` logic, buffer handling, duration edge cases
 - **errors** (18): error display formatting, `PtyErrorKind` variants, IO error conversion
-- **platform** (23): `ExitStatus` display/clone/debug, `ProcessExit` conversion, trait existence
+- **platform** (26): `ExitStatus` display/clone/debug, `ProcessExit` conversion, trait existence, explicit env dedupe (exact/Windows casing, empty/Unicode values)
 - **terminal/ansi_parser** (30): CSI/DCS/OSC/ESC parsing, UTF-8 handling, parameter overflow
 - **terminal/charsets** (7): ASCII map, DEC special characters, charset designation
 - **terminal/control** (12): C0/C1 control characters, escape sequences, `is_control` helpers
@@ -28,7 +28,7 @@ Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, 
 - **terminal/screen** (94): Screen rendering, cursor movement, line operations, resize, margins
 - **winsize** (11): Clone/copy/debug, equality, default, PyO3 conversion
 
-### Windows-Only Tests (17)
+### Windows-Only Tests (19)
 
 In `src/platform_windows.rs`.
 
@@ -37,6 +37,7 @@ In `src/platform_windows.rs`.
 - **win_pty_backend** (1): Backend struct fields
 - **send_sync_handle** (3): `Send`/`Sync`/`Clone` trait verification for handle wrapper
 - **pipe_counter** (1): Pipe counter monotonic increment
+- **environment block** (2): empty double-null block; UTF-16 encoding with case-insensitive dedupe and empty/Unicode values
 
 ### Unix-Only Tests (4)
 
@@ -49,12 +50,12 @@ In `src/platform_unix.rs` and `src/errors.rs`.
 
 ### Integration Tests (`tests/rust_session.rs`)
 
-Real PTYs, end-to-end, via `cargo test` on all three platforms — 17 tests on
-Windows and 19 on Unix (the Windows-only interrupt test and Unix-only signal/
-EOF tests are marked):
+Real PTYs, end-to-end, via `cargo test` on all three platforms — 18 tests on
+Windows and 19 on Unix (the Windows-only interrupt/env tests and Unix-only
+signal/EOF tests are marked):
 
 - spawn → read → wait with `ExitStatus`, plus repeated `wait()`
-- environment inheritance (`spawn`), explicit empty env, exact replacement (`spawn_with_env`)
+- environment inheritance (`spawn`), explicit empty env, exact replacement (`spawn_with_env`), and Windows case-insensitive duplicate-key collapse
 - 24×80 defaults for `spawn(None)` and `open_pty_platform(None)`
 - resize round-trip, interactive `write_all`, read timeout that keeps the session alive
 - `terminate` grace/reap; a SIGTERM-ignoring child is escalated to SIGKILL (Unix)
@@ -68,8 +69,8 @@ EOF tests are marked):
 
 | Platform | Count | Breakdown |
 |----------|-------|-----------|
-| **Windows** | **198** | 197 passed + 1 skipped (POSIX-only SIGTERM-ignore escalation; explicit unsupported `interrupt()` path) |
-| **Linux / macOS** | **198** | 198 passed |
+| **Windows** | **199** | 198 passed + 1 skipped (POSIX-only SIGTERM-ignore escalation; explicit unsupported `interrupt()` path) |
+| **Linux / macOS** | **199** | 198 passed + 1 skipped (Windows-only env-casing test) |
 
 ### Test Files
 
@@ -77,7 +78,7 @@ EOF tests are marked):
 |------|-------|-------------|
 | `test_basic.py` | 15 | Core PTY operations: spawn, read, write, kill, resize, signals, interrupt |
 | `test_concurrency.py` | 3 | Concurrent reads conserve bytes, cancel-during-terminate, coherent drains |
-| `test_pty_session.py` | 40 | Session lifecycle: env (inherit/empty/exact), winsize, concurrent spawn, wait, terminate, escalation/repeat edge cases |
+| `test_pty_session.py` | 41 | Session lifecycle: env (inherit/empty/exact, Windows casing dedupe), winsize, concurrent spawn, wait, terminate, escalation/repeat edge cases |
 | `test_terminal.py` | 19 | Terminal display: empty, scrollback, cursor, title, history, dirty rows |
 | `test_terminal_altscreen.py` | 10 | Alt screen: enter/exit 1049, 47/1047 swap, scrollback isolation, resize |
 | `test_terminal_display.py` | 56 | Full display rendering: ANSI sequences, SGR colors, cursor movement, erase, scroll, tabs |

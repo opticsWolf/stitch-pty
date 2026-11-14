@@ -90,8 +90,11 @@ impl PreparedCommand {
 
         let envp = match env {
             Some(env) => {
-                let mut envp = Vec::with_capacity(env.len());
-                for (k, v) in env {
+                // Explicit env: exact-key duplicates use last-wins. Inherited
+                // entries below are passed through unchanged.
+                let entries = crate::platform::dedupe_env_exact(env);
+                let mut envp = Vec::with_capacity(entries.len());
+                for (k, v) in entries {
                     let s = format!("{}={}", k, v);
                     envp.push(CString::new(s).map_err(|_| {
                         PtyErrorKind::ForkFailed("environment contains NUL byte".into())

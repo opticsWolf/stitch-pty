@@ -199,7 +199,9 @@ exit is published by a dedicated `WaitForSingleObject` watcher thread through a
 
 - `spawn` inherits the parent environment; `spawn_with_env` takes the exact
   environment (an empty slice is empty). `spawn_platform` mirrors this with
-  `Option` (`None` = inherit).
+  `Option` (`None` = inherit). Explicit env keys are deduplicated last-wins;
+  Windows compares ASCII case-insensitively (`PATH`/`Path`), Unix exact keys.
+  The Python binding forwards ordered pairs so the result is deterministic.
 - `winsize = None` is normalized to 24×80 in the platform dispatch, so Unix
   and Windows agree (Unix `openpty(3)` otherwise leaves 0×0).
 - The session deliberately does **not** own a `HistoryScreen`: a multiplexer

@@ -60,7 +60,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.10.3"
+__version__ = "0.10.4"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -722,7 +722,8 @@ async def spawn(
         program: The executable to run.
         args: Command-line arguments.
         env: Child environment. If None, inherits from the parent; an empty
-            dict spawns with an empty environment.
+            dict spawns with an empty environment. On Windows, duplicate
+            case-insensitive keys collapse to the last mapping entry.
         winsize: Initial terminal size. Defaults to 24x80.
         scrollback: Terminal scrollback capacity in lines.
         raw_output_cap: Max bytes retained in ``session.raw_output``
@@ -753,5 +754,8 @@ async def spawn(
         except OSError:
             winsize = Winsize(24, 80, 0, 0)
 
-    inner = await _spawn(program, args or [], env, winsize, cwd)
+    # Preserve mapping order for the low-level env contract so duplicate
+    # case-insensitive keys on Windows have a defined last-wins result.
+    env_items = list(env.items()) if env is not None else None
+    inner = await _spawn(program, args or [], env_items, winsize, cwd)
     return PtySession(inner, scrollback=scrollback, raw_output_cap=raw_output_cap)

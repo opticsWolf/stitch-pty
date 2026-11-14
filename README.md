@@ -139,8 +139,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 `PtySession::spawn` inherits the parent environment. `spawn_with_env` takes
 the complete environment, so an empty slice is an empty environment; the
 lower-level `platform::spawn_platform` uses `None` to inherit and
-`Some(&[])` for an empty environment. EOF is reported as `Ok(0)` when the
-platform closes the PTY.
+`Some(&[])` for an empty environment. Duplicate explicit keys collapse to the
+last occurrence: Windows compares keys ASCII case-insensitively (`PATH` and
+`Path` are one key), Unix compares exact keys. Empty values are preserved;
+explicit `String` entries cannot express non-Unicode keys/values, while
+inheritance keeps the platform's `vars_os()`/null path. EOF is reported as
+`Ok(0)` when the platform closes the PTY.
 
 On Windows, ConPTY can keep the output pipe open after the child exits. Use
 `read_until_exit(drain_timeout)` for finite commands: it returns the complete
@@ -181,7 +185,7 @@ Spawn a program in a PTY and return a session handle.
 |-----------|------|---------|-------------|
 | `program` | `str` | — | The executable to run |
 | `args` | `list[str]` | `[]` | Command-line arguments |
-| `env` | `dict[str, str]` | `None` | Child environment. `None` inherits the parent; `{}` is empty. |
+| `env` | `dict[str, str]` | `None` | Child environment. `None` inherits the parent; `{}` is empty. On Windows, case-insensitive duplicate keys collapse to the last mapping entry. |
 | `winsize` | `Winsize \| None` | Auto-detected | Initial terminal size (defaults to 24×80) |
 | `scrollback` | `int` | `1000` | Terminal scrollback capacity in lines |
 | `raw_output_cap` | `int \| None` | `1_048_576` | Max bytes retained in `session.raw_output` (`None` = unbounded) |
@@ -741,7 +745,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.10.3"
+stitch-pty = "0.10.4"
 ```
 
 To build and test the pure Rust code locally:

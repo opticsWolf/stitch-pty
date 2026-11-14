@@ -85,6 +85,12 @@ impl PtySession {
     /// The slice is the complete child environment — it is not merged with the
     /// parent's. An empty slice spawns with an empty environment; use
     /// [`PtySession::spawn`] to inherit the parent environment instead.
+    ///
+    /// Duplicate keys collapse to the last occurrence, including its key
+    /// spelling and value. Windows compares keys ASCII case-insensitively
+    /// (`PATH` and `Path` are one key); Unix compares exact keys. Empty values
+    /// are preserved. Explicit entries use `String`, so they cannot represent
+    /// non-Unicode keys or values; inheritance does not have that limitation.
     pub async fn spawn_with_env(
         program: &str,
         args: &[String],

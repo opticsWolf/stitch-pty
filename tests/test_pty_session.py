@@ -63,6 +63,26 @@ async def test_spawn_empty_env_is_empty():
         await session.terminate()
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows environment names are case-insensitive",
+)
+@pytest.mark.asyncio
+async def test_spawn_env_dedupes_case_insensitive_keys(read_all):
+    code = "import os; print('env=' + os.environ['PATH'])"
+    session = await spawn(
+        sys.executable,
+        ["-c", code],
+        env={"Path": "first", "PATH": "second"},
+    )
+    try:
+        data = (await read_all(session)).decode(errors="replace")
+        assert "env=second" in data, f"last PATH did not win: {data!r}"
+        assert "env=first" not in data, f"duplicate PATH leaked: {data!r}"
+    finally:
+        await session.terminate()
+
+
 @pytest.mark.asyncio
 async def test_spawn_with_winsize():
     session = await spawn("bash", ["-c", "echo hi"], winsize=Winsize(30, 100))

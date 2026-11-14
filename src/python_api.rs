@@ -260,13 +260,12 @@ pub fn spawn<'py>(
     py: Python<'py>,
     program: &str,
     args: Option<Vec<String>>,
-    env: Option<std::collections::HashMap<String, String>>,
+    env: Option<Vec<(String, String)>>,
     winsize: Option<Winsize>,
     cwd: Option<String>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let program = program.to_string();
     let args = args.unwrap_or_default();
-    let env: Option<Vec<(String, String)>> = env.map(|env| env.into_iter().collect());
     let winsize = winsize;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let (pty_backend, child_backend) =

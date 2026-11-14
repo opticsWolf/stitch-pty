@@ -1,8 +1,8 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.10.2 and 0.10.3 implemented on `dev`** (G4 + H3, then G7); neither release is tagged or published yet. 0.10.1 and 0.10.0 are published; final release steps wait for explicit confirmation.
-> Release branch: `dev` (contains `v0.10.0` at `e620cc8` and `v0.10.1` at `97e03ab`; 0.10.2 implementation at `3b3abb2`; 0.10.3 follows on `dev`; `main` is at `b0e4510`)
-> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`; 0.10.2 implementation at `3b3abb2` (not tagged); pre-rebase PR head was `5e68aa1`
+> Status: **0.10.2, 0.10.3, and 0.10.4 implemented on `dev`** (G4 + H3, G7, then H1); none of the three is tagged or published yet. 0.10.1 and 0.10.0 are published; final release steps wait for explicit confirmation.
+> Release branch: `dev` (contains `v0.10.0` at `e620cc8` and `v0.10.1` at `97e03ab`; 0.10.2 implementation at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 follows; `main` is at `b0e4510`)
+> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`; 0.10.2 implementation at `3b3abb2`; 0.10.3 at `b3f2647`; all three untagged; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
 > [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md)
@@ -51,14 +51,14 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 push run [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) at `3b3abb2`: 6 test jobs + 4 wheel builds green; publish jobs skipped. 0.10.3 CI follows the implementation commit; releases are gated on confirmation. |
-| Version | `0.10.3` on `dev` (G7); 0.10.2 implementation at `3b3abb2` (G4 + H3); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
-| Publication | PyPI/crates.io 0.10.1 and 0.10.0 published; 0.10.2 and 0.10.3 not tagged or published |
-| Local gates | 0.10.3: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (407 unit + 17 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (407), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.3), `pytest` (197 passed, 1 skipped on Windows) |
-| Branch sync | `dev` is ahead with 0.10.2 and 0.10.3; `main` is at `b0e4510`; tags `v0.10.0`/`e620cc8` and `v0.10.1`/`97e03ab`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 push run [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) at `3b3abb2`: 6 test jobs + 4 wheel builds green; publish jobs skipped. 0.10.3 and 0.10.4 CI follow their implementation commits; releases are gated on confirmation. |
+| Version | `0.10.4` on `dev` (H1); 0.10.3 at `b3f2647` (G7); 0.10.2 implementation at `3b3abb2` (G4 + H3); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
+| Publication | PyPI/crates.io 0.10.1 and 0.10.0 published; 0.10.2, 0.10.3, and 0.10.4 not tagged or published |
+| Local gates | 0.10.4: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (412 unit + 18 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (412), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.4), `pytest` (198 passed, 1 skipped) |
+| Branch sync | `dev` is ahead with 0.10.2, 0.10.3, and 0.10.4; `main` is at `b0e4510`; tags `v0.10.0`/`e620cc8` and `v0.10.1`/`97e03ab`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
-| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7 work is implemented but #5/#6/#9 stay open until their releases |
+| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1 work is implemented but #5/#6/#9/#10 stay open until their releases |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
 
 The pre-rebase PR contained the original review commits plus the review follow-ups. The rebase merge rewrote these SHAs on `dev`; the sequence is:
@@ -180,7 +180,7 @@ API cleanup into an unreleased feature branch.
 | **Exit status** | One `ExitStatus { code, signal }`; `wait` returns it | `std::process::ExitStatus`; `ChildEvent::Exited(Option<ExitStatus>)` | `enum { Code(i32), Signal(i32) }` on Unix, only `Code` on Windows | One status type, no `pid`; remove `ProcessExit`. Keep a cached, repeatable wait. |
 | **Programmatic signals** | `ChildKiller::kill` → `TerminateProcess` on Windows; no Ctrl+C | No signal API; input is user bytes | None | Do not promise ConPTY Ctrl+C. Prefer an explicit unsupported error. |
 | **EOF / close** | `take_writer` drop sends EOF; Unix writer sends newline + `VEOF`; ConPTY `PseudoCon` closes in `Drop` | `ClosePseudoConsole` blocks until conout drained; `drain_on_exit`; child-exit watcher | ConPTY closes in `Drop`, no drain | Close must be order-aware and drain first; distinguish stdin EOF from output EOF. |
-| **Environment** | `CommandBuilder` with `OsString`, `env`, `env_remove`, `env_clear`; base env starts inherited | Additive env map; Windows keys deduped case-insensitively; no empty-env API | Additive only; Windows uses `std::env::vars()` (panic on non-Unicode); no empty env | Our `Option` contract is correct but needs Windows duplicate-key handling and a future `OsString` builder. |
+| **Environment** | `CommandBuilder` with `OsString`, `env`, `env_remove`, `env_clear`; base env starts inherited | Additive env map; Windows keys deduped case-insensitively; no empty-env API | Additive only; Windows uses `std::env::vars()` (panic on non-Unicode); no empty env | Our `Option` contract is correct; Windows duplicate keys use last-wins dedupe in 0.10.4. A future `OsString` builder remains. |
 | **Child exit notification** | Blocking `wait`; async future spawns a waiter thread | `RegisterWaitForSingleObject` callback + event channel | 50 ms polling via `GetExitCodeProcess` | Use an event-driven Windows watcher; avoid polling and thread-per-poll. |
 | **Terminal model** | `term` has no PTY; `Terminal::advance_bytes` + writer injection | `Pty` / event loop / `Term` are separate | PTY only | `TerminalSession` should be a thin coordinator, not an emulator-inside-PTY. |
 
@@ -652,6 +652,16 @@ deduplicate:
 - Inheritance still uses `vars_os()` and does not panic on non-Unicode entries.
 - No regression in the existing env tests.
 
+**0.10.4 implementation.** `platform::dedupe_env_exact` and
+`dedupe_env_windows` centralize the policy: last occurrence wins, including its
+key spelling/value; Windows uses `eq_ignore_ascii_case`, Unix uses exact keys.
+Unix `PreparedCommand` and the Windows `build_env_block` both call the helper.
+The Windows block keeps the `\0\0` empty-environment form and encodes UTF-16.
+Python `spawn()` now forwards `env` as ordered pairs instead of a `HashMap`, so
+the Windows last-wins result follows the mapping order. Tests cover exact and
+case-insensitive duplicates, empty values, Unicode, the empty block, and a
+real Windows child; inheritance remains on `vars_os()`/null.
+
 ---
 
 ### 5.2 H2 — `STARTF_USESTDHANDLES` and inherited stdio
@@ -1041,7 +1051,7 @@ the number, not the order, when scheduling.
 | 1 | **0.10.1** | G3 — Windows interrupt: explicit unsupported error (**released**) | Bug/behavior fix; no new API surface |
 | 2 | **0.10.2** | G4 + H3 — close/read-until-exit, drain, child watcher (**implemented; release pending confirmation**) | Incremental fix on the just-landed `PtySession`; pairs with G6 |
 | 3 | **0.10.3** | G7 — shared terminate policy (**implemented; release pending confirmation**) | Tech debt; behavior-preserving, macOS CI verification |
-| 4 | **0.10.4** | H1 — env key dedup/normalization | Windows correctness fix; contract already shipped in 0.10.0 |
+| 4 | **0.10.4** | H1 — env key dedup/normalization (**implemented; release pending confirmation**) | Windows correctness fix; contract already shipped in 0.10.0 |
 | 5 | **0.10.5** | H2 — `STARTF_USESTDHANDLES`; H4 if confirmed | Windows spawn hardening; one spawn-focused commit |
 | 6 | **0.10.6** | P1 — persistent parser state across `feed()` chunks | Critical correctness fix; prerequisite for K1a/K1b |
 | 7 | **0.10.7** | K1a — Kitty parser correctness + mode exposure | Parser bug fix; builds on P1 |
@@ -1104,7 +1114,7 @@ umbrella. Checkboxes track implementation, not filing.
 
 **Reference-review findings**
 
-- [ ] **H1** — `fix(windows): normalize/deduplicate explicit environment keys` ([#10](https://github.com/opticsWolf/stitch-pty/issues/10))
+- [x] **H1** — `fix(windows): normalize/deduplicate explicit environment keys` (implemented in 0.10.4; release pending) ([#10](https://github.com/opticsWolf/stitch-pty/issues/10))
 - [ ] **H2** — `fix(windows): set STARTF_USESTDHANDLES for ConPTY spawn` ([#11](https://github.com/opticsWolf/stitch-pty/issues/11))
 - [x] **H3** — `perf(windows): event-driven child-exit watcher` (implemented in 0.10.2; release pending) ([#6](https://github.com/opticsWolf/stitch-pty/issues/6))
 - [ ] **H4** — `spike(windows): review ConPTY creation flags` ([#12](https://github.com/opticsWolf/stitch-pty/issues/12); investigation)
@@ -1244,6 +1254,21 @@ No 0.10.3 tag or registry publish has been performed. 0.10.2 also remains
 untagged; its release gate is §8.6. The 0.10.3 release waits for explicit
 confirmation.
 
+### 8.8 0.10.4 (H1) — implementation complete, release pending
+
+- [x] Version/changelog/docs for 0.10.4
+- [x] Local gates: `fmt`, `clippy` (host + Linux/macOS), `cargo test`
+      (412 unit + 18 integration [Windows; 19 Unix] + 1 doc),
+      `--no-default-features` (412), `check --features python`, `doc`, `ruff`,
+      `mypy`, `maturin develop --release` (0.10.4), `pytest` (198 passed,
+      1 skipped)
+- [ ] CI on the exact 0.10.4 commit
+- [ ] Tag `v0.10.4`; publish PyPI/crates; create the GitHub release
+
+No 0.10.4 tag or registry publish has been performed. 0.10.2 and 0.10.3 also
+remain untagged; their release gates are §8.6 and §8.7. The 0.10.4 release
+waits for explicit confirmation.
+
 ---
 
 ## 9. Open decisions / risks
@@ -1257,7 +1282,7 @@ confirmation.
 | G4 close semantics | Does `close()` require an exited child, kill a live child, or error? How is drain guaranteed? | Answered: live child is terminated; drain is bounded; implemented in 0.10.2 (pending release) |
 | G4 blocking | Is `ClosePseudoConsole` ever called from the async executor, or always from a blocking thread? | Answered: `close()` uses `spawn_blocking`; implemented in 0.10.2 (pending release) |
 | G7 macOS timers | Is the Rust terminate path safe through PyO3 on current macOS? | Answered: shared `terminate_child` policy; PyO3 adapter injects blocking sleeps and Python no longer polls. macOS CI verification pending the 0.10.3 release |
-| H1 duplicate keys | Reject or last-wins for exact/case-insensitive duplicates? | 0.10.4; document and test |
+| H1 duplicate keys | Reject or last-wins for exact/case-insensitive duplicates? | Answered: last occurrence wins; Windows compares ASCII case-insensitively, Unix exact keys. Python preserves mapping order; implemented in 0.10.4 (pending release) |
 | H2 std handles | Does setting `STARTF_USESTDHANDLES` change any current output path? | 0.10.5; redirected-parent test |
 | H3 watcher | Replace the 50 ms exit poll with an event-driven watcher? | Answered: watcher implemented in 0.10.2 (pending release) |
 | H4 flags | Is `RESIZE_QUIRK` needed for a reproducible bug? Is `WIN32_INPUT_MODE` ever desirable? | Spike; no speculative change |
@@ -1276,8 +1301,8 @@ confirmation.
 
 - PR #2 merged to `dev`; 0.10.0 released from tag `v0.10.0` (`e620cc8`);
   0.10.1 released from tag `v0.10.1` (`97e03ab`); PyPI and crates.io
-  published for both. 0.10.2 and 0.10.3 are implemented on `dev`; their
-  releases are pending explicit confirmation.
+  published for both. 0.10.2, 0.10.3, and 0.10.4 are implemented on `dev`;
+  their releases are pending explicit confirmation.
 - All seven original gaps, H1–H3, K1a/K1b, P1, and D1/D2 have open issues
   linked to PR #2 and this plan; H4 has a recorded spike decision.
 - Issue #1 is linked to K1a/K1b and is not closed before the PySide6 example

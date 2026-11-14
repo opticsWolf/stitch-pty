@@ -213,6 +213,44 @@ pub type ArcPtyBackend = std::sync::Arc<dyn PtyBackend>;
 /// Shared handle to a child-process backend.
 pub type ArcChildBackend = std::sync::Arc<dyn ChildBackend>;
 
+// ── Explicit environment normalization ────────────────────────────
+
+/// Collapse duplicate explicit environment keys, exact-key comparison.
+///
+/// The last occurrence wins and its key spelling/value are retained. `None`
+/// inheritance is not normalized; it keeps using the platform's `vars_os()`.
+#[cfg_attr(not(unix), allow(dead_code))] // used by the Unix backend; tested on all platforms
+pub(crate) fn dedupe_env_exact(env: &[(String, String)]) -> Vec<(&str, &str)> {
+    dedupe_env(env, |a, b| a == b)
+}
+
+/// Collapse duplicate explicit Windows environment keys.
+///
+/// Windows environment names are ASCII case-insensitive, so `PATH` and `Path`
+/// are the same key. The last occurrence wins and its key spelling/value are
+/// retained.
+#[cfg_attr(not(windows), allow(dead_code))] // used by the Windows backend; tested on all platforms
+pub(crate) fn dedupe_env_windows(env: &[(String, String)]) -> Vec<(&str, &str)> {
+    dedupe_env(env, |a, b| a.eq_ignore_ascii_case(b))
+}
+
+fn dedupe_env<'a>(
+    env: &'a [(String, String)],
+    same_key: impl Fn(&str, &str) -> bool,
+) -> Vec<(&'a str, &'a str)> {
+    let mut entries: Vec<(&str, &str)> = Vec::with_capacity(env.len());
+    for (key, value) in env {
+        if let Some(pos) = entries
+            .iter()
+            .position(|(existing, _)| same_key(existing, key.as_str()))
+        {
+            entries.remove(pos);
+        }
+        entries.push((key.as_str(), value.as_str()));
+    }
+    entries
+}
+
 // ── Platform Dispatch ─────────────────────────────────────────────
 
 /// Validate `cwd` in the parent before spawning: it must be an existing directory.
@@ -250,13 +288,17 @@ pub(crate) fn validate_cwd(cwd: &str) -> PtyResult<()> {
 ///
 /// - `None` inherits the parent environment (the usual case).
 /// - `Some(&[])` spawns with an empty environment.
-/// - `Some(entries)` supplies exactly those variables (no merging).
+/// - `Some(entries)` supplies exactly those variables (no merging). Duplicate
+///   keys collapse to the last occurrence, including its key spelling and
+///   value. Windows compares keys ASCII case-insensitively (`PATH` and `Path`
+///   are one key); Unix compares exact keys. Empty values are preserved.
 ///
 /// An empty slice used to be ambiguous: Unix passed an empty `envp`, while
 /// Windows passed a null environment block and inherited. The `Option` makes
-/// both intents explicit and keeps the platforms consistent. Note that the
-/// inherit path on Unix is built from `vars_os()`, so non-Unicode environment
-/// entries do not panic.
+/// both intents explicit and keeps the platforms consistent. The inherit path
+/// is built from `vars_os()` on Unix and a null block on Windows, so
+/// non-Unicode environment entries do not panic. Explicit entries use `String`
+/// and therefore cannot represent non-Unicode keys or values.
 pub async fn spawn_platform(
     program: &str,
     args: &[String],
@@ -305,6 +347,47 @@ pub async fn open_pty_platform(winsize: Option<Winsize>) -> PtyResult<ArcPtyBack
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Explicit environment normalization ─────────────────────────
+
+    #[test]
+    fn dedupe_explicit_env_last_wins_exact_keys() {
+        let env = vec![
+            ("A".to_string(), "1".to_string()),
+            ("B".to_string(), "2".to_string()),
+            ("A".to_string(), "3".to_string()),
+            ("Path".to_string(), "case-distinct-on-unix".to_string()),
+        ];
+        assert_eq!(
+            dedupe_env_exact(&env),
+            vec![("B", "2"), ("A", "3"), ("Path", "case-distinct-on-unix")]
+        );
+    }
+
+    #[test]
+    fn dedupe_explicit_env_windows_is_case_insensitive() {
+        let env = vec![
+            ("Path".to_string(), "first".to_string()),
+            ("PATH".to_string(), "second".to_string()),
+            ("Other".to_string(), "kept".to_string()),
+        ];
+        assert_eq!(
+            dedupe_env_windows(&env),
+            vec![("PATH", "second"), ("Other", "kept")]
+        );
+    }
+
+    #[test]
+    fn dedupe_explicit_env_preserves_empty_and_unicode() {
+        let env = vec![
+            ("EMPTY".to_string(), String::new()),
+            ("КЛЮЧ".to_string(), "значение".to_string()),
+        ];
+        assert_eq!(
+            dedupe_env_windows(&env),
+            vec![("EMPTY", ""), ("КЛЮЧ", "значение")]
+        );
+    }
 
     // ── ExitStatus Tests ───────────────────────────────────────────
 

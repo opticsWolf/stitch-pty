@@ -241,6 +241,36 @@ async fn explicit_env_replaces_parent_environment() {
 
 #[cfg(windows)]
 #[tokio::test]
+async fn explicit_env_dedupes_case_insensitive_keys() {
+    // Windows environment names are case-insensitive. The last explicit entry
+    // must win, so the child sees one PATH value rather than an ambiguous block.
+    let env = vec![
+        ("Path".to_string(), "first".to_string()),
+        ("PATH".to_string(), "second".to_string()),
+    ];
+    let (program, args) = (
+        "cmd.exe",
+        vec!["/C".into(), "echo stitch-env=%PATH%".into()],
+    );
+    let session = PtySession::spawn_with_env(program, &args, &env, size(), None)
+        .await
+        .expect("spawn");
+    let out = read_until_contains(&session, "stitch-env=", Duration::from_secs(5)).await;
+    let status = session.wait().await.expect("child should be reaped");
+
+    assert!(status.success(), "dedupe env command failed: {status}");
+    assert!(
+        out.contains("stitch-env=second"),
+        "last case-insensitive PATH did not win; got {out:?}"
+    );
+    assert!(
+        !out.contains("stitch-env=first"),
+        "duplicate PATH leaked through; got {out:?}"
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
 async fn explicit_env_replaces_parent_environment() {
     let env = vec![("STITCH_TEST".to_string(), "1".to_string())];
     let (program, args) = (

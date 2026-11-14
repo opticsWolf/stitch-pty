@@ -601,14 +601,15 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 22 | 0.10.1 | ☑ released (`v0.10.1`, `97e03ab`) — G3: Windows `interrupt()`/`send_signal(2)` return `Unsupported` (`NotImplementedError`) |
 | 23 | 0.10.2 | ☑ implemented — G4/H3: `read_until_exit`, idempotent `close`, `shutdown_write`, event-driven exit watcher (release pending confirmation) |
 | 24 | 0.10.3 | ☑ implemented — G7: one shared terminate policy; Python delegates once instead of re-issuing SIGTERM every 100 ms (release pending confirmation) |
+| 25 | 0.10.4 | ☑ implemented — H1: explicit env dedupe last-wins; Windows ASCII case-insensitive; Python forwards ordered pairs (release pending confirmation) |
 
-All rows through 0.10.3 are implemented on `dev`; 0.10.2 and 0.10.3 have not
-been tagged or published yet. Final tally at 0.10.1 was **402 Rust unit tests +
-12 integration + 1 doctest, 195 Python tests**; at 0.10.3 it is **407 unit + 17
-integration [Windows; 19 Unix] + 1 doctest, 197 Python passed + 1 skipped on
-Windows**, all green; `fmt --check`, `clippy -D warnings` (Windows + Linux +
-macOS targets), `ruff check`, `mypy --strict` all clean.
+All rows through 0.10.4 are implemented on `dev`; 0.10.2, 0.10.3, and 0.10.4
+have not been tagged or published yet. Final tally at 0.10.1 was **402 Rust unit
+tests + 12 integration + 1 doctest, 195 Python tests**; at 0.10.4 it is **412
+unit + 18 integration [Windows; 19 Unix] + 1 doctest, 198 Python passed + 1
+skipped (199 collected)**, all green; `fmt --check`, `clippy -D warnings`
+(Windows + Linux + macOS targets), `ruff check`, `mypy --strict` all clean.
 
-0.10.0 and 0.10.1 are published to PyPI and crates.io; 0.10.2 and 0.10.3 await
-explicit release confirmation. See [`PLAN-0.10.md`](PLAN-0.10.md) for
-follow-ups.
+0.10.0 and 0.10.1 are published to PyPI and crates.io; 0.10.2, 0.10.3, and
+0.10.4 await explicit release confirmation. See
+[`PLAN-0.10.md`](PLAN-0.10.md) for follow-ups.
