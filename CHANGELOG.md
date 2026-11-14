@@ -4,7 +4,17 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.0...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.1...HEAD)
+
+## [0.10.1 — Windows interrupt is explicitly unsupported](https://github.com/opticsWolf/stitch-pty/compare/v0.10.0...v0.10.1)
+
+### Changed
+- Windows `interrupt()` and `send_signal(2)` now return
+  `PtyErrorKind::Unsupported` (Python `NotImplementedError`) instead of
+  calling `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`, which targets the
+  caller's console group and generally does not reach the ConPTY child.
+  POSIX SIGINT is unchanged; use `terminate()` or `kill()` on Windows.
+  Added a Windows integration test and a Python regression test.
 
 ## [0.10.0 — Rust PtySession + explicit environment contract](https://github.com/opticsWolf/stitch-pty/compare/v0.9.1...v0.10.0)
 

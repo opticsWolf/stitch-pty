@@ -263,15 +263,10 @@ impl ChildBackend for WinChildProcess {
 
     fn signal(&self, sig: i32) -> Result<(), PtyErrorKind> {
         match sig {
-            2 => unsafe {
-                windows::Win32::System::Console::GenerateConsoleCtrlEvent(
-                    windows::Win32::System::Console::CTRL_C_EVENT,
-                    0,
-                )
-                .map_err(|e| {
-                    PtyErrorKind::SignalError(format!("GenerateConsoleCtrlEvent: {:?}", e))
-                })
-            },
+            2 => Err(PtyErrorKind::Unsupported(
+                "SIGINT/interrupt is not supported on Windows ConPTY; use terminate() or kill()"
+                    .to_string(),
+            )),
             9 | 15 => self.do_kill(),
             _ => Err(PtyErrorKind::SignalError(format!(
                 "Signal {} not supported on Windows",

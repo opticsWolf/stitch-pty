@@ -1,8 +1,8 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.10.0 released** (tag `v0.10.0`; PyPI and crates.io published; follow-ups pending)
-> Release branch: `dev` (fast-forwarded to `main`; both contain tag commit `e620cc8`)
-> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; pre-rebase PR head was `5e68aa1`
+> Status: **0.10.0 released; 0.10.1 patch landed on `dev`** (G3: Windows `interrupt()` is explicitly unsupported)
+> Release branch: `dev` (contains tag commit `e620cc8`; `main` is fast-forwarded through `07b4680`)
+> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 patch on `dev`; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
 > [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md)
@@ -51,11 +51,11 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | Tag run `43579326214`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io publish jobs green. Pre-release run `43577417909` on `e6f10d2` had publish jobs skipped. |
-| Version | `0.10.0` released; tag `v0.10.0` at `e620cc8` |
+| CI | 0.10.0 tag run `43579326214`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.1 CI runs on push. |
+| Version | `0.10.1` on `dev` (G3 patch); `0.10.0` is the published tag at `e620cc8` |
 | Publication | PyPI 0.10.0 (4 files) and crates.io 0.10.0 published |
-| Local gates | Release gates green: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (401 unit + 11 integration + 1 doc), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.0), `pytest` (195), README example, Windows unread-output Drop smoke (~313 µs) |
-| Branch sync | `dev` and `main` contain tag commit `e620cc8`; tag `v0.10.0` points there; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Local gates | 0.10.1: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (402 unit + 12 integration + 1 doc), `--no-default-features` (402), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.1), `pytest` (195) |
+| Branch sync | `dev` is ahead with the 0.10.1 patch; `main` is at `07b4680` (post-release docs); tag `v0.10.0` remains at `e620cc8`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
@@ -338,9 +338,9 @@ behavior, and none of these codebases validates it.
 
 **Revised work.**
 
-1. **Default for 0.10.1:** on Windows, make `interrupt()` return a typed
-   “unsupported on ConPTY” error (new `PtyErrorKind::Unsupported` or a specific
-   `SignalError`). Do not silently succeed.
+1. **Landed in 0.10.1:** on Windows, `interrupt()`/`send_signal(2)` return
+   `PtyErrorKind::Unsupported` (Python `NotImplementedError`). Do not silently
+   succeed. Unix SIGINT is unchanged.
 2. Update `PtySession::interrupt`, Python `interrupt()`, README Windows
    caveats, and rustdoc to match.
 3. Keep Unix behavior unchanged: `SIGINT` to the child's process group.
@@ -1023,7 +1023,7 @@ the number, not the order, when scheduling.
 | Order | Version | Work | Why this bucket |
 |---|---|---|---|
 | 0 | **0.10.0** | PR #2 merged; version/changelog commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; PyPI + crates.io published | Released |
-| 1 | **0.10.1** | G3 — Windows interrupt: explicit unsupported error | Bug/behavior fix; no new API surface |
+| 1 | **0.10.1** | G3 — Windows interrupt: explicit unsupported error (**landed**) | Bug/behavior fix; no new API surface |
 | 2 | **0.10.2** | G4 + H3 — close/read-until-exit, drain, child watcher | Incremental fix on the just-landed `PtySession`; pairs with G6 |
 | 3 | **0.10.3** | G7 — Python terminate consolidation | Tech debt; behavior-preserving, macOS-verified |
 | 4 | **0.10.4** | H1 — env key dedup/normalization | Windows correctness fix; contract already shipped in 0.10.0 |
@@ -1078,7 +1078,7 @@ PR #2 is merged, and link each back to the PR and this plan.
 
 **Original gaps**
 
-- [ ] **G3** — `fix(windows): make interrupt() fail explicitly on ConPTY`
+- [x] **G3** — `fix(windows): make interrupt() fail explicitly on ConPTY` (landed in 0.10.1)
 - [ ] **G4** — `fix(windows): add close()/read_until_exit with drain and close-order safety`
 - [ ] **G2** — `refactor(rust)!: remove ProcessExit and return ExitStatus from wait`
 - [ ] **G1** — `docs(rust): document raw_handle platform contract; optional RawHandle enum`
@@ -1192,7 +1192,7 @@ a stale `CARGO_REGISTRY_TOKEN`; after refresh, the rerun published cleanly.
 |---|---|---|
 | G1 unified handle | Do we need a nameable `RawHandle` at all, or are platform-gated accessors enough? | 0.11.0 design; default is accessors |
 | G2 status shape | Keep `ExitStatus { code, signal }` or switch to `Code`/`Signal` enum in the same breaking release? | 0.11.0; one migration |
-| G3 Windows interrupt | Is Ctrl+Break acceptable, or is explicit “unsupported” the contract? | 0.10.1; explicit unsupported by default |
+| G3 Windows interrupt | Is Ctrl+Break acceptable, or is explicit “unsupported” the contract? | Answered: explicit unsupported landed in 0.10.1; Ctrl+Break remains an optional separate spike |
 | G4 latent Drop | Does the current 0.10.0 `Drop` hang with unread output? | Answered: no; release smoke passed in ~313 µs with unread output, so no guard is needed |
 | G4 close semantics | Does `close()` require an exited child, kill a live child, or error? How is drain guaranteed? | 0.10.2 design; large-output/unread-output tests |
 | G4 blocking | Is `ClosePseudoConsole` ever called from the async executor, or always from a blocking thread? | 0.10.2; document and test |

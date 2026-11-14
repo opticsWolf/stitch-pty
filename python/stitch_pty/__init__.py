@@ -60,7 +60,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.10.0"
+__version__ = "0.10.1"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -215,13 +215,19 @@ class PtyChild:
     def interrupt(self) -> None:
         """Send Ctrl+C (SIGINT) to the process group.
 
-        Windows: best-effort. GenerateConsoleCtrlEvent targets the caller's
-        console group, not the ConPTY child; use terminate() to stop it.
+        POSIX: sends SIGINT. Windows: raises ``NotImplementedError`` because
+        ConPTY has no reliable programmatic Ctrl+C; use :meth:`terminate` or
+        :meth:`kill` instead.
         """
         self._inner.interrupt()
 
     def send_signal(self, signal_num: int) -> None:
-        """Send a custom Unix signal to the process group."""
+        """Send a signal number to the process group.
+
+        Windows supports 9 (SIGKILL) and 15 (SIGTERM), both via
+        ``TerminateProcess``; signal 2 (SIGINT) raises
+        ``NotImplementedError``.
+        """
         self._inner.send_signal(signal_num)
 
     def __repr__(self) -> str:
@@ -468,8 +474,9 @@ class PtySession:
     def interrupt(self) -> None:
         """Send Ctrl+C.
 
-        Windows: best-effort (may not reach the ConPTY child); use
-        terminate() instead.
+        POSIX: sends SIGINT. Windows: raises ``NotImplementedError`` because
+        ConPTY has no reliable programmatic Ctrl+C; use :meth:`terminate` or
+        :meth:`kill` instead.
         """
         self._inner.interrupt()
 
@@ -483,7 +490,12 @@ class PtySession:
         self._terminal.resize(rows, cols)
 
     def send_signal(self, signal_num: int) -> None:
-        """Send a custom signal."""
+        """Send a signal number to the process group.
+
+        Windows supports 9 (SIGKILL) and 15 (SIGTERM), both via
+        ``TerminateProcess``; signal 2 (SIGINT) raises
+        ``NotImplementedError``.
+        """
         self._inner.send_signal(signal_num)
 
     async def interact(

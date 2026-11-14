@@ -264,8 +264,8 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `wait` | `await wait(timeout=None) → ExitStatus \| None` | Wait for child exit; returns `ExitStatus` (repeated calls return the same status), `None` only if the status was lost; raises `TimeoutError` past `timeout` |
 | `terminate` | `await terminate(grace_period=5.0) → None` | SIGTERM → wait → SIGKILL fallback |
 | `kill` | `kill() → None` | Force kill immediately |
-| `interrupt` | `interrupt() → None` | Send Ctrl+C (SIGINT on POSIX; Windows Ctrl+C is best-effort and may not reach the ConPTY child) |
-| `send_signal` | `send_signal(num) → None` | Send arbitrary signal number |
+| `interrupt` | `interrupt() → None` | Send Ctrl+C (SIGINT) on POSIX; raises `NotImplementedError` on Windows |
+| `send_signal` | `send_signal(num) → None` | Send a signal number; Windows supports 9/15 only (2 raises `NotImplementedError`) |
 | `interact` | `await interact(input_data=None, timeout=None) → bytes` | Write input, read until EOF (high-level) |
 | `read_all` | `await read_all(timeout=1.0) → bytes` | Read all output until timeout |
 | `expect` | `await expect(patterns, timeout=30.0) → ExpectResult` | pexpect-style: bytes/str/regex, single or list; `.buffer` on timeouts |
@@ -331,8 +331,8 @@ Child process management.
 | `wait` | `await wait(timeout=None) → ExitStatus \| None` | Wait for exit; returns `ExitStatus` (repeated calls return the same status), `None` only if the status was lost; raises `TimeoutError` past `timeout` |
 | `terminate` | `await terminate(grace_period=5.0) → None` | SIGTERM → wait → SIGKILL |
 | `kill` | `kill() → None` | Force kill |
-| `interrupt` | `interrupt() → None` | Send Ctrl+C (Windows best-effort; may not reach the ConPTY child) |
-| `send_signal` | `send_signal(num) → None` | Send signal number |
+| `interrupt` | `interrupt() → None` | Send Ctrl+C (SIGINT) on POSIX; raises `NotImplementedError` on Windows |
+| `send_signal` | `send_signal(num) → None` | Send signal number; Windows supports 9/15 only (2 raises `NotImplementedError`) |
 
 ---
 
@@ -483,7 +483,7 @@ loop {
 | **Process spawn** | `CreateProcessW` with `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` via `SafeAttributeList` |
 | **Async I/O** | `tokio::net::NamedPipeServer` → true async via IOCP (no `spawn_blocking`) |
 | **Reaping** | Background poll of `GetExitCodeProcess` every 50ms (no `WaitForSingleObject`) |
-| **Signal delivery** | Ctrl+C best-effort (`GenerateConsoleCtrlEvent`, targets caller's group); SIGTERM/KILL → `TerminateProcess` |
+| **Signal delivery** | SIGINT/interrupt unsupported (`NotImplementedError`); SIGTERM/KILL → `TerminateProcess` |
 | **Resize** | `ResizePseudoConsole` (no signal forwarded to child) |
 | **Startup handshake** | Sends DSR reply `\x1b[1;1R` to conhost to begin relaying child output |
 | **Command quoting** | `ArgvQuote` algorithm: proper escaping of spaces, quotes, trailing backslashes |
@@ -928,7 +928,7 @@ stitch-pty's dual licensing.
 |----------|---------|----------------|---------------|-----------|--------|
 | **Linux** | POSIX `openpty()` + `fork()` | Full | ✅ `SIGWINCH` | code + signal | ✅ Complete |
 | **macOS** | POSIX `openpty()` + `fork()` | Full | ✅ `SIGWINCH` | code + signal | ✅ Complete |
-| **Windows 10 1809+** | ConPTY + NamedPipes | Ctrl+C (best-effort), TERM/KILL (terminate) | ❌ No signal | code only | ✅ Complete |
+| **Windows 10 1809+** | ConPTY + NamedPipes | SIGINT unsupported; TERM/KILL (terminate) | ❌ No signal | code only | ✅ Complete |
 | **Windows < 1809** | — (spawn raises `PtyError`) | — | — | — | ❌ Unsupported |
 
 > `ExitStatus.core_dumped` exists on all platforms but is always `False`
@@ -941,17 +941,16 @@ stitch-pty's dual licensing.
 |---------|-------|---------|
 | PTY backend | `openpty(3)` + `fork()` + `execvpe()` | ConPTY (`CreatePseudoConsole`) + `CreateProcessW` |
 | I/O model | `tokio::AsyncFd` over raw FDs | `tokio::NamedPipeServer` (IOCP) |
-| Signal delivery | Full via `nix::sys::signal` (SIGINT, SIGTERM, SIGKILL, SIGWINCH) | Ctrl+C via `GenerateConsoleCtrlEvent` (best-effort; targets the caller's console group, not the ConPTY child), SIGTERM/KILL → `TerminateProcess`, others rejected |
+| Signal delivery | Full via `nix::sys::signal` (SIGINT, SIGTERM, SIGKILL, SIGWINCH) | SIGINT/interrupt unsupported (`NotImplementedError`); SIGTERM/KILL → `TerminateProcess`; others rejected |
 | Resize signal | `SIGWINCH` forwarded to process group via `tcgetpgrp` | No signal; `ResizePseudoConsole` only |
 | Exit info | `exit_code` + `signal` (`core_dumped` always `False`, reserved) | `exit_code` only |
 | Pipe plumbing | Single FD pair (master/slave) | Two named pipes (input/output) + `connect()` to arm IOCP |
 | Startup handshake | N/A | DSR reply (`\x1b[1;1R`) to conhost before child output flows |
 | FD leak fix | `close_random_fds()` (macOS/Linux) | N/A |
 
-> **Windows Ctrl+C:** `interrupt()` uses
-> `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`, which targets the caller's
-> console process group rather than the ConPTY child. It is best-effort on
-> Windows; use `terminate()` to stop the child.
+> **Windows Ctrl+C:** `interrupt()` raises `NotImplementedError` on Windows.
+> ConPTY has no reliable programmatic Ctrl+C; use `terminate()` or `kill()`
+> to stop the child.
 
 ---
 

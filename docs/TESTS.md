@@ -4,15 +4,15 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **401** | **11** | 384 shared + 17 Windows-only |
-| **Linux / macOS** | **388** | **13** | 384 shared + 4 Unix-only |
+| **Windows** | **402** | **12** | 385 shared + 17 Windows-only |
+| **Linux / macOS** | **389** | **13** | 385 shared + 4 Unix-only |
 
-### Shared Tests (384)
+### Shared Tests (385)
 
 Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, `src/winsize.rs`, and `src/terminal/`.
 
 - **async_io** (13): `read_timeout` logic, buffer handling, duration edge cases
-- **errors** (17): error display formatting, `PtyErrorKind` variants, IO error conversion
+- **errors** (18): error display formatting, `PtyErrorKind` variants, IO error conversion
 - **platform** (23): `ExitStatus` display/clone/debug, `ProcessExit` conversion, trait existence
 - **terminal/ansi_parser** (30): CSI/DCS/OSC/ESC parsing, UTF-8 handling, parameter overflow
 - **terminal/charsets** (7): ASCII map, DEC special characters, charset designation
@@ -64,7 +64,7 @@ total (11 on Windows; the Unix-only tests are marked):
 
 | Platform | Count | Breakdown |
 |----------|-------|-----------|
-| **Windows** | **195** | 194 passed + 1 skipped (`test_interrupt` on CI) |
+| **Windows** | **195** | 195 passed (including the explicit unsupported `interrupt()` path) |
 | **Linux / macOS** | **195** | 195 passed |
 
 ### Test Files
@@ -81,11 +81,11 @@ total (11 on Windows; the Unix-only tests are marked):
 | `test_terminal_scrollback.py` | 15 | Scrollback: capacity limits, trim, absolute cursor, history-aware resize |
 | `test_terminal_styled.py` | 20 | Styled cells: color (named/256/truecolor), attributes (bold/dim/italic/underline/blink/reverse/hidden/strikethrough) |
 
-### Skipped Tests
+### Platform-specific behavior
 
-| Test | Condition | Reason |
-|------|-----------|--------|
-| `test_interrupt` | Windows + `CI=true` | Windows Ctrl+C delivery to ConPTY children is unreliable; the test only checks `interrupt()` does not panic |
+`test_interrupt` asserts the explicit `NotImplementedError` path for
+`interrupt()` and `send_signal(2)` on Windows, and sends SIGINT on POSIX.
+There are no skipped Python tests.
 
 ---
 

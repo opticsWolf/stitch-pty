@@ -103,8 +103,8 @@ exit within `timeout` seconds.
 | `resize(rows, cols)` | Resize PTY backend + emulator in one call (reflows on column change) |
 | `await terminate(grace_period=5.0)` | SIGTERM → wait → SIGKILL fallback |
 | `kill()` | Force kill |
-| `interrupt()` | Send Ctrl+C (SIGINT); Windows best-effort |
-| `send_signal(num)` | Send signal number |
+| `interrupt()` | Send Ctrl+C (SIGINT) on POSIX; raises `NotImplementedError` on Windows |
+| `send_signal(num)` | Send signal number; Windows 9/15 only |
 | `await wait(timeout=None)` | Wait for exit, returns `ExitStatus \| None`. Raises `TimeoutError` on timeout. |
 | `await interact(input_data=None, timeout=None)` | Write input, read until EOF |
 | `await expect(patterns, timeout=30.0)` | pexpect-style: `bytes`/`str`/`re.Pattern`/list → `ExpectResult(index, match, buffer)`; timeouts carry `.buffer` |
@@ -143,8 +143,8 @@ exit within `timeout` seconds.
 | `await wait()` | Wait for exit, returns `ExitStatus \| None` |
 | `await terminate(grace_period)` | SIGTERM → wait → SIGKILL fallback |
 | `kill()` | Force kill |
-| `interrupt()` | Send Ctrl+C (Windows best-effort) |
-| `send_signal(num)` | Send signal number |
+| `interrupt()` | Send Ctrl+C (SIGINT) on POSIX; raises `NotImplementedError` on Windows |
+| `send_signal(num)` | Send signal number; Windows 9/15 only |
 
 ### `TerminalState` — terminal emulation state
 
@@ -202,7 +202,7 @@ exit.
 |---------|-------|---------|
 | PTY backend | `openpty(3)` + `fork()` + `execvpe()` | ConPTY (kernel32.dll) + tokio NamedPipes |
 | I/O model | `tokio::AsyncFd` over raw FDs | `tokio::NamedPipeServer` (IOCP) |
-| Signals | Full via `nix::sys::signal` (SIGINT, SIGTERM, SIGKILL, SIGWINCH) | Ctrl+C best-effort (`GenerateConsoleCtrlEvent`; targets caller's group), SIGTERM/KILL → `TerminateProcess` |
+| Signals | Full via `nix::sys::signal` (SIGINT, SIGTERM, SIGKILL, SIGWINCH) | SIGINT/interrupt unsupported (`NotImplementedError`); SIGTERM/KILL → `TerminateProcess` |
 | Resize signal | `SIGWINCH` forwarded to process group via `tcgetpgrp` | No signal; `ResizePseudoConsole` only |
 | Exit info | `exit_code` + `signal` (`core_dumped` always `False`, reserved) | `exit_code` only |
 | Pipe plumbing | Single FD pair (master/slave) | Two named pipes (input/output) + `connect()` to arm IOCP |

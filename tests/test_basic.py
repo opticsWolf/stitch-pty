@@ -2,7 +2,6 @@
 
 import asyncio
 import contextlib
-import os
 import platform
 
 import pytest
@@ -10,7 +9,6 @@ from stitch_pty import PtyError, PtySession, spawn
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_UNIX = not IS_WINDOWS
-IS_CI = os.environ.get("CI", "") == "true"
 
 
 async def read_all(session, timeout=3.0, chunk_size=4096):
@@ -211,18 +209,24 @@ async def test_send_signal():
         await asyncio.sleep(0.1)
 
 
-@pytest.mark.skipif(
-    IS_WINDOWS and IS_CI,
-    reason="interrupt (Ctrl+C) unreliable on Windows CI runners"
-)
 @pytest.mark.asyncio
 async def test_interrupt():
     """Test interrupt (SIGINT)."""
     if IS_WINDOWS:
         session = await spawn("cmd.exe", ["/c", "ping -n 11 127.0.0.1 > nul"])
-    else:
-        session = await spawn("bash", ["-c", "sleep 10"])
+        try:
+            assert session.is_alive
+            with pytest.raises(NotImplementedError, match="not supported on Windows ConPTY"):
+                session.interrupt()
+            with pytest.raises(NotImplementedError, match="not supported on Windows ConPTY"):
+                session.send_signal(2)
+        finally:
+            with contextlib.suppress(Exception):
+                session.kill()
+            await asyncio.sleep(0.1)
+        return
 
+    session = await spawn("bash", ["-c", "sleep 10"])
     try:
         assert session.is_alive
         session.interrupt()

@@ -182,17 +182,21 @@ impl PtySession {
     }
 
     /// Send a raw signal number to the child's process group.
+    ///
+    /// Windows supports `9`/`15` (both map to `TerminateProcess`); signal `2`
+    /// (SIGINT) returns [`PtyErrorKind::Unsupported`]. POSIX forwards the
+    /// signal to the child's process group.
     pub fn send_signal(&self, sig: i32) -> PtyResult<()> {
         self.child.signal(sig)
     }
 
     /// Send Ctrl+C.
     ///
-    /// POSIX: `SIGINT` to the child's process group. Windows: delegates to
-    /// [`crate::platform::ChildBackend::signal`]
-    /// (`GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`),
-    /// which targets the caller's console group rather than the ConPTY child;
-    /// see the Windows notes in the README before relying on it.
+    /// POSIX: `SIGINT` to the child's process group. Windows: returns
+    /// [`PtyErrorKind::Unsupported`] because ConPTY has no reliable
+    /// programmatic Ctrl+C; this is an explicit error rather than a
+    /// best-effort no-op. Use [`PtySession::terminate`] or
+    /// [`PtySession::kill`] to stop the child.
     pub fn interrupt(&self) -> PtyResult<()> {
         self.child.signal(2)
     }

@@ -3,7 +3,7 @@
 #[cfg(feature = "python")]
 use pyo3::create_exception;
 #[cfg(feature = "python")]
-use pyo3::exceptions::{PyException, PyIOError, PyOSError};
+use pyo3::exceptions::{PyException, PyIOError, PyNotImplementedError, PyOSError};
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
@@ -59,6 +59,9 @@ pub enum PtyErrorKind {
     #[error("Platform not supported: {0}")]
     PlatformNotSupported(String),
 
+    #[error("Unsupported operation: {0}")]
+    Unsupported(String),
+
     #[error("Windows API error: {0}")]
     WindowsError(String),
 }
@@ -89,6 +92,7 @@ impl From<PtyErrorKind> for PyErr {
                 py_err
             }
             PtyErrorKind::Timeout(_) => PtyError::new_err(err.to_string()),
+            PtyErrorKind::Unsupported(_) => PyNotImplementedError::new_err(err.to_string()),
             PtyErrorKind::SignalError(_) | PtyErrorKind::WindowsError(_) => {
                 PyOSError::new_err(err.to_string())
             }
@@ -249,6 +253,15 @@ mod tests {
     fn test_error_display_platform_not_supported() {
         let err = PtyErrorKind::PlatformNotSupported("darwin arm64".to_string());
         assert_eq!(err.to_string(), "Platform not supported: darwin arm64");
+    }
+
+    #[test]
+    fn test_error_display_unsupported() {
+        let err = PtyErrorKind::Unsupported("interrupt on ConPTY".to_string());
+        assert_eq!(
+            err.to_string(),
+            "Unsupported operation: interrupt on ConPTY"
+        );
     }
 
     #[test]

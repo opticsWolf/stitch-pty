@@ -537,8 +537,8 @@ Python exception (PtyError / ProcessError / IOError / PyOSError / PyIOError)
 | `wait()` | Wait for exit, returns `(pid, exit_code, signal, core_dumped)`; repeated calls return the same status (`None` only if it was lost) |
 | `terminate(grace_period)` | SIGTERM → wait → SIGKILL fallback |
 | `kill()` | Force kill |
-| `interrupt()` | Send Ctrl+C (SIGINT); Windows best-effort (may not reach the ConPTY child) |
-| `send_signal(num)` | Send signal number |
+| `interrupt()` | Send Ctrl+C (SIGINT) on POSIX; raises `NotImplementedError` on Windows |
+| `send_signal(num)` | Send signal number; Windows 9/15 only |
 
 ### `PtySession` — Combined PTY + Child
 
@@ -648,9 +648,9 @@ GitHub Actions
    raises `PtyError` — there is no `CreateProcess` fallback.
 
 2. **No Unix signals**: Windows uses `TerminateProcess` for kill; custom
-   signals are not supported. `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)` is
-   best-effort only: it targets the caller's console process group, not the
-   ConPTY child, so `interrupt()` may leave the child running.
+   signals are not supported. ConPTY has no reliable programmatic Ctrl+C, so
+   `interrupt()` raises `NotImplementedError` instead of silently doing
+   nothing; use `terminate()` or `kill()`.
 
 3. **Window resize**: `ResizePseudoConsole` changes the buffer size but does
    not send a signal to the child process. Applications must poll for size.

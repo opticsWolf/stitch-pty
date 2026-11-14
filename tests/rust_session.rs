@@ -432,3 +432,25 @@ async fn terminate_escalates_and_reaps() {
         started.elapsed()
     );
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn interrupt_is_explicitly_unsupported_on_windows() {
+    let (program, args) = quiet_long_running();
+    let session = PtySession::spawn(program, &args, size(), None)
+        .await
+        .expect("spawn");
+
+    let err = session
+        .interrupt()
+        .expect_err("Windows interrupt() must not silently succeed");
+    match err {
+        stitch_pty::errors::PtyErrorKind::Unsupported(msg) => {
+            assert!(msg.contains("Windows ConPTY"), "unexpected message: {msg}");
+        }
+        other => panic!("expected Unsupported, got {other:?}"),
+    }
+
+    let _ = session.kill();
+    let _ = session.wait().await;
+}
