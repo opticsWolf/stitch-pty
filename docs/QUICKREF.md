@@ -119,6 +119,7 @@ exit within `timeout` seconds.
 | `scrollback` | Scrollback history (`list[str]`) |
 | `full_display` | History + visible (`list[str]`) |
 | `cwd` | Shell cwd from OSC 7 / OSC 9;9, or `None` until reported |
+| `keyboard_mode` | Current Kitty keyboard enhancement flags (active screen) |
 | `raw_output` | Last `raw_output_cap` raw bytes read (unparsed, `bytes`) |
 
 ### `PtyMaster` — raw PTY I/O (no terminal emulation)
@@ -173,6 +174,7 @@ exit within `timeout` seconds.
 | `visible_lines` / `visible_columns` | Visible grid geometry, O(1) — prefer over `len(visible_display())` |
 | `history_size` | Current scrollback line count |
 | `scrollback_lines` | Scrollback capacity |
+| `keyboard_mode` | Current Kitty keyboard enhancement flags (active screen) |
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
 
 ## Error Types
@@ -280,7 +282,10 @@ Full reset (`RIS`) and DECALN still use defaults.
 | `ESC Z` | DA0 (identify terminal) |
 | `CSI c` | DA1 (identify terminal) |
 | `CSI ?6c` | DA1 response |
-| `CSI n;1;0 u` | Kitty keyboard mode |
+| `CSI > flags u` | Kitty keyboard push: save current flags, set flags |
+| `CSI < n u` | Kitty keyboard pop `n` (default 1); reset when exhausted |
+| `CSI = flags ; mode u` | Kitty keyboard set: 1=replace, 2=union, 3=difference |
+| `CSI ? u` | Query Kitty flags; reply is `CSI ? flags u` |
 | `CSI q` | Cursor style (DECSCUSR) |
 
 ### G0/G1 Character Sets

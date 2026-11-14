@@ -680,6 +680,10 @@ impl HistoryScreen {
     pub fn title(&self) -> &str {
         &self.inner.title
     }
+    /// Current Kitty keyboard enhancement flags (active screen).
+    pub fn keyboard_mode(&self) -> u16 {
+        self.inner.keyboard_mode()
+    }
     pub fn icon_name(&self) -> &str {
         &self.inner.icon_name
     }
@@ -1265,6 +1269,13 @@ mod tests {
         hs.feed(b"\x1b[?10");
         hs.feed(b"49l");
         assert!(!hs.alt_screen());
+    }
+
+    #[test]
+    fn test_keyboard_mode_accessor() {
+        let mut hs = make_history(20, 2, 0);
+        hs.feed(b"[=5;1u");
+        assert_eq!(hs.keyboard_mode(), 5);
     }
 
     #[test]

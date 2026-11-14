@@ -300,6 +300,7 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `visible_lines` | `int` | Visible height in rows, O(1) (prefer over `len(display)`) |
 | `visible_columns` | `int` | Visible width in columns, O(1) |
 | `raw_output` | `bytes` | Last `raw_output_cap` raw bytes read (unparsed; sliding window, default 1 MiB) |
+| `keyboard_mode` | `int` | Current Kitty keyboard enhancement flags on the active screen |
 
 **Context Manager:**
 
@@ -376,6 +377,7 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `visible_columns` | `int` | Visible width in columns, O(1) |
 | `history_size` | `int` | Current scrollback line count |
 | `scrollback_lines` | `int` | Scrollback capacity |
+| `keyboard_mode` | `int` | Current Kitty keyboard enhancement flags (active screen) |
 
 **Styled Viewport Cell Layout:**
 
@@ -537,7 +539,7 @@ ECMA-48 state machine with 14 states:
 | **Modes** | Public (IRM, LNM) + Private (DECOM, DECAWM, DECCOLM, DECTCEM, DECSCNM) + Extended (mouse, bracketed paste) |
 | **Character sets** | G0/G1 with DEC Special line drawing |
 | **Unicode** | Width-1/2 chars, combining marks, CJK, emoji |
-| **Kitty Keyboard Protocol** | Mode push/pop/replace |
+| **Kitty Keyboard Protocol** | Per-screen push/pop, query, and `CSI = flags ; mode` set |
 | **Shell cwd** | OSC 7 / OSC 9;9 tracking, survives alt-screen and reset |
 | **Dirty tracking** | `BTreeSet<usize>` peek (`dirty()`) + drain (`take_dirty_rows()`) + ordered event log (`poll_events()`) + bell flag (`take_bell()`) |
 | **Wrap flags** | Per-row soft-wrap tracking (content-flow semantics — travel with rows, clear on line-unit replace) |
@@ -745,7 +747,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.10.6"
+stitch-pty = "0.10.7"
 ```
 
 To build and test the pure Rust code locally:
@@ -864,7 +866,7 @@ or embedded into this project.
 - **CSI cursor movement** — CUU/CUD/CUF/CUB/CUP/CNL/CPL/CHA
 - **CSI erase** — ED (display), EL (line), DC (characters), DL/IL (lines)
 - **Unicode handling** — `unicode-width` for width-1/width-2 chars, combining marks
-- **Kitty Keyboard Protocol** — mode push/pop/replace
+- **Kitty Keyboard Protocol** — per-screen push/pop, query, replace/union/difference
 - **Device status** — DA0/DA1 identification, cursor position report
 
 **What changed:**

@@ -60,7 +60,7 @@ from stitch_pty._core import (
     spawn as _spawn,
 )
 
-__version__ = "0.10.6"
+__version__ = "0.10.7"
 __all__ = [
     "PtySession",
     "PtyMaster",
@@ -342,6 +342,11 @@ class PtySession:
     def is_alive(self) -> bool:
         """Whether the child process is still running."""
         return bool(self._inner.is_alive)
+
+    @property
+    def keyboard_mode(self) -> int:
+        """Current Kitty keyboard enhancement flags (active screen)."""
+        return int(self._terminal.keyboard_mode)
 
     async def read(self, size: int = 4096) -> bytes:
         """Read from the PTY and feed data through the terminal emulator.

@@ -4,7 +4,24 @@ All notable changes to stitch-pty are documented here, newest first.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Every version below is exactly one commit on `dev` (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.6...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.10.7...HEAD)
+
+## [0.10.7 — Kitty keyboard parser correctness](https://github.com/opticsWolf/stitch-pty/compare/v0.10.6...v0.10.7)
+
+### Fixed
+- Kitty keyboard push now saves the current flags and sets the requested flags
+  (`CSI > flags u`); pop restores saved flags and resets to zero when the stack
+  is exhausted (`CSI < n u`). The stack is bounded to 16 entries with
+  oldest-entry eviction.
+- Main and alternate screens now maintain independent keyboard-mode stacks and
+  survive alt-screen transitions.
+- `CSI ? u` replies with the spec form `CSI ? flags u`.
+- `CSI = flags ; mode u` implements replace/union/difference (modes 1/2/3)
+  instead of the incorrect legacy `flags=u` form; the old tests were replaced
+  with direct spec vectors.
+- Exposed `keyboard_mode` through `Screen`, `HistoryScreen`, `TerminalState`,
+  and the Python `PtySession`/`TerminalState` properties. No key encoder is
+  added; K1b remains the follow-up.
 
 ## [0.10.6 — persistent terminal parser state](https://github.com/opticsWolf/stitch-pty/compare/v0.10.5...v0.10.6)
 

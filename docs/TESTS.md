@@ -4,10 +4,10 @@
 
 | Platform | Unit | Integration | Breakdown |
 |----------|------|-------------|-----------|
-| **Windows** | **419** | **19** | 399 shared + 20 Windows-only |
-| **Linux / macOS** | **403** | **19** | 399 shared + 4 Unix-only |
+| **Windows** | **424** | **19** | 404 shared + 20 Windows-only |
+| **Linux / macOS** | **408** | **19** | 404 shared + 4 Unix-only |
 
-### Shared Tests (399)
+### Shared Tests (404)
 
 Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, `src/winsize.rs`, and `src/terminal/`.
 
@@ -21,11 +21,11 @@ Run on all platforms via `src/platform.rs`, `src/async_io.rs`, `src/errors.rs`, 
 - **terminal/escape** (8): CSI param/intermediate/final character classification
 - **terminal/events** (1): event tag mapping/ordering
 - **terminal/graphics** (24): Color (RGB/256/named), SGR attributes, text formatting
-- **terminal/history** (53): Scrollback, alt screen swap, resize, cursor delegation, split-feed parser state (P1)
+- **terminal/history** (54): Scrollback, alt screen swap, resize, cursor delegation, split-feed parser state (P1), keyboard-mode accessor
 - **terminal/modes** (7): Public/private modes, mouse modes, cursor style
-- **terminal/parser** (82): Full parser — CSI/OSC/ESC/SGR handling, cursor positioning, screen manipulation
+- **terminal/parser** (83): Full parser — CSI/OSC/ESC/SGR handling, cursor positioning, screen manipulation, Kitty keyboard spec vectors
 - **terminate** (5): shared escalation policy — already-exited, graceful, SIGTERM-ignoring, repeated, injected sleep
-- **terminal/screen** (94): Screen rendering, cursor movement, line operations, resize, margins
+- **terminal/screen** (97): Screen rendering, cursor movement, line operations, resize, margins, Kitty per-screen keyboard stacks
 - **winsize** (11): Clone/copy/debug, equality, default, PyO3 conversion
 
 ### Windows-Only Tests (20)
@@ -76,8 +76,8 @@ the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 
 | Platform | Count | Breakdown |
 |----------|-------|-----------|
-| **Windows** | **200** | 199 passed + 1 skipped (POSIX-only SIGTERM-ignore escalation; explicit unsupported `interrupt()` path) |
-| **Linux / macOS** | **200** | 199 passed + 1 skipped (Windows-only env-casing test) |
+| **Windows** | **204** | 203 passed + 1 skipped (POSIX-only SIGTERM-ignore escalation; explicit unsupported `interrupt()` path) |
+| **Linux / macOS** | **204** | 203 passed + 1 skipped (Windows-only env-casing test) |
 
 ### Test Files
 
@@ -89,7 +89,7 @@ the file. This is the H2 `STARTF_USESTDHANDLES` regression.
 | `test_terminal.py` | 19 | Terminal display: empty, scrollback, cursor, title, history, dirty rows |
 | `test_terminal_altscreen.py` | 10 | Alt screen: enter/exit 1049, 47/1047 swap, scrollback isolation, resize |
 | `test_terminal_display.py` | 56 | Full display rendering: ANSI sequences, SGR colors, cursor movement, erase, scroll, tabs |
-| `test_terminal_modes.py` | 20 | Mode toggles: DECCKM, DECTCEM, bracketed paste, mouse protocol, cursor style |
+| `test_terminal_modes.py` | 24 | Mode toggles: DECCKM, DECTCEM, bracketed paste, mouse protocol, cursor style, Kitty keyboard flags/stacks |
 | `test_terminal_scrollback.py` | 15 | Scrollback: capacity limits, trim, absolute cursor, history-aware resize |
 | `test_terminal_styled.py` | 20 | Styled cells: color (named/256/truecolor), attributes (bold/dim/italic/underline/blink/reverse/hidden/strikethrough) |
 

@@ -1,8 +1,8 @@
 # stitch-pty 0.10 — Release and Follow-up Plan
 
-> Status: **0.10.2 through 0.10.6 implemented on `dev`** (G4 + H3, G7, H1, H2/H4, then P1); none of these patches is tagged or published yet. 0.10.1 and 0.10.0 are published; final release steps wait for explicit confirmation.
-> Release branch: `dev` (contains `v0.10.0` at `e620cc8` and `v0.10.1` at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; 0.10.5 at `5c66fc2`; 0.10.6 follows; `main` is at `b0e4510`)
-> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; 0.10.5 at `5c66fc2`; all untagged; pre-rebase PR head was `5e68aa1`
+> Status: **all planned 0.10.x patches (0.10.2–0.10.7) implemented on `dev`** (G4 + H3, G7, H1, H2/H4, P1, then K1a); none of these patches is tagged or published yet. 0.10.1 and 0.10.0 are published; final release steps wait for explicit confirmation.
+> Release branch: `dev` (contains `v0.10.0` at `e620cc8` and `v0.10.1` at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; 0.10.5 at `5c66fc2`; 0.10.6 at `deb0df6`; 0.10.7 follows; `main` is at `b0e4510`)
+> Baseline: `dev` after the PR #2 merge (`26ab236`); release commit `e6f10d2`; tag `v0.10.0` at `e620cc8`; 0.10.1 release at `97e03ab`; 0.10.2 at `3b3abb2`; 0.10.3 at `b3f2647`; 0.10.4 at `de50992`; 0.10.5 at `5c66fc2`; 0.10.6 at `deb0df6`; all untagged; pre-rebase PR head was `5e68aa1`
 > Last updated: 2026-11-14
 > Rules: [`RELEASING.md`](RELEASING.md) and the version bump rules in
 > [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md)
@@ -51,14 +51,14 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 push run [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) at `3b3abb2` green; publish jobs skipped. 0.10.3–0.10.6 CI follow their implementation commits; releases are gated on confirmation. |
-| Version | `0.10.6` on `dev` (P1); 0.10.5 at `5c66fc2` (H2/H4); 0.10.4 at `de50992` (H1); 0.10.3 at `b3f2647` (G7); 0.10.2 at `3b3abb2` (G4 + H3); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
-| Publication | PyPI/crates.io 0.10.1 and 0.10.0 published; 0.10.2 through 0.10.6 not tagged or published |
-| Local gates | 0.10.6: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (419 unit + 19 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (419), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.6), `pytest` (199 passed, 1 skipped) |
-| Branch sync | `dev` is ahead with 0.10.2 through 0.10.6; `main` is at `b0e4510`; tags `v0.10.0`/`e620cc8` and `v0.10.1`/`97e03ab`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.2 push run [`43585964604`](https://github.com/opticsWolf/stitch-pty/actions/runs/43585964604) at `3b3abb2` green; publish jobs skipped. 0.10.3–0.10.7 CI follow their implementation commits; releases are gated on confirmation. |
+| Version | `0.10.7` on `dev` (K1a); 0.10.6 at `deb0df6` (P1); 0.10.5 at `5c66fc2` (H2/H4); 0.10.4 at `de50992` (H1); 0.10.3 at `b3f2647` (G7); 0.10.2 at `3b3abb2` (G4 + H3); `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
+| Publication | PyPI/crates.io 0.10.1 and 0.10.0 published; 0.10.2 through 0.10.7 not tagged or published |
+| Local gates | 0.10.7: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (424 unit + 19 integration [Windows; 19 Unix] + 1 doc), `--no-default-features` (424), `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.10.7), `pytest` (203 passed, 1 skipped) |
+| Branch sync | `dev` is ahead with 0.10.2 through 0.10.7; `main` is at `b0e4510`; tags `v0.10.0`/`e620cc8` and `v0.10.1`/`97e03ab`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
-| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1 work is implemented but #5/#6/#9/#10/#11/#15 stay open until their releases; H4 (#12) has a documented no-change decision |
+| Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a work is implemented but #5/#6/#9/#10/#11/#13/#15 stay open until their releases; H4 (#12) has a documented no-change decision |
 | Issue #1 | [Kitty keyboard protocol request](https://github.com/opticsWolf/stitch-pty/issues/1) — OPEN; tracked as K1a/K1b in §5.5–§5.6 |
 
 The pre-rebase PR contained the original review commits plus the review follow-ups. The rebase merge rewrote these SHAs on `dev`; the sequence is:
@@ -827,6 +827,16 @@ K1b.
 **Risk.** Fixing push/pop changes behavior that existing tests assert. Those
 assertions are wrong per the spec and must be replaced, not preserved.
 
+**0.10.7 implementation.** Push now saves the current flags and sets the
+requested flags; pop restores saved flags and resets to zero when the stack is
+exhausted. The active stack is capped at 16 with oldest-entry eviction. Main
+and alternate screens have independent current flags and stacks, parked and
+restored across `?1049h`/`?1049l`. `CSI ? u` replies `CSI ? flags u`; the
+`CSI = flags ; mode u` parser path applies replace/union/difference. The old
+`CSI flags=u` assertions were replaced with direct spec vectors. `keyboard_mode`
+is exposed on `Screen`, `HistoryScreen`, `TerminalState`, and Python session
+terminal state. No encoder was added.
+
 ---
 
 ### 5.6 K1b — Kitty key encoder (issue #1)
@@ -1077,7 +1087,7 @@ the number, not the order, when scheduling.
 | 4 | **0.10.4** | H1 — env key dedup/normalization (**implemented; release pending confirmation**) | Windows correctness fix; contract already shipped in 0.10.0 |
 | 5 | **0.10.5** | H2 — `STARTF_USESTDHANDLES`; H4 — flags decision (**implemented; release pending confirmation**) | Windows spawn hardening; no speculative flag change |
 | 6 | **0.10.6** | P1 — persistent parser state across `feed()` chunks (**implemented; release pending confirmation**) | Critical correctness fix; prerequisite for K1a/K1b |
-| 7 | **0.10.7** | K1a — Kitty parser correctness + mode exposure | Parser bug fix; builds on P1 |
+| 7 | **0.10.7** | K1a — Kitty parser correctness + mode exposure (**implemented; release pending confirmation**) | Parser bug fix; builds on P1 |
 | 8 | **0.11.0** | G2 — remove `ProcessExit`; G1 only if a unified `RawHandle` is actually needed | Breaking Rust API cleanup; one migration |
 | 9 | **Next feature minor** | K1b — Kitty key encoder (issue #1) | New API surface; unblocks Shift+Enter and the PySide6 use case |
 | 10 | **Following feature minor** | D1 + D2 — Rust interop surface + no-PyO3/parity gates | New API surface; decouples external Rust crates from the Python wrapper |
@@ -1144,7 +1154,7 @@ umbrella. Checkboxes track implementation, not filing.
 
 **Kitty keyboard follow-up (issue #1)**
 
-- [ ] **K1a** — `fix(terminal): correct Kitty push/pop/query, alt-screen stacks, and expose keyboard_mode` ([#13](https://github.com/opticsWolf/stitch-pty/issues/13))
+- [x] **K1a** — `fix(terminal): correct Kitty push/pop/query, alt-screen stacks, and expose keyboard_mode` (implemented in 0.10.7; release pending) ([#13](https://github.com/opticsWolf/stitch-pty/issues/13))
 - [ ] **K1b** — `feat(terminal): add a Kitty key encoder and Python PtySession.encode_key` ([#14](https://github.com/opticsWolf/stitch-pty/issues/14))
 - [ ] Keep [issue #1](https://github.com/opticsWolf/stitch-pty/issues/1) as the
       umbrella for the user report and link K1a/K1b back to it. Do not close it
@@ -1322,6 +1332,22 @@ No 0.10.6 tag or registry publish has been performed. 0.10.2 through 0.10.5
 also remain untagged; their gates are §8.6–§8.9. The 0.10.6 release waits for
 explicit confirmation.
 
+### 8.11 0.10.7 (K1a) — implementation complete, release pending
+
+- [x] Version/changelog/docs for 0.10.7
+- [x] Local gates: `fmt`, `clippy` (host + Linux/macOS), `cargo test`
+      (424 unit + 19 integration [Windows; 19 Unix] + 1 doc),
+      `--no-default-features` (424), `check --features python`, `doc`, `ruff`,
+      `mypy`, `maturin develop --release` (0.10.7), `pytest` (203 passed,
+      1 skipped)
+- [ ] CI on the exact 0.10.7 commit
+- [ ] Tag `v0.10.7`; publish PyPI/crates; create the GitHub release
+
+No 0.10.7 tag or registry publish has been performed. 0.10.2 through 0.10.6
+also remain untagged; their gates are §8.6–§8.10. The 0.10.7 release waits for
+explicit confirmation. This completes the planned 0.10.x follow-up set; the
+next planned item is 0.11.0 (G2).
+
 ---
 
 ## 9. Open decisions / risks
@@ -1339,7 +1365,7 @@ explicit confirmation.
 | H2 std handles | Does setting `STARTF_USESTDHANDLES` change any current output path? | Answered: child output still reaches ConPTY; redirected-parent test passes. Implemented in 0.10.5 (pending release) |
 | H3 watcher | Replace the 50 ms exit poll with an event-driven watcher? | Answered: watcher implemented in 0.10.2 (pending release) |
 | H4 flags | Is `RESIZE_QUIRK` needed for a reproducible bug? Is `WIN32_INPUT_MODE` ever desirable? | Answered in 0.10.5: neither; keep `INHERIT_CURSOR` only until a failing test exists |
-| K1a parser | Fix push/pop tests to the spec; separate main/alt stacks | 0.10.7; direct spec vectors |
+| K1a parser | Fix push/pop tests to the spec; separate main/alt stacks | Answered: spec push/pop, per-screen stacks, query and `CSI =` modes implemented in 0.10.7 (pending release) |
 | K1b placement | Encoder on `TerminalState`/`HistoryScreen` vs a standalone `KeyboardEncoder` | K1b design; keep `PtySession` transport-only in Rust |
 | K1b flags | Start with flag 1 only, or also 2/8 in the first release? | K1b; flag 1 covers Shift+Enter, 8 covers all keys |
 | P1 parser ownership | Should `HistoryScreen` own the parser, or should `TerminalState` feed its stored parser? | Answered: `HistoryScreen` owns the sole persistent parser; `TerminalState` delegates. Implemented in 0.10.6 (pending release) |
@@ -1354,8 +1380,8 @@ explicit confirmation.
 
 - PR #2 merged to `dev`; 0.10.0 released from tag `v0.10.0` (`e620cc8`);
   0.10.1 released from tag `v0.10.1` (`97e03ab`); PyPI and crates.io
-  published for both. 0.10.2 through 0.10.6 are implemented on `dev`; their
-  releases are pending explicit confirmation.
+  published for both. All planned 0.10.x patches (0.10.2–0.10.7) are implemented
+  on `dev`; their releases are pending explicit confirmation.
 - All seven original gaps, H1–H3, K1a/K1b, P1, and D1/D2 have open issues
   linked to PR #2 and this plan; H4 has a recorded spike decision.
 - Issue #1 is linked to K1a/K1b and is not closed before the PySide6 example

@@ -312,7 +312,7 @@ scroll margins, and dirty tracking. Supports:
 - **Modes**: public ANSI (IRM, LNM) + private DEC (DECOM, DECAWM, DECCOLM, etc.)
 - **Character sets**: G0/G1 with DEC Special line drawing
 - **Scroll region**: configurable top/bottom margins
-- **Kitty Keyboard Protocol**: mode push/pop/replace
+- **Kitty Keyboard Protocol**: per-screen push/pop/query and `CSI = flags ; mode` replace/union/difference
 - **Unicode**: width-1 and width-2 characters, combining marks, CJK, emoji
 - **Shell cwd**: OSC 7 (`file://host/path`) / OSC 9;9 raw-path tracking
   (`terminal/cwd.rs`), surviving alt-screen switches and RIS

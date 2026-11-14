@@ -127,6 +127,9 @@ pub enum KeyboardApplyBehavior {
     Difference,
 }
 
+/// Bound the Kitty keyboard stack to avoid unbounded escape-sequence input.
+pub const MAX_KEYBOARD_MODE_STACK: usize = 16;
+
 // ── Screen ─────────────────────────────────────────────────────────
 
 pub struct Screen {
@@ -170,6 +173,14 @@ pub struct Screen {
     pub cursor_blink: bool,
     pub keyboard_mode: u16,
     pub keyboard_mode_stack: Vec<u16>,
+    /// Alternate-screen keyboard flags and stack, remembered while the
+    /// primary screen is active. The two screens have independent stacks.
+    pub alt_keyboard_mode: u16,
+    pub alt_keyboard_mode_stack: Vec<u16>,
+    /// Primary-screen keyboard state parked while the alternate screen is
+    /// active.
+    pub saved_keyboard_mode: u16,
+    pub saved_keyboard_mode_stack: Vec<u16>,
     /// Lines that scrolled off the top of a full screen, awaiting capture into
     /// the scrollback history by the owning `HistoryScreen` after each feed.
     pub scrolled_off: Vec<Vec<Char>>,
@@ -225,6 +236,10 @@ impl Screen {
             cursor_blink: true,
             keyboard_mode: 0,
             keyboard_mode_stack: Vec::new(),
+            alt_keyboard_mode: 0,
+            alt_keyboard_mode_stack: Vec::new(),
+            saved_keyboard_mode: 0,
+            saved_keyboard_mode_stack: Vec::new(),
             scrolled_off: Vec::new(),
             scrolled_off_wrapped: Vec::new(),
             alt_screen: false,
@@ -270,6 +285,10 @@ impl Screen {
         self.cursor_blink = true;
         self.keyboard_mode = 0;
         self.keyboard_mode_stack.clear();
+        self.alt_keyboard_mode = 0;
+        self.alt_keyboard_mode_stack.clear();
+        self.saved_keyboard_mode = 0;
+        self.saved_keyboard_mode_stack.clear();
         self.init_tabstops();
         self.scrolled_off.clear();
         self.scrolled_off_wrapped.clear();
@@ -476,6 +495,13 @@ impl Screen {
             &mut self.wrapped,
             vec![false; self.lines],
         ));
+        // Keyboard modes are per-screen: park the primary state and activate
+        // the alternate screen's independent stack.
+        self.saved_keyboard_mode = self.keyboard_mode;
+        self.saved_keyboard_mode_stack = std::mem::take(&mut self.keyboard_mode_stack);
+        self.keyboard_mode = self.alt_keyboard_mode;
+        self.keyboard_mode_stack = std::mem::take(&mut self.alt_keyboard_mode_stack);
+
         self.alt_screen = true;
         self.push_event(super::events::TermEvent::AltScreen { entered: true });
         self.mark_all_dirty();
@@ -490,6 +516,11 @@ impl Screen {
             self.buffer = Self::conform_buffer(buf, self.lines, self.columns, &self.default_char);
             self.wrapped = Self::conform_wrapped(saved_w, self.lines);
         }
+        // Park the alternate-screen keyboard state and restore the primary's.
+        self.alt_keyboard_mode = self.keyboard_mode;
+        self.alt_keyboard_mode_stack = std::mem::take(&mut self.keyboard_mode_stack);
+        self.keyboard_mode = self.saved_keyboard_mode;
+        self.keyboard_mode_stack = std::mem::take(&mut self.saved_keyboard_mode_stack);
         self.alt_screen = false;
         if restore_cursor {
             if let Some(c) = self.alt_saved_cursor.take() {
@@ -1113,19 +1144,39 @@ impl Screen {
             KeyboardApplyBehavior::Difference => self.keyboard_mode & !mode,
         };
     }
-    pub fn push_keyboard_mode(&mut self, mode: u16) {
-        self.keyboard_mode_stack.push(mode);
+
+    /// Current Kitty keyboard enhancement flags for the active screen.
+    pub fn keyboard_mode(&self) -> u16 {
+        self.keyboard_mode
     }
+
+    /// `CSI > flags u`: save the current flags, then set the requested flags.
+    ///
+    /// The stack is bounded; the oldest entry is evicted when full.
+    pub fn push_keyboard_mode(&mut self, mode: u16) {
+        if self.keyboard_mode_stack.len() >= MAX_KEYBOARD_MODE_STACK {
+            self.keyboard_mode_stack.remove(0);
+        }
+        self.keyboard_mode_stack.push(self.keyboard_mode);
+        self.keyboard_mode = mode;
+    }
+
+    /// `CSI < n u`: restore saved flags, resetting to zero when exhausted.
     pub fn pop_keyboard_modes(&mut self, count: usize) {
-        let to_pop = count.min(self.keyboard_mode_stack.len());
-        for _ in 0..to_pop {
-            if let Some(mode) = self.keyboard_mode_stack.pop() {
-                self.keyboard_mode = mode;
+        for _ in 0..count {
+            match self.keyboard_mode_stack.pop() {
+                Some(mode) => self.keyboard_mode = mode,
+                None => {
+                    self.keyboard_mode = 0;
+                    break;
+                }
             }
         }
     }
+
+    /// `CSI ? u`: reply with `CSI ? flags u` on the process-input channel.
     pub fn report_keyboard_mode(&mut self) {
-        let response = format!("{}[{};1;0 u", control::ESC, self.keyboard_mode);
+        let response = format!("{}[?{}u", control::ESC, self.keyboard_mode);
         (self.write_process_input)(&response);
     }
 
@@ -1344,17 +1395,24 @@ impl Screen {
                 self.push_keyboard_mode(mode);
             }
             'u' if intermediates == *b"<" => {
-                let count = params.first().copied().unwrap_or(1) as usize;
+                // The parser materialises an omitted parameter as 0; treat it
+                // as the spec default of one pop.
+                let count = params
+                    .first()
+                    .copied()
+                    .filter(|&count| count > 0)
+                    .unwrap_or(1) as usize;
                 self.pop_keyboard_modes(count);
             }
-            'u' if intermediates.is_empty() && params.len() >= 2 && params[1] == 0 => {
-                let mode = params[0];
-                let behavior = match params.get(2).copied().unwrap_or(0) {
+            'u' if intermediates == b"=" => {
+                // CSI = flags ; mode u (mode defaults to 1 = replace).
+                let flags = params.first().copied().unwrap_or(0);
+                let behavior = match params.get(1).copied().unwrap_or(1) {
                     3 => KeyboardApplyBehavior::Difference,
                     2 => KeyboardApplyBehavior::Union,
                     _ => KeyboardApplyBehavior::Replace,
                 };
-                self.set_keyboard_mode(mode, behavior);
+                self.set_keyboard_mode(flags, behavior);
             }
             'u' => {
                 self.restore_cursor();
@@ -2250,26 +2308,67 @@ mod tests {
     #[test]
     fn test_push_pop_keyboard_modes() {
         let mut s = make_screen(10, 10);
-        s.keyboard_mode = 0;
-        s.push_keyboard_mode(1);
-        s.push_keyboard_mode(2);
-        s.push_keyboard_mode(3);
-        assert_eq!(s.keyboard_mode_stack, vec![1, 2, 3]);
+        s.push_keyboard_mode(1); // saves 0, sets 1
+        s.push_keyboard_mode(2); // saves 1, sets 2
+        s.push_keyboard_mode(3); // saves 2, sets 3
+        assert_eq!(s.keyboard_mode_stack, vec![0, 1, 2]);
+        assert_eq!(s.keyboard_mode(), 3);
 
-        // Pop 1 → mode = 3, stack = [1, 2]
         s.pop_keyboard_modes(1);
-        assert_eq!(s.keyboard_mode_stack, vec![1, 2]);
-        assert_eq!(s.keyboard_mode, 3);
+        assert_eq!(s.keyboard_mode_stack, vec![0, 1]);
+        assert_eq!(s.keyboard_mode(), 2);
 
-        // Pop 2 → pop 2 then 1, last popped = 1, stack = []
         s.pop_keyboard_modes(2);
         assert!(s.keyboard_mode_stack.is_empty());
-        assert_eq!(s.keyboard_mode, 1);
+        assert_eq!(s.keyboard_mode(), 0);
 
-        // Pop more than available → no change
-        s.pop_keyboard_modes(10);
-        assert!(s.keyboard_mode_stack.is_empty());
-        assert_eq!(s.keyboard_mode, 1);
+        // Popping an exhausted stack resets all flags.
+        s.keyboard_mode = 7;
+        s.pop_keyboard_modes(1);
+        assert_eq!(s.keyboard_mode(), 0);
+    }
+
+    #[test]
+    fn test_keyboard_mode_stacks_are_bounded() {
+        let mut s = make_screen(10, 10);
+        for mode in 1..=20 {
+            s.push_keyboard_mode(mode);
+        }
+        assert_eq!(s.keyboard_mode_stack.len(), MAX_KEYBOARD_MODE_STACK);
+        assert_eq!(s.keyboard_mode(), 20);
+    }
+
+    #[test]
+    fn test_keyboard_mode_query_reply() {
+        use std::sync::{Arc, Mutex};
+        let mut s = make_screen(10, 10);
+        let responses: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let resp_clone = Arc::clone(&responses);
+        s.write_process_input = Box::new(move |r| {
+            resp_clone.lock().unwrap().push(r.to_string());
+        });
+        s.keyboard_mode = 5;
+        s.csi_dispatch(&[], b"?", 'u');
+        assert_eq!(responses.lock().unwrap().as_slice(), ["[?5u"]);
+    }
+
+    #[test]
+    fn test_keyboard_modes_are_per_screen() {
+        let mut s = make_screen(10, 10);
+        s.set_keyboard_mode(1, KeyboardApplyBehavior::Replace);
+        s.push_keyboard_mode(3); // main: current 3, stack [1]
+        s.enter_alt_screen(true); // alt starts at 0
+        assert_eq!(s.keyboard_mode(), 0);
+        s.set_keyboard_mode(2, KeyboardApplyBehavior::Replace);
+        s.push_keyboard_mode(4); // alt: current 4, stack [2]
+
+        s.exit_alt_screen(true);
+        assert_eq!(s.keyboard_mode(), 3);
+        assert_eq!(s.keyboard_mode_stack, vec![1]);
+
+        s.enter_alt_screen(true);
+        assert_eq!(s.keyboard_mode(), 4);
+        assert_eq!(s.keyboard_mode_stack, vec![2]);
     }
 
     // ── Terminal Identification ────────────────────────────────────────
@@ -2304,9 +2403,17 @@ mod tests {
         let mut s = make_screen(10, 10);
         s.keyboard_mode = 5;
         s.keyboard_mode_stack = vec![1, 2];
+        s.alt_keyboard_mode = 6;
+        s.alt_keyboard_mode_stack = vec![3];
+        s.saved_keyboard_mode = 7;
+        s.saved_keyboard_mode_stack = vec![4];
         s.reset();
         assert_eq!(s.keyboard_mode, 0);
         assert!(s.keyboard_mode_stack.is_empty());
+        assert_eq!(s.alt_keyboard_mode, 0);
+        assert!(s.alt_keyboard_mode_stack.is_empty());
+        assert_eq!(s.saved_keyboard_mode, 0);
+        assert!(s.saved_keyboard_mode_stack.is_empty());
     }
 
     // ── Additional pyte parity tests ─────────────────────────────────

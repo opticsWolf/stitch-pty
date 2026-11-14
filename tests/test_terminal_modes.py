@@ -140,3 +140,41 @@ class TestModeIsolation:
         assert t.cursor_shape == "block"
         assert t.cursor_blink is True
         assert t.mouse_proto == 0
+
+
+class TestKittyKeyboardMode:
+    """Kitty keyboard flags: set, push/pop, and per-screen isolation."""
+
+    def test_default(self):
+        assert term().keyboard_mode == 0
+
+    def test_set_replace_union_difference(self):
+        t = term()
+        t.feed(b"\x1b[=1;1u")
+        assert t.keyboard_mode == 1
+        t.feed(b"\x1b[=2;2u")
+        assert t.keyboard_mode == 3
+        t.feed(b"\x1b[=1;3u")
+        assert t.keyboard_mode == 2
+
+    def test_push_pop_preserves_previous_mode(self):
+        t = term()
+        t.feed(b"\x1b[>1u")
+        t.feed(b"\x1b[>2u")
+        assert t.keyboard_mode == 2
+        t.feed(b"\x1b[<u")
+        assert t.keyboard_mode == 1
+        t.feed(b"\x1b[<u")
+        assert t.keyboard_mode == 0
+
+    def test_alt_screen_has_independent_mode(self):
+        t = term()
+        t.feed(b"\x1b[=1;1u")
+        t.feed(b"\x1b[?1049h")
+        assert t.keyboard_mode == 0
+        t.feed(b"\x1b[=2;1u")
+        assert t.keyboard_mode == 2
+        t.feed(b"\x1b[?1049l")
+        assert t.keyboard_mode == 1
+        t.feed(b"\x1b[?1049h")
+        assert t.keyboard_mode == 2

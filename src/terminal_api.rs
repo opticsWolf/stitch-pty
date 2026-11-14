@@ -204,6 +204,12 @@ impl TerminalState {
         self.screen.mode().has_private(mo::DECCKM)
     }
 
+    /// Current Kitty keyboard enhancement flags (active screen).
+    #[getter]
+    pub fn keyboard_mode(&self) -> u16 {
+        self.screen.keyboard_mode()
+    }
+
     /// DECTCEM (?25) — whether the text cursor is visible.
     #[getter]
     pub fn cursor_visible(&self) -> bool {

@@ -741,28 +741,55 @@ mod tests {
 
     #[test]
     fn test_set_keyboard_mode() {
-        // CSI 1=u parses as params=[1, 0], intermediates=[], final='u'
-        // because '=' (0x3C) is a param separator
         let mut s = make_screen(10, 10);
-        s.csi_dispatch(&[1, 0], &[], 'u');
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"[=1;1u");
         assert_eq!(s.keyboard_mode, 1);
+
+        parser.feed(&mut s, b"[=2;2u"); // union
+        assert_eq!(s.keyboard_mode, 3);
+        parser.feed(&mut s, b"[=1;3u"); // difference
+        assert_eq!(s.keyboard_mode, 2);
     }
 
     #[test]
     fn test_push_keyboard_mode() {
         let mut s = make_screen(10, 10);
-        s.csi_dispatch(&[1], b">", 'u');
-        assert_eq!(s.keyboard_mode_stack, vec![1]);
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"[>1u");
+        assert_eq!(s.keyboard_mode, 1);
+        assert_eq!(s.keyboard_mode_stack, vec![0]);
+        parser.feed(&mut s, b"[>2u");
+        assert_eq!(s.keyboard_mode, 2);
+        assert_eq!(s.keyboard_mode_stack, vec![0, 1]);
     }
 
     #[test]
     fn test_pop_keyboard_modes() {
         let mut s = make_screen(10, 10);
-        s.keyboard_mode_stack = vec![1, 2, 3];
-        s.csi_dispatch(&[1], b"<", 'u');
-        // Pop 1 from [1, 2, 3] → stack = [1, 2], popped value 3 becomes active
-        assert_eq!(s.keyboard_mode_stack, vec![1, 2]);
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"[>1u[>2u[>3u");
         assert_eq!(s.keyboard_mode, 3);
+        parser.feed(&mut s, b"[<u");
+        assert_eq!(s.keyboard_mode, 2);
+        assert_eq!(s.keyboard_mode_stack, vec![0, 1]);
+        parser.feed(&mut s, b"[<2u");
+        assert_eq!(s.keyboard_mode, 0);
+        assert!(s.keyboard_mode_stack.is_empty());
+    }
+
+    #[test]
+    fn test_query_keyboard_mode_reply() {
+        use std::sync::{Arc, Mutex};
+        let mut s = make_screen(10, 10);
+        let responses: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let resp_clone = Arc::clone(&responses);
+        s.write_process_input = Box::new(move |r| {
+            resp_clone.lock().unwrap().push(r.to_string());
+        });
+        let mut parser = Parser::new();
+        parser.feed(&mut s, b"[=5;1u[?u");
+        assert_eq!(responses.lock().unwrap().as_slice(), ["[?5u"]);
     }
 
     // ── Device Identification ──────────────────────────────────────────
@@ -848,7 +875,7 @@ mod tests {
         let mut s = make_screen(10, 10);
         let mut parser = Parser::new();
         // CSI 3 = u — set keyboard mode 3
-        parser.feed(&mut s, b"\x1b[3=u");
+        parser.feed(&mut s, b"\x1b[=3;1u");
         assert_eq!(s.keyboard_mode, 3);
     }
 
