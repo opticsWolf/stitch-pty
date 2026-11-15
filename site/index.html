@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>stitch-pty — a real terminal in Rust and Python</title>
+  <meta name="description" content="A cross-platform PTY, a VT100/VT220/xterm screen, and async Python bindings. One tested stack from raw bytes to styled cells.">
+  <meta property="og:title" content="stitch-pty — a real terminal in Rust and Python">
+  <meta property="og:description" content="A cross-platform PTY, a VT100/VT220/xterm screen, and async Python bindings. One tested stack from raw bytes to styled cells.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://opticswolf.github.io/stitch-pty/">
+  <meta name="theme-color" content="#0a0d0c">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&amp;family=Public+Sans:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="#top" aria-label="stitch-pty home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M5 7 27 25M27 7 5 25" />
+          <path d="M16 3v26M3 16h26" />
+        </svg>
+        <span class="brand-name">stitch<span class="brand-sep">-</span>pty</span>
+      </a>
+      <nav class="primary-nav" aria-label="Primary">
+        <a href="#architecture">Architecture</a>
+        <a href="#features">Features</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="https://github.com/opticsWolf/stitch-pty/tree/main/docs">Docs</a>
+        <a class="github-link" href="https://github.com/opticsWolf/stitch-pty">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="hero-stitch" aria-hidden="true">
+        <svg viewBox="0 0 680 760" fill="none">
+          <path d="M680 46C560 46 538 154 430 154S260 74 162 170 48 390 8 452" />
+          <path d="M680 98C580 98 562 206 452 206S282 126 184 222 70 442 30 504" />
+          <path d="M648 28c-12 10-18 24-12 38M592 100c-12 10-18 24-12 38M486 168c-12 10-18 24-12 38M366 104c-12 10-18 24-12 38M238 178c-12 10-18 24-12 38M126 286c-12 10-18 24-12 38M64 430c-12 10-18 24-12 38" />
+        </svg>
+      </div>
+
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <h1>The terminal layer,<br><em>stitched</em> in Rust.</h1>
+          <p class="hero-lede">
+            A cross-platform PTY, a VT100/VT220/xterm screen, and async Python
+            bindings. One tested stack from raw bytes to styled cells.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#quickstart">Start stitching <span aria-hidden="true">→</span></a>
+            <a class="button button-quiet" href="https://github.com/opticsWolf/stitch-pty">View the source <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="hero-meta">
+            <span><i class="signal" aria-hidden="true"></i> POSIX + ConPTY</span>
+            <span>Rust 1.85+</span>
+            <span>Python 3.12+</span>
+          </div>
+        </div>
+
+        <div class="hero-demo">
+          <div class="terminal">
+            <div class="terminal-top">
+              <span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="terminal-title">session: bash</span>
+              <span class="terminal-state"><i class="live-dot" aria-hidden="true"></i> attached</span>
+            </div>
+            <div class="terminal-body">
+              <p><span class="prompt">$</span> <span class="cmd">python demo.py</span></p>
+              <p class="output"><span class="ok">✓</span> PTY master attached <span class="dim">/dev/pts/7</span></p>
+              <p class="output"><span class="ok">✓</span> screen attached <span class="dim">80 × 24 · 1,000 scrollback</span></p>
+              <p class="output"><span class="ok">✓</span> child watcher armed <span class="dim">no zombies</span></p>
+              <p class="output"><span class="ok">✓</span> kitty flags <span class="dim">1 · disambiguate</span></p>
+              <p class="command"><span class="prompt">›</span> <span class="cmd">echo "hello from a real PTY"</span></p>
+              <p class="output"><span class="success">hello from a real PTY</span></p>
+              <p class="command"><span class="prompt">›</span> <span class="cursor" aria-hidden="true"></span></p>
+            </div>
+            <div class="terminal-foot">
+              <span>PtySession</span>
+              <span>HistoryScreen</span>
+              <span>asyncio</span>
+            </div>
+          </div>
+          <p class="terminal-caption">Illustrative session · APIs shown are on <code>main</code></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="proof" aria-label="Project facts">
+      <div class="wrap proof-inner">
+        <span>Native PTY transport</span>
+        <span>VT100 / VT220 / xterm</span>
+        <span>Scrollback + styled cells</span>
+        <span>Rust core without PyO3</span>
+      </div>
+    </section>
+
+    <section class="section architecture" id="architecture">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Bytes in.<br>A terminal out.</h2>
+          <p>
+            Most PTY libraries hand you a byte stream and stop. stitch-pty
+            carries the stream through a real screen, then lets you keep the
+            layers together or pull them apart.
+          </p>
+        </div>
+
+        <div class="architecture-grid">
+          <div class="layer-stack">
+            <article class="layer">
+              <span class="layer-meta">Transport · Rust</span>
+              <h3><code>PtySession</code> owns the wire.</h3>
+              <p>
+                Async reads, writes, resize, bounded drains, EOF, and child
+                exit. Unix uses a native PTY; Windows uses ConPTY with an
+                event-driven exit watcher. The emulator is not required.
+              </p>
+            </article>
+            <article class="layer">
+              <span class="layer-meta">Emulation · shared</span>
+              <h3><code>HistoryScreen</code> owns the state.</h3>
+              <p>
+                ANSI, OSC, UTF-8, styles, cursor, title, modes, dirty rows, and
+                scrollback. Feed it the bytes once and read the screen back as
+                text or styled cells.
+              </p>
+            </article>
+            <article class="layer">
+              <span class="layer-meta">Surface · Rust or Python</span>
+              <h3>Your frontend owns the moment.</h3>
+              <p>
+                Keep the layers separate for a multiplexer, or let
+                <code>TerminalSession</code> read and feed in one call. Python's
+                <code>PtySession</code> adds the same convenience with asyncio.
+              </p>
+            </article>
+          </div>
+
+          <div class="diagram" aria-hidden="true">
+            <span class="diagram-label">one parsed screen</span>
+            <div class="diagram-node node-a"><span>raw bytes</span><code>read()</code></div>
+            <div class="diagram-node node-b"><span>screen state</span><code>HistoryScreen</code></div>
+            <div class="diagram-node node-c"><span>your UI</span><code>styled_range()</code></div>
+            <div class="diagram-stitch"></div>
+            <span class="diagram-note">chunked input · same result</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section features" id="features">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Small surface.<br>Serious terminal.</h2>
+          <p>
+            The parts that are hard to get right are already here. The parts
+            that are yours stay yours.
+          </p>
+        </div>
+
+        <div class="ledger">
+          <article class="feature">
+            <h3><i class="stitch-mark" aria-hidden="true"></i> Real PTY, not pipes</h3>
+            <p>
+              A native master on Unix, a ConPTY on Windows. Child exit is
+              event-driven, so waits wake promptly and zombies do not
+              accumulate.
+            </p>
+            <span class="feature-tag">transport</span>
+          </article>
+          <article class="feature">
+            <h3><i class="stitch-mark" aria-hidden="true"></i> A screen, included</h3>
+            <p>
+              Feed bytes once. Get display rows, scrollback, cursor position,
+              window title, styles, dirty rows, and mode state back.
+            </p>
+            <span class="feature-tag">emulation</span>
+          </article>
+          <article class="feature">
+            <h3><i class="stitch-mark" aria-hidden="true"></i> Async at the edges</h3>
+            <p>
+              Tokio on the Rust side and native asyncio on the Python side.
+              The GIL is released while I/O waits.
+            </p>
+            <span class="feature-tag">I/O</span>
+          </article>
+          <article class="feature">
+            <h3><i class="stitch-mark" aria-hidden="true"></i> Keys with intent</h3>
+            <p>
+              A Kitty CSI u encoder distinguishes Shift+Enter from Enter. The
+              flags live with the screen, not in the PTY byte stream.
+            </p>
+            <span class="feature-tag">input · 0.12+</span>
+          </article>
+          <article class="feature">
+            <h3><i class="stitch-mark" aria-hidden="true"></i> Expect, without pexpect</h3>
+            <p>
+              Byte-oriented patterns across read chunks, optional regex, and
+              timeout errors that keep the bytes already read.
+            </p>
+            <span class="feature-tag">testing · 0.15+</span>
+          </article>
+          <article class="feature">
+            <h3><i class="stitch-mark" aria-hidden="true"></i> Composable by design</h3>
+            <p>
+              <code>from_parts</code>, <code>reader()</code>/<code>writer()</code>,
+              an external <code>vt100</code> example, and a core that builds
+              without PyO3.
+            </p>
+            <span class="feature-tag">interop · 0.13+</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="principles" aria-labelledby="principles-title">
+      <div class="wrap">
+        <h2 class="principles-title" id="principles-title">A few things stay separate.</h2>
+        <div class="principles-grid">
+          <article>
+            <h3>Transport stays transport.</h3>
+            <p>Rust <code>PtySession</code> carries bytes. It does not presume you want a screen.</p>
+          </article>
+          <article>
+            <h3>The screen is a state machine.</h3>
+            <p>ANSI, OSC, and UTF-8 chunking are handled once, in one persistent parser.</p>
+          </article>
+          <article>
+            <h3>Bindings are a layer.</h3>
+            <p>PyO3 is optional. The Rust core tests and ships without it.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section quickstart" id="quickstart">
+      <div class="wrap">
+        <div class="quickstart-layout">
+          <div class="quickstart-copy">
+            <h2>Two ecosystems.<br>One session.</h2>
+            <p>
+              Start from Python for the shortest path, or keep it in Rust and
+              bring your own frontend. Both surfaces share the same emulator.
+            </p>
+
+            <div class="install-list">
+              <div class="install-row">
+                <span>Python</span>
+                <code id="install-python">pip install stitch-pty</code>
+                <button class="copy-button" type="button" data-copy-target="install-python">Copy</button>
+              </div>
+              <div class="install-row">
+                <span>Rust</span>
+                <code id="install-rust">cargo add stitch-pty</code>
+                <button class="copy-button" type="button" data-copy-target="install-rust">Copy</button>
+              </div>
+            </div>
+
+            <p class="version-note">
+              PyPI and crates.io currently serve <strong>0.10.7</strong>. The
+              snippets below use APIs available on <code>main</code>.
+            </p>
+
+            <div class="quick-links">
+              <a href="https://github.com/opticsWolf/stitch-pty#readme">Read the README <span aria-hidden="true">↗</span></a>
+              <a href="https://github.com/opticsWolf/stitch-pty/blob/main/docs/PARITY.md">Rust / Python parity <span aria-hidden="true">↗</span></a>
+              <a href="https://github.com/opticsWolf/stitch-pty/blob/main/README.md#building-from-source">Build from main <span aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+
+          <div class="code-card">
+            <div class="code-toolbar">
+              <div class="code-tabs" role="tablist" aria-label="Language">
+                <button type="button" role="tab" id="tab-python" aria-selected="true" aria-controls="panel-python" tabindex="0">Python</button>
+                <button type="button" role="tab" id="tab-rust" aria-selected="false" aria-controls="panel-rust" tabindex="-1">Rust</button>
+              </div>
+              <button class="copy-button code-copy" type="button" data-copy-target="panel-python">Copy</button>
+            </div>
+
+            <div class="code-panel" id="panel-python" role="tabpanel" aria-labelledby="tab-python">
+<pre><code><span class="code-comment"># spawn a shell, wait for a line, read the screen</span>
+<span class="code-key">import</span> asyncio
+<span class="code-key">from</span> stitch_pty <span class="code-key">import</span> Modifiers, spawn
+
+<span class="code-key">async def</span> <span class="code-fn">main</span>():
+    <span class="code-key">async with</span> spawn(<span class="code-str">"bash"</span>, [<span class="code-str">"-i"</span>]) <span class="code-key">as</span> term:
+        <span class="code-key">await</span> term.write(<span class="code-str">b"printf 'ready\n'\n"</span>)
+        result = <span class="code-key">await</span> term.expect(<span class="code-str">b"ready"</span>)
+
+        <span class="code-fn">print</span>(result.buffer.decode())
+        <span class="code-fn">print</span>(term.display)
+
+        <span class="code-comment"># Shift+Enter becomes CSI 13;2u under Kitty flag 1.</span>
+        <span class="code-key">await</span> term.write(
+            term.encode_key(<span class="code-str">"enter"</span>, Modifiers.SHIFT)
+        )
+
+asyncio.run(main())</code></pre>
+            </div>
+
+            <div class="code-panel" id="panel-rust" role="tabpanel" aria-labelledby="tab-rust" hidden>
+<pre><code><span class="code-comment">// one type owns the PTY and one screen</span>
+<span class="code-key">use</span> stitch_pty::{TerminalSession, Winsize};
+<span class="code-key">use</span> std::time::Duration;
+
+#[tokio::main]
+<span class="code-key">async fn</span> <span class="code-fn">main</span>() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    <span class="code-key">let mut</span> term = TerminalSession::spawn(
+        <span class="code-str">"bash"</span>,
+        &amp;[<span class="code-str">"-i"</span>.into()],
+        Some(Winsize::new(<span class="code-num">24</span>, <span class="code-num">80</span>, <span class="code-num">0</span>, <span class="code-num">0</span>)),
+        <span class="code-key">None</span>,
+        <span class="code-num">1_000</span>,
+    ).<span class="code-key">await</span>?;
+
+    <span class="code-key">let mut</span> buf = [<span class="code-num">0u8</span>; <span class="code-num">4096</span>];
+    <span class="code-key">let</span> _ = term.read_timeout(&amp;<span class="code-key">mut</span> buf, Duration::from_secs(<span class="code-num">1</span>)).<span class="code-key">await</span>?;
+
+    <span class="code-fn">println!</span>(<span class="code-str">"{}"</span>, term.display().join(<span class="code-str">"\n"</span>));
+    <span class="code-key">Ok</span>(())
+}</code></pre>
+            </div>
+
+            <div class="code-foot">
+              <span>one parse · no double feeds</span>
+              <span>UTF-8 safe</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="closing-stitch" aria-hidden="true">
+        <svg viewBox="0 0 800 220" fill="none">
+          <path d="M0 170C150 170 170 58 318 58s200 110 310 110 120-62 172-62" />
+          <path d="M0 196C150 196 170 84 318 84s200 110 310 110 120-62 172-62" />
+        </svg>
+      </div>
+      <div class="wrap closing-inner">
+        <h2>Stitch it in.</h2>
+        <p>
+          One dependency for the PTY, the screen, and the bindings.
+          Take what you need.
+        </p>
+        <div class="closing-actions">
+          <a class="button button-dark" href="https://pypi.org/project/stitch-pty/">Download for Python <span aria-hidden="true">↗</span></a>
+          <a class="button button-outline-dark" href="https://crates.io/crates/stitch-pty">Use it from Rust <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="#top" aria-label="stitch-pty home">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M5 7 27 25M27 7 5 25" />
+            <path d="M16 3v26M3 16h26" />
+          </svg>
+          <span class="brand-name">stitch<span class="brand-sep">-</span>pty</span>
+        </a>
+        <p>A real terminal, from the wire to the screen.</p>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/opticsWolf/stitch-pty">GitHub</a>
+        <a href="https://github.com/opticsWolf/stitch-pty/blob/main/README.md">README</a>
+        <a href="https://github.com/opticsWolf/stitch-pty/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/opticsWolf/stitch-pty/tree/main/docs">Docs</a>
+      </nav>
+      <p class="footer-legal">MIT OR Apache-2.0<br><span>Built in Rust, bound to Python.</span></p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

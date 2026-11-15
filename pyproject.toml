@@ -28,7 +28,8 @@ classifiers = [
 keywords = ["pty", "terminal", "async", "rust", "posix"]
 
 [project.urls]
-Homepage = "https://github.com/opticsWolf/stitch-pty"
+Homepage = "https://opticswolf.github.io/stitch-pty/"
+Website = "https://opticswolf.github.io/stitch-pty/"
 Repository = "https://github.com/opticsWolf/stitch-pty"
 Changelog = "https://github.com/opticsWolf/stitch-pty/releases"
 

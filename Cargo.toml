@@ -6,6 +6,7 @@ authors = ["stitch-pty authors"]
 description = "Cross-platform async PTY with integrated terminal emulation for Rust and Python"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/opticsWolf/stitch-pty"
+homepage = "https://opticswolf.github.io/stitch-pty/"
 readme = "README.md"
 keywords = ["pty", "terminal", "async", "cross-platform"]
 categories = ["command-line-interface", "os", "asynchronous"]

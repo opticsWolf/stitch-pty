@@ -6,6 +6,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/stitch-pty.svg)](https://pypi.org/project/stitch-pty/)
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/pypi/l/stitch-pty.svg)](https://pypi.org/project/stitch-pty/)
+[![Website](https://img.shields.io/badge/website-stitch--pty-blue)](https://opticswolf.github.io/stitch-pty/)
 
 **stitch-pty** is a high-performance, cross-platform pseudo-terminal (PTY) library
 written in Rust, with optional PyO3 bindings for Python. It provides true PTY
@@ -15,7 +16,7 @@ tests without Python (`--no-default-features`); the `python` feature adds the
 binding layer.
 
 > **Version note:** the latest published release is **0.10.7**. This README
-> documents the `dev` branch at **0.15.0**, which is implemented but not yet
+> documents the `main` and `dev` branches at **0.15.0**, which is implemented but not yet
 > tagged or published. The 0.11–0.15 APIs below are unavailable from PyPI or
 > crates.io until that release is published.
 
