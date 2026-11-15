@@ -1,14 +1,15 @@
 """stitch-pty: High-performance async PTY for Python, written in Rust.
 
-This package provides a Pythonic async API for POSIX PTY operations,
-backed by a high-performance Rust implementation using tokio and PyO3.
+This package provides a Pythonic async API for PTYs (POSIX) and ConPTY
+(Windows), backed by a high-performance Rust implementation using tokio and
+PyO3.
 
 Key Features:
-    - True POSIX PTY (not pipe emulation)
+    - Native POSIX PTYs and Windows ConPTY (not pipe emulation)
     - Native asyncio integration with automatic GIL release during I/O
-    - Process group signal delivery (SIGINT, SIGTERM, SIGKILL)
-    - Automatic window resize forwarding (SIGWINCH)
-    - Zero zombie processes via background waitpid polling
+    - Process-group signals on POSIX; terminate/kill on both platforms
+    - Automatic window resize forwarding (SIGWINCH on POSIX; ConPTY resize on Windows)
+    - Zero zombie processes via platform-native child reaping
     - Type-safe Python API with full mypy support
 
 Example:
