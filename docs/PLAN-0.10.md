@@ -918,8 +918,8 @@ Enter even if the child requested Kitty mode.
   terminal state/frontend, not the PTY byte stream. Python `PtySession` already
   owns `_terminal`, so it can delegate.
 
-**Bucket.** Next feature minor (ahead of G6/G5), because it unblocks the
-reported Shift+Enter use case.
+**Bucket.** Shipped in 0.12.0, ahead of G6/G5, because it unblocks the reported
+Shift+Enter use case.
 
 **Acceptance.**
 
@@ -1070,7 +1070,7 @@ cannot compose it as freely as they should:
   or `vt100`) and sends input back.
 - Keep `PtySession` emulator-free; do not fold `HistoryScreen` into this item.
 
-**Bucket.** Next feature minor after K1b (with D2).
+**Bucket.** Shipped in 0.13.0 (with D2).
 
 **Acceptance.**
 
@@ -1135,11 +1135,11 @@ that the Rust core stays PyO3-free, and the two surfaces have drifted:
   `TerminalState` must produce the same display/styles/events.
 - Update README/Cargo metadata to describe the Rust crate as usable without
   Python, with the `python` feature as an optional binding layer.
-- Decide whether `raw_output` is a Rust feature, Python-only convenience, or
-  removed from the parity promise.
+- Answered in 0.13.0: `raw_output` is a Python-only convenience; the Rust
+  transport keeps no output history.
 
-**Bucket.** D1/D2 together in the next feature minor; the no-PyO3 CI gate can
-land earlier as a patch if desired.
+**Bucket.** Shipped together in 0.13.0; the no-PyO3 CI gate landed in the same
+release.
 
 **Acceptance.**
 
@@ -1207,10 +1207,10 @@ Notes:
 - **K1a is a prerequisite for K1b.** Fix the push/pop/query/alt-stack semantics
   and expose `keyboard_mode` before writing the encoder. Do not add the encoder
   to `PtySession`; it belongs with the terminal state/frontend.
-- **K1b is the next feature minor.** It directly addresses issue #1 and the
+- **K1b shipped as 0.12.0.** It directly addressed issue #1 and the
   Shift+Enter use case.
-- **D1 + D2 follow K1b.** They make the Rust core composable by other Rust
-  crates and add the no-PyO3/parity CI gate. G6/G5 follow.
+- **D1 + D2 shipped as 0.13.0; G6/G5 as 0.14.0/0.15.0.** They make the Rust
+  core composable by other Rust crates and add the no-PyO3/parity CI gate.
 
 ### 6.1 Release discipline
 
@@ -1574,7 +1574,7 @@ queue is complete; releases wait for explicit confirmation.
 | K1b flags | Start with flag 1 only, or also 2/8 in the first release? | Answered in 0.12.0: support flags 1/2/4/8/16 explicitly; flag 1 covers Shift+Enter, flag 8 covers all keys, 2/4/16 are opt-in |
 | P1 parser ownership | Should `HistoryScreen` own the parser, or should `TerminalState` feed its stored parser? | Answered: `HistoryScreen` owns the sole persistent parser; `TerminalState` delegates. Shipped in 0.10.7 |
 | D1 interop | `from_parts` + slave/pair API + AsyncRead/handles; which shape? | Answered in 0.13.0: `from_parts` + Arc-sharing `reader()`/`writer()` handles; `open_pty_platform` documented master-only; external `vt100` example; `PtySession` remains emulator-free |
-| D2 parity scope | Which Python-only conveniences stay Python-only (`raw_output`, `expect`, owned terminal)? | Answered in 0.13.0/0.14.0: `raw_output` is Python-only; `expect` remains tracked as G5; owned terminal now has the Rust `TerminalSession`; table in `docs/PARITY.md` |
+| D2 parity scope | Which Python-only conveniences stay Python-only (`raw_output`, `expect`, owned terminal)? | Answered across 0.13.0–0.15.0: `raw_output` is Python-only; `expect` has a Rust implementation (G5); owned terminal has `TerminalSession` (G6); table in `docs/PARITY.md` |
 | Python surface | Should Python expose `close()`/`read_until_exit`/`take_writer`? | Rust-only in 0.10.2; decide with the G4 follow-up |
 | Version numbering | Do G6/G5 land as separate minors or one batched release? | Answered: G6 shipped as 0.14.0 and G5 as 0.15.0; release grouping remains a maintainer decision |
 
