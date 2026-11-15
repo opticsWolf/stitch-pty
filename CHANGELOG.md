@@ -7,7 +7,7 @@ follow-up fixes and docs may precede the release tag (see `docs/RELEASING.md`).
 
 ## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.15.0...HEAD)
 
-> **Release status:** 0.11.0–0.15.0 are implemented on `dev` but are not yet
+> **Release status:** 0.11.0–0.15.0 are implemented on `main`/`dev` but are not yet
 > tagged or published. Their sections below are draft release notes. If the
 > maintainers release them together, the intermediate headings will be marked
 > as unpublished increments folded into the final release (see

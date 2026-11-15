@@ -627,5 +627,5 @@ Linux/macOS)**, all green; `fmt --check`, `clippy -D warnings` (Windows + Linux
 
 0.10.0, 0.10.1, and 0.10.7 are published to PyPI and crates.io. Versions
 0.10.2–0.10.6 were development increments folded into 0.10.7 and were not
-published separately. 0.11.0–0.15.0 are implemented on `dev` and await explicit
+published separately. 0.11.0–0.15.0 are implemented on `main`/`dev` and await explicit
 release confirmation. The planned follow-up queue is complete.
