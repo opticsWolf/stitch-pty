@@ -1,7 +1,6 @@
 # stitch-pty Quick Reference
 
-> Latest published release: **0.10.7**. This reference tracks the unreleased
-> `main`/`dev` branch (0.15.0); the 0.11–0.15 APIs are not on PyPI/crates.io yet.
+> Latest published release: **0.15.0**.
 
 ## Installation
 

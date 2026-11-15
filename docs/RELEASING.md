@@ -93,9 +93,10 @@ are identical to the green commit.
 
 ### Releasing several implemented minors together
 
-If several minor versions were implemented but not published (for example
-0.11.0–0.15.0), release **one** final version (for example `v0.15.0`) unless
-there is a reason to publish each. In that case:
+If several minor versions were implemented but not published, release **one**
+final version unless there is a reason to publish each. The 0.11.0–0.15.0 line
+used this path: **0.15.0** is the published aggregate release, while 0.11.0–
+0.14.0 were folded into it. In that case:
 
 - mark the intermediate CHANGELOG headings as unpublished increments folded
   into the final release;

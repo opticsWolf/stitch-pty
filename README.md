@@ -15,11 +15,6 @@ compatible terminal emulator with scrollback history. The Rust core builds and
 tests without Python (`--no-default-features`); the `python` feature adds the
 binding layer.
 
-> **Version note:** the latest published release is **0.10.7**. This README
-> documents the `main` and `dev` branches at **0.15.0**, which is implemented but not yet
-> tagged or published. The 0.11–0.15 APIs below are unavailable from PyPI or
-> crates.io until that release is published.
-
 ---
 
 ## Why stitch-pty?
@@ -30,6 +25,7 @@ binding layer.
 | Async I/O | ✅ Native `asyncio` | ❌ Blocking | ❌ Blocking |
 | GIL released during I/O | ✅ Tokio `.await` | ✅ blocking read | ✅ blocking read |
 | Terminal emulation | ✅ Built-in (scrollback + styled viewport) | ❌ | ❌ |
+| Kitty keyboard protocol | ✅ Parser + CSI u encoder | ❌ | ❌ |
 | No zombie processes | ✅ Unix reaper + Windows exit watcher | ⚠️ Manual | ⚠️ Manual |
 | Type-safe Python API | ✅ Full mypy support | ✅ | ✅ |
 
@@ -786,9 +782,6 @@ python examples/terminal_emulator.py
 python examples/terminal_emulator.py --cmd "whoami"
 python examples/terminal_emulator.py --rows 30 --cols 100
 ```
-
-> The example uses `PtySession.encode_key` from 0.15; install the dev build
-> until 0.15 is published on PyPI.
 
 **Key features demonstrated:**
 - Async PTY + Qt event loop integration (background thread)

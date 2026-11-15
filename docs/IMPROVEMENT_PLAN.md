@@ -612,20 +612,20 @@ Downstream integration (Kilim surfaces) passed two items back upstream:
 | 26 | 0.10.5 | ☑ folded into 0.10.7 — H2/H4: `STARTF_USESTDHANDLES` stdio isolation; ConPTY flags decision |
 | 27 | 0.10.6 | ☑ folded into 0.10.7 — P1: one persistent parser across `feed()` chunks; split CSI/OSC/DCS/UTF-8/alt-screen tests |
 | 28 | 0.10.7 | ☑ released (`v0.10.7`, `842c3d9`) — K1a: Kitty push/pop/query/`CSI =` semantics, per-screen stacks, keyboard_mode accessor; rolls up 0.10.2–0.10.6 |
-| 29 | 0.11.0 | ☑ implemented — G2: one `ExitStatus` return from `ChildBackend::wait`, `ProcessExit`/`wait_status` removed; G1: raw-handle ownership contract documented; Unix signal-name status plus immediate-kill PID fallback (release pending confirmation) |
-| 30 | 0.12.0 | ☑ implemented — K1b: `terminal::keyboard` encoder (`KeyboardFlags`, `Modifiers`, `KeyCode`, `KeyEvent`), flag 1/2/4/8/16 semantics, Python `TerminalState.encode_key`/`PtySession.encode_key`, PySide6 example routed through the encoder (release pending confirmation) |
-| 31 | 0.13.0 | ☑ implemented — D1/D2: `PtySession::from_parts`, `reader()`/`writer()` handles, external `vt100` example, no-PyO3 CI gate, `docs/PARITY.md`, shared chunked corpus tests, master-only `open_pty_platform` contract (release pending confirmation) |
-| 32 | 0.14.0 | ☑ implemented — G6: `TerminalSession` owns `PtySession` + `HistoryScreen`, auto-feeds reads, resizes both, exposes screen/events/dirty rows; `PtySession` stays transport-only (release pending confirmation) |
-| 33 | 0.15.0 | ☑ implemented — G5: byte-oriented `ExpectPattern`/`ExpectResult`/`ExpectError` on `PtySession`, cross-chunk matching, buffer-limit/timeout errors with buffered output, optional `regex` feature (release pending confirmation) |
+| 29 | 0.11.0 | ☑ shipped in 0.15.0 — G2: one `ExitStatus` return from `ChildBackend::wait`, `ProcessExit`/`wait_status` removed; G1: raw-handle ownership contract documented; Unix signal-name status plus immediate-kill PID fallback |
+| 30 | 0.12.0 | ☑ shipped in 0.15.0 — K1b: `terminal::keyboard` encoder (`KeyboardFlags`, `Modifiers`, `KeyCode`, `KeyEvent`), flag 1/2/4/8/16 semantics, Python `TerminalState.encode_key`/`PtySession.encode_key`, PySide6 example routed through the encoder |
+| 31 | 0.13.0 | ☑ shipped in 0.15.0 — D1/D2: `PtySession::from_parts`, `reader()`/`writer()` handles, external `vt100` example, no-PyO3 CI gate, `docs/PARITY.md`, shared chunked corpus tests, master-only `open_pty_platform` contract |
+| 32 | 0.14.0 | ☑ shipped in 0.15.0 — G6: `TerminalSession` owns `PtySession` + `HistoryScreen`, auto-feeds reads, resizes both, exposes screen/events/dirty rows; `PtySession` stays transport-only |
+| 33 | 0.15.0 | ☑ released (`v0.15.0`) — G5: byte-oriented `ExpectPattern`/`ExpectResult`/`ExpectError` on `PtySession`, cross-chunk matching, buffer-limit/timeout errors with buffered output, optional `regex` feature |
 
-All rows through 0.15.0 are released or implemented. Final tally at 0.10.1 was
+All rows through 0.15.0 are released. Final tally at 0.10.1 was
 **402 Rust unit tests + 12 integration + 1 doctest, 195 Python tests**; at
 0.15.0 it is **435 unit + 23 integration [Windows; 29 Unix] + 1 doctest, 215
 Python passed + 2 skipped (217 collected) on Windows (216 passed + 1 skipped on
 Linux/macOS)**, all green; `fmt --check`, `clippy -D warnings` (Windows + Linux
 + macOS targets), `ruff check`, `mypy --strict` all clean.
 
-0.10.0, 0.10.1, and 0.10.7 are published to PyPI and crates.io. Versions
-0.10.2–0.10.6 were development increments folded into 0.10.7 and were not
-published separately. 0.11.0–0.15.0 are implemented on `main`/`dev` and await explicit
-release confirmation. The planned follow-up queue is complete.
+0.15.0 is published to PyPI and crates.io. Versions 0.11.0–0.14.0 were
+development increments folded into 0.15.0 and were not published separately.
+0.10.0, 0.10.1, and 0.10.7 remain published; 0.10.2–0.10.6 were folded into
+0.10.7. The planned follow-up queue is complete.

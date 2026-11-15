@@ -7,16 +7,15 @@ follow-up fixes and docs may precede the release tag (see `docs/RELEASING.md`).
 
 ## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.15.0...HEAD)
 
-> **Release status:** 0.11.0–0.15.0 are implemented on `main`/`dev` but are not yet
-> tagged or published. Their sections below are draft release notes. If the
-> maintainers release them together, the intermediate headings will be marked
-> as unpublished increments folded into the final release (see
-> `docs/RELEASING.md`). The latest published release is 0.10.7.
+## [0.15.0 — Rust expect()](https://github.com/opticsWolf/stitch-pty/compare/v0.10.7...v0.15.0)
 
-## [0.15.0 — Rust expect()](https://github.com/opticsWolf/stitch-pty/compare/v0.14.0...v0.15.0)
-
-Adds byte-oriented pattern matching to the Rust session, closing the last
-planned follow-up from the 0.10 review.
+Released 2026-11-15. This is the first published release since 0.10.7 and rolls
+up the unpublished 0.11.0–0.14.0 increments: one `ExitStatus` type and the
+platform-gated `raw_handle` contract, the Kitty key encoder, Rust interop with
+no-PyO3 parity coverage, and `TerminalSession`. It also adds byte-oriented
+pattern matching to the Rust session, closing the last planned follow-up from
+the 0.10 review. The intermediate versions were not tagged or published
+separately.
 
 ### Added
 - `ExpectPattern` with `Bytes`, `Str`, and an optional
