@@ -675,6 +675,7 @@ returning `ExitStatus | None`.
 | `set_scrollback_lines(n)` | Set capacity (trims excess) |
 | `encode_key(...)` | Encode a named/character/numeric key with the active Kitty flags |
 | `styled_viewport()` | Full buffer as styled cells |
+| `styled_range(start, count)` | Styled cells for absolute rows `[start, start + count)` |
 | `total_lines()` | Total lines = history + visible |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
 
