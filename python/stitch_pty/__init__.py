@@ -137,7 +137,7 @@ class PtyMaster:
     async def read(self, size: int = 4096) -> bytes:
         """Read up to `size` bytes from the PTY master.
 
-        Returns empty bytes on EOF (child process exited).
+        Returns empty bytes when the master/slave side closes.
         """
         return bytes(await self._inner.read(size))
 
@@ -781,9 +781,11 @@ class PtySession:
 
 
 async def open_pty(winsize: Winsize | None = None) -> PtyMaster:
-    """Open a new PTY pair and return the master handle.
+    """Open a new PTY master without spawning a child.
 
-    Use this for fine-grained control over the child process lifecycle.
+    The Unix backend closes the slave before returning; this is a raw master
+    handle, not a general external-spawner API. Use :func:`spawn` for a
+    child-attached PTY.
     """
     return PtyMaster(await _open_pty(winsize))
 

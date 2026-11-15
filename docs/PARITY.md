@@ -19,11 +19,10 @@ emulation layers. CI's **Rust core (no default features)** job runs
 | Terminate / kill / signal | methods | methods | Parity |
 | Close / shutdown_write | methods | not exposed | Rust-only (safety-sensitive lifecycle) |
 | Reader / writer handles | `reader()`, `writer()` (Arc session) | not exposed | Rust-only interop |
-| Owned PTY + screen | `TerminalSession` | `PtySession` owns `_terminal` | Parity; both auto-feed reads and resize the screen |
+| Owned PTY + screen | `TerminalSession` | `PtySession` owns `_terminal` | Parity via G6; both auto-feed reads and resize the screen. Rust `PtySession` stays emulator-free. |
 | Assemble custom backends | `from_parts(pty, child)` | not exposed | Rust-only interop |
 | Raw unparsed output tail | not owned | `raw_output` | Python-only convenience; the transport does not retain an output history |
 | Expect-style matching | `expect` / `expect_with_options` | `expect` | Parity; Rust uses byte-first `ExpectPattern` and optional `regex` feature |
-| Owned terminal state | `TerminalSession` | `terminal` | Parity via G6; `PtySession` itself stays emulator-free in both layers |
 
 ## Terminal surface
 

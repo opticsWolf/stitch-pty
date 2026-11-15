@@ -67,7 +67,7 @@ Async. Spawns a child process in a PTY, auto-feeds output to terminal.
 
 ### `open_pty(winsize=None) → PtyMaster`
 
-Async. Opens a raw PTY pair without spawning a child.
+Async. Opens a raw PTY master without spawning a child (the Unix slave is closed by the backend).
 
 ### `Winsize(rows, cols, xpixel=0, ypixel=0)`
 
@@ -134,7 +134,6 @@ exit within `timeout` seconds.
 | `set_winsize(rows, cols, xpixel, ypixel)` | Set window size |
 | `get_winsize()` | Get current size |
 | `fd` | Raw file descriptor (Unix) / `-1` (Windows) |
-| `is_open` | PTY still open? |
 
 ### `PtyChild` — child process management
 
@@ -163,6 +162,9 @@ exit within `timeout` seconds.
 | `resize(lines, cols)` | Resize screen buffer (column change reflows, bottom-anchored; zero rows/columns clamp to 1) |
 | `reset()` | Reset terminal + clear history |
 | `styled_viewport()` | Full buffer as styled cells: `list[list[(text, fg, bg, attrs_bitmask)]]` |
+| `styled_range(start, count)` | Styled cells for absolute rows `[start, start+count)` |
+| `set_scrollback_lines(n)` | Set capacity (trims excess) |
+| `encode_key(key, modifiers=0, kind="press", ...)` | Encode with this screen's current Kitty flags |
 | `total_lines()` | Total lines = history + visible |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
 
@@ -176,8 +178,6 @@ exit within `timeout` seconds.
 | `history_size` | Current scrollback line count |
 | `scrollback_lines` | Scrollback capacity |
 | `keyboard_mode` | Current Kitty keyboard enhancement flags (active screen) |
-| `set_scrollback_lines(n)` | Set capacity (trims excess) |
-| `encode_key(key, modifiers=0, kind="press", ...)` | Encode with this screen's current Kitty flags |
 
 ## Error Types
 
@@ -249,7 +249,7 @@ Full reset (`RIS`) and DECALN still use defaults.
 | `DECCOLM` | private | off | 132-column mode |
 | `DECTCEM` | private | on | Text cursor visible |
 | `DECSCNM` | private | off | Reverse video |
-| `DECCKM` | private | off | Application keypad |
+| `DECCKM` | private | off | Application cursor keys |
 | `BRACKETED_PASTE` | private | off | Paste mode |
 | Mouse modes | private | off | 1000/1002/1003/1004 |
 

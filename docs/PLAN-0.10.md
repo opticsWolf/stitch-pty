@@ -51,11 +51,11 @@ None of this changes 0.10.0. It changes how G1, G3, G4, and G7 are specified.
 | PR | [#2 — feat(rust): add first-class PtySession, explicit env contract, winsize/EOF fixes](https://github.com/opticsWolf/stitch-pty/pull/2) — **MERGED** via rebase (`26ab236`) |
 | Base / head | `dev` ← `feat/rust-session-api` (merged) |
 | Merge state | `MERGED`; pre-merge was `MERGEABLE` / `CLEAN` |
-| CI | 0.10.1 tag run `43581964572`: all 6 test jobs, all 4 wheel builds, PyPI, and crates.io green. 0.10.7 release train run [`43596664417`](https://github.com/opticsWolf/stitch-pty/actions/runs/43596664417) at `50fcbf9`: all 6 test jobs and 4 wheel builds green. Tag run [`43598337253`](https://github.com/opticsWolf/stitch-pty/actions/runs/43598337253) at `842c3d9`: 6 test jobs, 4 wheels, PyPI, and crates.io green. |
+| CI | 0.10.1 tag run `43581964572` and 0.10.7 tag run [`43598337253`](https://github.com/opticsWolf/stitch-pty/actions/runs/43598337253) are green (6 tests, 4 wheels, PyPI, crates.io). The latest implementation run, 0.15.0 [`43633855901`](https://github.com/opticsWolf/stitch-pty/actions/runs/43633855901), is green for the Rust-core no-PyO3/regex job, 6 test jobs, and 4 wheels; version-specific runs are in §8.12–§8.16. |
 | Version | `0.15.0` on `dev` (G5) with 0.11.0 (G2 + G1), 0.12.0 (K1b), 0.13.0 (D1 + D2), and 0.14.0 (G6) also unreleased; `0.10.7` released; 0.10.2–0.10.6 folded into it; `0.10.1` released at `97e03ab`; `0.10.0` at `e620cc8` |
 | Publication | PyPI/crates.io 0.10.7, 0.10.1, and 0.10.0 published; 0.11.0–0.15.0 are not tagged or published yet; 0.10.2–0.10.6 were not published separately |
 | Local gates | 0.15.0: `fmt`, `clippy` (host + Linux/macOS), `cargo test` (435 unit + 23 integration [Windows; 29 Unix] + 1 doc), `--no-default-features` (435 + examples), `--features regex`, `check --features python`, `doc`, `ruff`, `mypy`, `maturin develop --release` (0.15.0), `pytest` (215 passed, 2 skipped on Windows; 216 passed, 1 skipped on Linux/macOS) |
-| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` is at `e7e69c6` with the unreleased 0.11.0–0.15.0 implementations; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
+| Branch sync | `main` is at the 0.10.7 release plus post-release docs (`e0a18ce`); `dev` head contains the unreleased 0.11.0–0.15.0 implementations; tags `v0.10.0`/`e620cc8`, `v0.10.1`/`97e03ab`, and `v0.10.7`/`842c3d9`; local `feat/rust-session-api` still points at pre-rebase `5e68aa1` |
 | Reference review | Completed 2026-11-14; findings folded into §3–§5 |
 | Post-merge review | Parser chunking and Rust/Python decoupling findings tracked as P1/D1/D2 in §5.7–§5.9 |
 | Follow-up issues | [#3–#17](https://github.com/opticsWolf/stitch-pty/issues) filed; G4/H3/G7/H1/H2/P1/K1a shipped in 0.10.7 and their issues are closed; H4 (#12) closed with the documented no-change decision; G2 (#4) and G1 (#3) are implemented in 0.11.0; K1b (#14) is implemented in 0.12.0; D1 (#16) and D2 (#17) are implemented in 0.13.0; G6 (#8) is implemented in 0.14.0; G5 (#7) is implemented in 0.15.0; all seven stay open until release |
@@ -107,8 +107,8 @@ CI trigger note: the workflow originally ran `pull_request` checks only for
   `terminate` / `kill` / `interrupt` / `send_signal`, `pid`, `is_alive`,
   `pty()`, `child()`, `into_parts()`.
 - **Backend helpers**: `PtyBackend::write_all`,
-  `ChildBackend::wait_status`, `ArcPtyBackend` / `ArcChildBackend`, and a root
-  `Winsize` re-export.
+  `ChildBackend::wait_status` (removed in 0.11.0 with `ProcessExit`),
+  `ArcPtyBackend` / `ArcChildBackend`, and a root `Winsize` re-export.
 - **Explicit environment contract** for the low-level API:
   `spawn_platform(..., env: Option<&[(String, String)]>, ...)`.
 - **Winsize default**: `None` normalizes to 24×80 on all platforms, including
@@ -218,8 +218,8 @@ description is archived. Reference lessons are folded into each item.
 | 2 | `ChildBackend::wait()` returns legacy `ProcessExit` — `src/platform.rs:76,169` | `wait_status()` is the additive bridge; `PtySession::wait` already returns `ExitStatus` | Remove `ProcessExit`; make `wait` return `Option<ExitStatus>`; no `pid` in the status; cache repeatable results | 0.11.0 (implemented; breaking) |
 | 3 | Windows `interrupt()` does not reach the ConPTY child — `src/platform_windows.rs:265-273` | `signal(2)` maps to `GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0)`, which targets the caller's console group; documented best-effort | **Default:** return an explicit “unsupported on ConPTY” error. Ctrl+Break is a separate opt-in spike with different semantics | 0.10.1 (bug/design) |
 | 4 | No EOF on Windows child exit — `src/platform_windows.rs:322` closes the pseudo console only in `Drop` | Reads block/time out after `is_alive() == false` until the session is dropped; documented | Add a close-order-aware `close()`, `read_until_exit`, and an event-driven child watcher. Drain output before `ClosePseudoConsole`; distinguish stdin EOF from output EOF | 0.10.2 (bug/design) |
-| 5 | `expect()` is Python-only — `python/stitch_pty/__init__.py:536` | Rust users must build matching on raw chunks | Add `ExpectPattern` (`Bytes` / `Str` / regex), a byte-oriented rolling buffer, `ExpectResult`; regex behind a feature | Feature minor after G6 |
-| 6 | No emulator-owning session — `src/session.rs` deliberately has no `HistoryScreen` | Rust callers feed `read` output into their own screen | Add a thin `TerminalSession` wrapping `PtySession` + `HistoryScreen`; auto-feed chunks, resize both, expose screen/dirty rows. Do not merge emulator into `PtySession` | Feature minor |
+| 5 | `expect()` is Python-only — `python/stitch_pty/__init__.py:536` | Rust users must build matching on raw chunks | Add `ExpectPattern` (`Bytes` / `Str` / regex), a byte-oriented rolling buffer, `ExpectResult`; regex behind a feature | 0.15.0 (implemented) |
+| 6 | No emulator-owning session — `src/session.rs` deliberately has no `HistoryScreen` | Rust callers feed `read` output into their own screen | Add a thin `TerminalSession` wrapping `PtySession` + `HistoryScreen`; auto-feed chunks, resize both, expose screen/dirty rows. Do not merge emulator into `PtySession` | 0.14.0 (implemented) |
 | 7 | Python `terminate()` had its own 100 ms loop (pre-0.10.3) — `python/stitch_pty/__init__.py:190,443` | Uses `spawn_blocking` sleeps because tokio timers through the PyO3 bridge are unreliable on macOS; Rust `PtySession::terminate` uses tokio sleeps | Consolidated around `ArcChildBackend` + a shared escalation policy with injectable sleep; Python delegates once | 0.10.3 (shipped in 0.10.7) |
 
 ### 4.2 G1 — `RawHandle` / `raw_handle()`
@@ -1168,9 +1168,9 @@ as usable without Python.
 
 ## 6. Sequencing and version buckets
 
-The exact version numbers for feature work follow the repository rule **one
-version = one commit** and the bump table in `IMPROVEMENT_PLAN.md` (new feature
-or major refactor = minor). The buckets below are the proposed order; adjust
+The exact version numbers for feature work follow the repository rule of one
+version commit per version and the bump table in `IMPROVEMENT_PLAN.md` (new
+feature or major refactor = minor). The buckets below are the proposed order; adjust
 the number, not the order, when scheduling.
 
 | Order | Version | Work | Why this bucket |
@@ -1215,19 +1215,19 @@ Notes:
 ### 6.1 Release discipline
 
 - Do not fold G1–G7, H1–H4, K1a/K1b, or P1/D1/D2 into this PR/release.
-- One release = one commit = one push to `dev`.
+- A version commit carries the implementation, bump, changelog, and docs; follow-up fixes/tests/docs may be separate commits before release, but never rewrite a pushed version commit.
 - Fix forward within the same version if a gate fails; do not push a red bump.
 - Do not merge `dev` → `main`, tag, or publish without explicit maintainer
   confirmation (`RELEASING.md`).
-- Every follow-up needs a CHANGELOG entry and docs updates in the same version
-  commit.
+- Every follow-up needs a CHANGELOG entry and docs updates before release.
 
 ---
 
 ## 7. Issue-filing checklist
 
-The gaps now live in this plan and the issue tracker. All 15 remaining
-follow-ups are filed as #3–#17 and linked below; issue #1 remains the Kitty
+The gaps now live in this plan and the issue tracker. All 15 follow-ups are
+filed as #3–#17 and linked below; implementation is complete, and the open
+issues close with the release. Issue #1 remains the Kitty
 umbrella. Checkboxes track implementation, not filing.
 
 **Original gaps**
@@ -1576,7 +1576,7 @@ queue is complete; releases wait for explicit confirmation.
 | D1 interop | `from_parts` + slave/pair API + AsyncRead/handles; which shape? | Answered in 0.13.0: `from_parts` + Arc-sharing `reader()`/`writer()` handles; `open_pty_platform` documented master-only; external `vt100` example; `PtySession` remains emulator-free |
 | D2 parity scope | Which Python-only conveniences stay Python-only (`raw_output`, `expect`, owned terminal)? | Answered in 0.13.0/0.14.0: `raw_output` is Python-only; `expect` remains tracked as G5; owned terminal now has the Rust `TerminalSession`; table in `docs/PARITY.md` |
 | Python surface | Should Python expose `close()`/`read_until_exit`/`take_writer`? | Rust-only in 0.10.2; decide with the G4 follow-up |
-| Version numbering | Do G6/G5 land as separate minors or one batched release? | Scheduling; follow `IMPROVEMENT_PLAN.md` bump rules |
+| Version numbering | Do G6/G5 land as separate minors or one batched release? | Answered: G6 shipped as 0.14.0 and G5 as 0.15.0; release grouping remains a maintainer decision |
 
 ---
 
@@ -1591,8 +1591,9 @@ queue is complete; releases wait for explicit confirmation.
 - G4/H3/G7/H1/H2/P1/K1a issues are closed as shipped in 0.10.7; G2/G1/K1b,
   D1/D2, G6, and G5 are implemented in 0.11.0–0.15.0 and remain open until
   release; H4 is closed with a recorded spike decision.
-- Issue #1 is linked to K1a/K1b; K1b is implemented and the PySide6 example
-  uses the encoder, so #1 can close after a GUI smoke test.
+- Issue #1 is linked to K1a/K1b; K1b is implemented, the PySide6 example
+  routes keys through the encoder, and an offscreen PySide6 smoke test passed.
+  #1 closes with the release.
 - Each 0.10.x patch has a CHANGELOG entry and tests; the combined 0.10.7 train
   has a green CI run.
 - No deferred gap is silently dropped or “fixed” by documentation alone without

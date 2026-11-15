@@ -14,6 +14,11 @@ compatible terminal emulator with scrollback history. The Rust core builds and
 tests without Python (`--no-default-features`); the `python` feature adds the
 binding layer.
 
+> **Version note:** the latest published release is **0.10.7**. This README
+> documents the `dev` branch at **0.15.0**, which is implemented but not yet
+> tagged or published. The 0.11–0.15 APIs below are unavailable from PyPI or
+> crates.io until that release is published.
+
 ---
 
 ## Why stitch-pty?
@@ -24,7 +29,7 @@ binding layer.
 | Async I/O | ✅ Native `asyncio` | ❌ Blocking | ❌ Blocking |
 | GIL released during I/O | ✅ Tokio `.await` | ✅ blocking read | ✅ blocking read |
 | Terminal emulation | ✅ Built-in (scrollback + styled viewport) | ❌ | ❌ |
-| No zombie processes | ✅ Background reaping (50ms polling) | ⚠️ Manual | ⚠️ Manual |
+| No zombie processes | ✅ Unix reaper + Windows exit watcher | ⚠️ Manual | ⚠️ Manual |
 | Type-safe Python API | ✅ Full mypy support | ✅ | ✅ |
 
 ---
@@ -252,13 +257,13 @@ for tag, payload in session.poll_events():
 
 #### `open_pty(winsize=None) → PtyMaster`
 
-Async. Opens a PTY pair without spawning a child process.
+Async. Opens a raw PTY master without spawning a child process. The Unix slave is closed by the backend; use `spawn()` for a child-attached PTY.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `winsize` | `Winsize \| None` | 24×80 | Terminal size |
 
-**Returns:** `PtyMaster` — raw PTY I/O handle (no terminal emulation, no child management).
+**Returns:** `PtyMaster` — raw PTY master I/O handle (no terminal emulation, no child management).
 
 **Example:**
 
@@ -317,6 +322,7 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `kill` | `kill() → None` | Force kill immediately |
 | `interrupt` | `interrupt() → None` | Send Ctrl+C (SIGINT) on POSIX; raises `NotImplementedError` on Windows |
 | `send_signal` | `send_signal(num) → None` | Send a signal number; Windows supports 9/15 only (2 raises `NotImplementedError`) |
+| `encode_key` | `encode_key(key, modifiers=0, kind="press", text=None, shifted_key=None, base_layout_key=None, flags=None) → bytes` | Encode a key event with the active Kitty mode; names, single characters, or numeric codes |
 | `interact` | `await interact(input_data=None, timeout=None) → bytes` | Write input, read until EOF (high-level) |
 | `read_all` | `await read_all(timeout=1.0) → bytes` | Read all output until timeout |
 | `expect` | `await expect(patterns, timeout=30.0) → ExpectResult` | pexpect-style: bytes/str/regex, single or list; `.buffer` on timeouts |
@@ -343,7 +349,6 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `visible_columns` | `int` | Visible width in columns, O(1) |
 | `raw_output` | `bytes` | Last `raw_output_cap` raw bytes read (unparsed; sliding window, default 1 MiB) |
 | `keyboard_mode` | `int` | Current Kitty keyboard enhancement flags on the active screen |
-| `encode_key(...)` | `bytes` | Encode a key event with the active flags (Shift+Enter → `CSI 13;2u` under flag 1) |
 
 **Context Manager:**
 
@@ -369,7 +374,6 @@ Raw PTY I/O without terminal emulation or child management.
 | `set_winsize` | `set_winsize(rows, cols, xpixel=0, ypixel=0) → None` | Set window size |
 | `get_winsize` | `get_winsize() → Winsize` | Get current size |
 | `fd` | `property → int` | Raw file descriptor (Unix) / `-1` (Windows) |
-| `is_open` | `property → bool` | PTY still open? |
 
 ---
 
@@ -386,7 +390,6 @@ Child process management.
 | `kill` | `kill() → None` | Force kill |
 | `interrupt` | `interrupt() → None` | Send Ctrl+C (SIGINT) on POSIX; raises `NotImplementedError` on Windows |
 | `send_signal` | `send_signal(num) → None` | Send signal number; Windows supports 9/15 only (2 raises `NotImplementedError`) |
-| `encode_key` | `encode_key(key, modifiers=0, kind="press", text=None, shifted_key=None, base_layout_key=None, flags=None) → bytes` | Encode a key event with the active Kitty mode; names, single characters, or numeric codes |
 
 ---
 
@@ -401,6 +404,7 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `visible_display` | `visible_display() → list[str]` | Visible screen only |
 | `history_display` | `history_display() → list[str]` | Scrollback history only |
 | `styled_viewport` | `styled_viewport() → list[list[tuple[str, str, str, int]]]` | Full buffer as styled cells: `(text, fg, bg, attrs_bitmask)` |
+| `styled_range` | `styled_range(start, count) → list[list[tuple[str, str, str, int]]]` | Styled cells for absolute rows `[start, start + count)` |
 | `total_lines` | `total_lines() → int` | Total lines = history + visible |
 | `absolute_cursor` | `absolute_cursor() → tuple[int, int]` | `(x, history_len + on_screen_y)` |
 | `dirty` | `dirty() → list[int]` | Modified row indices |
@@ -553,7 +557,7 @@ loop {
 | **Pipe naming** | `\\.\pipe\stitch-pty-{pid}-{counter}` (unique per instance) |
 | **Process spawn** | `CreateProcessW` with `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` via `SafeAttributeList` |
 | **Async I/O** | `tokio::net::NamedPipeServer` → true async via IOCP (no `spawn_blocking`) |
-| **Reaping** | Background poll of `GetExitCodeProcess` every 50ms (no `WaitForSingleObject`) |
+| **Reaping** | `WaitForSingleObject` watcher thread publishes exit through a `watch` channel (no 50 ms polling on the wait path) |
 | **Signal delivery** | SIGINT/interrupt unsupported (`NotImplementedError`); SIGTERM/KILL → `TerminateProcess` |
 | **Resize** | `ResizePseudoConsole` (no signal forwarded to child) |
 | **Startup handshake** | Sends DSR reply `\x1b[1;1R` to conhost to begin relaying child output |
@@ -775,7 +779,7 @@ python examples/terminal_emulator.py --rows 30 --cols 100
 - Async PTY + Qt event loop integration (background thread)
 - Real-time styled rendering via `styled_viewport()` with HTML
 - Cursor position tracking via `absolute_cursor()`
-- Keyboard input forwarding with Ctrl+key → ANSI sequences
+- Keyboard input forwarding through the Kitty-aware encoder (Ctrl/Alt/Shift/Win, function keys)
 - Window resize forwarding (rate-limited during drag)
 - Graceful shutdown on window close
 

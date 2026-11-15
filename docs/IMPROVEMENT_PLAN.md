@@ -7,7 +7,7 @@
 
 ## 1. Governance rules
 
-Every version below is **exactly one commit**, pushed to `dev` immediately.
+Each version has **one version commit** (implementation + bump/changelog); follow-up fixes, tests, and docs may land as separate commits before release. Never rewrite a pushed version commit.
 
 ### Bump rules
 
@@ -25,19 +25,22 @@ After a minor bump, the patch sequence continues from the new minor
 
 ### Definition of Done — every version, no exceptions
 
-1. Bump **all three** version fields:
-   - `Cargo.toml` → `version = "X.Y.Z"`
-   - `pyproject.toml` → `version = "X.Y.Z"`
-   - `python/stitch_pty/__init__.py` → `__version__ = "X.Y.Z"`
-2. `cargo test --lib` → 0 failures.
-3. `uvx maturin develop --release` (rebuild `_core` against the edited Rust).
-4. `uv run python -m pytest tests/ -q` → 0 failures.
-5. Append a row to `CHANGELOG.md` under the new version heading (from 0.5.13 on).
-6. Commit: `<type>: <summary> (vX.Y.Z)` — one commit, nothing else mixed in.
-7. `git push origin dev`.
+The runnable gate list lives in [`RELEASING.md`](RELEASING.md); the summary is:
+
+1. Bump **all three** version fields (`Cargo.toml`, `pyproject.toml`,
+   `python/stitch_pty/__init__.py`) and refresh the lockfiles.
+2. `cargo fmt --all --check`; `cargo clippy --all-targets -- -D warnings` on
+   the host plus the Linux/macOS targets.
+3. `cargo test`; `cargo test --no-default-features --lib`; the `regex` feature
+   test when that feature changed.
+4. `cargo check --features python`; `cargo doc --no-deps`.
+5. `maturin develop --release`; `pytest`; `ruff`; `mypy --strict`.
+6. Append the `CHANGELOG.md` section; commit the bump/changelog; push.
+7. Wait for CI on the exact commit. Tag/publish only with explicit maintainer
+   confirmation.
 
 If any suite is red, the version is not released; fix forward within the same
-version before pushing.
+version before tagging.
 
 ---
 
@@ -58,6 +61,10 @@ version before pushing.
 | 0.7.2 | test | Property-based invariants for parser→Screen | 3 |
 | 0.7.3 | fix | CI lint gates (clippy, fmt, ruff, mypy) | 3 |
 | 0.7.4 | test | Concurrency contract tests | 3 |
+
+> This table is the original roadmap snapshot through 0.7.4. The current
+> release sequence is rows 21–33 in §7; every row through 0.15.0 is released or
+> implemented.
 
 ---
 
@@ -495,8 +502,8 @@ violations into explicit decisions:
   (pairs with `ScrollbackGrew` from 0.7.0 — promote when a consumer needs it).
 - **Suspend/resume flow control** (CSI ? 1007 etc.) — audit which modes the
   parser tracks vs. terminals in the wild.
-- **README claims audit** — verify "Zero GIL contention" and "50ms polling"
-  rows against current implementation reality before the 1.0 marketing push.
+- **README claims audit** — ☑ completed in the 0.15 documentation review;
+  reaping, `open_pty`, `PtyMaster`, and Kitty rows now match the implementation.
 - **1.0.0** — API freeze review: settle the `expect()` return type, event tag
   vocabulary, and error taxonomy; semver promises start there.
 - **Cap the `Screen.events` log** — ☑ done in 0.8.0 (1024-entry cap,
@@ -526,7 +533,7 @@ all fixed in one patch version:
    `main`/tags. Trigger now includes `dev`; linters pinned.
 
 Governance note: all four are bug fixes / CI changes → single `+0.0.1`
-patch version, one commit.
+patch version, one bump commit.
 
 ## 9. Post-plan: integration findings (v0.7.6, v0.8.0, v0.8.1, v0.8.2+)
 
