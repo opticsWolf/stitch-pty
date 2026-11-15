@@ -681,8 +681,11 @@ h1 em {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  justify-self: center;
+  width: 100%;
+  max-width: 34rem;
   min-height: 390px;
-  padding: 2rem 1.5rem;
+  padding: clamp(1.5rem, 3vw, 2rem);
   overflow: hidden;
   border: 1px solid var(--line);
   background:
@@ -692,10 +695,22 @@ h1 em {
     var(--panel);
 }
 
+.diagram-head {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  margin-bottom: 1.7rem;
+}
+
+.diagram-head::after {
+  flex: 1;
+  height: 1px;
+  content: "";
+  background: var(--line);
+}
+
 .diagram-label,
 .diagram-note {
-  position: relative;
-  z-index: 2;
   color: var(--mint-dim);
   font-family: var(--mono);
   font-size: .6rem;
@@ -703,28 +718,70 @@ h1 em {
   text-transform: uppercase;
 }
 
-.diagram-label { margin-bottom: 1.8rem; }
+.diagram-label {
+  display: inline-flex;
+  align-items: center;
+  gap: .6rem;
+}
 
-.diagram-note {
-  margin-top: 1.8rem;
-  color: #6e8075;
-  text-align: right;
+.diagram-label::before {
+  width: 6px;
+  height: 6px;
+  content: "";
+  border: 1px solid var(--orange);
+  transform: rotate(45deg);
+}
+
+.diagram-flow {
+  --node-h: 3.35rem;
+  --node-indent: 2.15rem;
+  --rail-x: .55rem;
+  position: relative;
+  padding-left: var(--node-indent);
+}
+
+.diagram-flow::before {
+  position: absolute;
+  top: calc(var(--node-h) / 2);
+  bottom: calc(var(--node-h) / 2);
+  left: var(--rail-x);
+  content: "";
+  border-left: 1px dashed rgba(255, 106, 61, .58);
 }
 
 .diagram-node {
   position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  width: 82%;
-  margin: 0 0 .8rem;
-  padding: .8rem .9rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .75rem;
+  min-height: var(--node-h);
+  padding: .78rem .85rem;
   border: 1px solid var(--line-bright);
   background: #0d1511;
   font-family: var(--mono);
   font-size: .68rem;
+}
+
+.diagram-node::before {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--rail-x) - var(--node-indent) - 3px);
+  width: 6px;
+  height: 6px;
+  content: "";
+  border: 1px solid var(--orange);
+  background: var(--panel);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.diagram-node::after {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--rail-x) - var(--node-indent));
+  width: calc(var(--node-indent) - var(--rail-x));
+  content: "";
+  border-top: 1px dashed rgba(255, 106, 61, .58);
 }
 
 .diagram-node span {
@@ -736,31 +793,53 @@ h1 em {
   font-size: .64rem;
 }
 
-.node-a { align-self: flex-start; }
-.node-b { align-self: flex-end; margin-right: 6%; }
-.node-c { align-self: flex-start; margin-left: 10%; }
-
-.diagram-stitch {
-  position: absolute;
-  z-index: 1;
-  top: 24%;
-  right: 28%;
-  bottom: 26%;
-  left: 26%;
-  border-left: 1px dashed var(--orange);
-  transform: skewX(-19deg);
-  opacity: .65;
+.diagram-link {
+  display: flex;
+  align-items: center;
+  min-height: 2.35rem;
+  padding-left: .35rem;
+  color: var(--orange);
+  font-family: var(--mono);
+  font-size: .56rem;
+  letter-spacing: .06em;
+  opacity: .9;
 }
 
-.diagram-stitch::after {
-  position: absolute;
-  right: -4px;
-  bottom: -5px;
+.diagram-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.7rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--line);
+}
+
+.chunk-marks {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chunk-marks i {
+  display: block;
+  width: 10px;
+  border-top: 1px dashed var(--orange);
+  opacity: .6;
+}
+
+.chunk-marks i:nth-child(2) {
+  width: 16px;
+}
+
+.chunk-marks i:nth-child(3) {
   width: 7px;
-  height: 7px;
-  content: "";
-  border: 1px solid var(--orange);
-  transform: rotate(45deg);
+}
+
+.diagram-note {
+  color: var(--mint-dim);
+  font-size: .56rem;
+  text-align: right;
 }
 
 /* Feature ledger */

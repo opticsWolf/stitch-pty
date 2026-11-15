@@ -147,12 +147,29 @@
           </div>
 
           <div class="diagram" aria-hidden="true">
-            <span class="diagram-label">one parsed screen</span>
-            <div class="diagram-node node-a"><span>raw bytes</span><code>read()</code></div>
-            <div class="diagram-node node-b"><span>screen state</span><code>HistoryScreen</code></div>
-            <div class="diagram-node node-c"><span>your UI</span><code>styled_range()</code></div>
-            <div class="diagram-stitch"></div>
-            <span class="diagram-note">chunked input · same result</span>
+            <div class="diagram-head">
+              <span class="diagram-label">one parsed screen</span>
+            </div>
+            <div class="diagram-flow">
+              <div class="diagram-node">
+                <span>raw bytes</span>
+                <code>read()</code>
+              </div>
+              <span class="diagram-link">feed()</span>
+              <div class="diagram-node">
+                <span>screen state</span>
+                <code>HistoryScreen</code>
+              </div>
+              <span class="diagram-link">paint()</span>
+              <div class="diagram-node">
+                <span>your UI</span>
+                <code>styled_range()</code>
+              </div>
+            </div>
+            <div class="diagram-foot">
+              <span class="chunk-marks"><i></i><i></i><i></i></span>
+              <span class="diagram-note">chunked input · same result</span>
+            </div>
           </div>
         </div>
       </div>
