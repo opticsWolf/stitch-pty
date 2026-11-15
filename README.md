@@ -952,7 +952,6 @@ or embedded into this project.
 - Added **`HistoryScreen`** — scrollback buffer (not in upstream pyte)
 - Added **`styled_viewport()`** — full buffer as `(text, fg, bg, attrs_bitmask)` cells
 - Added **`total_lines()`** and **`absolute_cursor()`** for scroll-aware positioning
-- Unicode width/combining-character handling through `unicode-width`
 - SGR subparameter parsing (`:` as param separator) — differs from vte crate
 - Color stored as hex strings (`"ff0000"`) instead of RGB tuples for Python serialization
 
