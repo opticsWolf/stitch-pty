@@ -785,6 +785,9 @@ python examples/terminal_emulator.py --cmd "whoami"
 python examples/terminal_emulator.py --rows 30 --cols 100
 ```
 
+> The example uses `PtySession.encode_key` from 0.15; install the dev build
+> until 0.15 is published on PyPI.
+
 **Key features demonstrated:**
 - Async PTY + Qt event loop integration (background thread)
 - Real-time styled rendering via `styled_viewport()` with HTML

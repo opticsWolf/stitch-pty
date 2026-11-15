@@ -5,7 +5,7 @@
 //! line boundaries. Patterns are checked in list order after every read, so a
 //! match can span arbitrary read chunks.
 //!
-//! The accumuated buffer is local to one `expect()` call; the returned
+//! The accumulated buffer is local to one `expect()` call; the returned
 //! `after` bytes are the unconsumed tail after the match. A caller that wants
 //! to keep reading beyond the match should inspect `after` or issue a new
 //! `expect()` (bytes already consumed from the PTY are not pushed back).
