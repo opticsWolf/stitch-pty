@@ -351,18 +351,17 @@ uv run --with mypy python -m mypy python/stitch_pty/
 |-------|---------|
 | `pyo3` + `pyo3-async-runtimes` | Python bindings + tokio runtime bridge |
 | `tokio` (full) | Async runtime, named pipes, io-util |
-| `tokio-util` | Codec helpers |
 | `parking_lot` | Fast mutexes for pipe handles |
 | `thiserror` | Error types |
 | `async-trait` | Async PTY/Child backend traits |
-| `tracing` | Structured logging |
-| `bitflags` | Terminal mode flags |
+| `bitflags` | Terminal mode and input-modifier flags |
+| `regex` (optional) | Byte-oriented `expect()` patterns (`features = ["regex"]`) |
 | `unicode-width` | Unicode character width (for wide chars) |
-| `unicode-segmentation` | Grapheme segmentation (combining marks) |
 | `nix` (Unix only) | POSIX PTY, signals, ioctls |
 | `libc` (Unix only) | Raw syscalls (read/write/ioctl) |
 | `windows` (Windows only) | ConPTY, NamedPipes, CreateProcessW |
 | `proptest` (dev) | Property-based parser→Screen invariants |
+| `vt100` (dev) | External-emulator integration example |
 
 ## License
 
