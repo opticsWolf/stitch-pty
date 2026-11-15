@@ -60,7 +60,8 @@
             <a class="button button-quiet" href="https://github.com/opticsWolf/stitch-pty">View the source <span aria-hidden="true">↗</span></a>
           </div>
           <div class="hero-meta">
-            <span><i class="signal" aria-hidden="true"></i> POSIX + ConPTY</span>
+            <span class="version"><i class="signal" aria-hidden="true"></i> v0.15.0</span>
+            <span>POSIX + ConPTY</span>
             <span>Rust 1.85+</span>
             <span>Python 3.12+</span>
           </div>
@@ -89,7 +90,7 @@
               <span>asyncio</span>
             </div>
           </div>
-          <p class="terminal-caption">Illustrative session · APIs shown are on <code>main</code></p>
+          <p class="terminal-caption">Illustrative session · v0.15.0</p>
         </div>
       </div>
     </section>
@@ -199,7 +200,7 @@
               A Kitty CSI u encoder distinguishes Shift+Enter from Enter. The
               flags live with the screen, not in the PTY byte stream.
             </p>
-            <span class="feature-tag">input · 0.12+</span>
+            <span class="feature-tag">input</span>
           </article>
           <article class="feature">
             <h3><i class="stitch-mark" aria-hidden="true"></i> Expect, without pexpect</h3>
@@ -207,7 +208,7 @@
               Byte-oriented patterns across read chunks, optional regex, and
               timeout errors that keep the bytes already read.
             </p>
-            <span class="feature-tag">testing · 0.15+</span>
+            <span class="feature-tag">testing</span>
           </article>
           <article class="feature">
             <h3><i class="stitch-mark" aria-hidden="true"></i> Composable by design</h3>
@@ -216,7 +217,7 @@
               an external <code>vt100</code> example, and a core that builds
               without PyO3.
             </p>
-            <span class="feature-tag">interop · 0.13+</span>
+            <span class="feature-tag">interop</span>
           </article>
         </div>
       </div>
@@ -266,8 +267,8 @@
             </div>
 
             <p class="version-note">
-              PyPI and crates.io currently serve <strong>0.10.7</strong>. The
-              snippets below use APIs available on <code>main</code>.
+              <strong>0.15.0</strong> brings the Rust <code>TerminalSession</code>,
+              the Kitty key encoder, and byte-oriented <code>expect()</code>.
             </p>
 
             <div class="quick-links">
@@ -378,7 +379,7 @@ asyncio.run(main())</code></pre>
         <a href="https://github.com/opticsWolf/stitch-pty/blob/main/CHANGELOG.md">Changelog</a>
         <a href="https://github.com/opticsWolf/stitch-pty/tree/main/docs">Docs</a>
       </nav>
-      <p class="footer-legal">MIT OR Apache-2.0<br><span>Built in Rust, bound to Python.</span></p>
+      <p class="footer-legal">v0.15.0 · MIT OR Apache-2.0<br><span>Built in Rust, bound to Python.</span></p>
     </div>
   </footer>
 

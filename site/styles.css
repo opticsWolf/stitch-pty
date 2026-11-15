@@ -356,6 +356,8 @@ h1 em {
   text-transform: uppercase;
 }
 
+.hero-meta .version { text-transform: none; }
+
 .signal {
   display: inline-block;
   width: 6px;
