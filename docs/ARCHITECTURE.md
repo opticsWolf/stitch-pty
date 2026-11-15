@@ -390,7 +390,7 @@ pub struct Cursor {
 |------|------|---------|-------------|
 | `IRM` (4) | public | off | Insert mode |
 | `LNM` (20) | public | on | Line feed = newline (auto CR) |
-| `DECCKM` (1) | private | off | Application keypad |
+| `DECCKM` (1) | private | off | Application cursor keys |
 | `DECCOLM` (3) | private | off | 132-column mode |
 | `DECOM` (6) | private | off | Origin mode (relative to margins) |
 | `DECAWM` (7) | private | on | Auto-wrap |
@@ -661,8 +661,10 @@ returning `ExitStatus | None`.
 | `dirty()` | Modified row indices (peek) |
 | `take_dirty_rows()` | Drain dirty rows (sorted, empty afterwards) |
 | `take_bell()` | Edge-triggered BEL check (resets the flag) |
-| `cwd()` | Shell cwd from OSC 7 / OSC 9;9, if reported yet |
+| `cwd` | Shell cwd from OSC 7 / OSC 9;9, if reported yet |
 | `visible_lines` / `visible_columns` | Visible grid geometry, O(1) (prefer over `len(visible_display())`) |
+| `alt_screen`, `app_cursor`, `bracketed_paste`, `sgr_mouse` | Live mode getters |
+| `cursor_visible`, `cursor_blink`, `cursor_shape`, `mouse_proto` | Cursor/mouse mode getters |
 | `poll_events()` | Drain ordered events → `list[(tag, payload)]`; tags: `bell`, `title`, `icon`, `cwd`, `altscreen`, `scrollback_grew` (log capped at 1024, drop-oldest) |
 | `resize(lines, cols)` | Resize buffer (zero rows/columns clamp to 1) |
 | `reset()` | Reset terminal + clear history |

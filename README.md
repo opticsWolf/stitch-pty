@@ -317,6 +317,8 @@ The primary interface for most use cases. Combines PTY I/O, child process manage
 | `write` | `await write(data) → int` | Write bytes to PTY, returns bytes written |
 | `write_all` | `await write_all(data) → None` | Write all bytes (handles partial writes) |
 | `resize` | `resize(rows, cols) → None` | Resize PTY backend **and** emulator (reflows on column change) |
+| `set_winsize` | `set_winsize(rows, cols, xpixel=0, ypixel=0) → None` | Set the full PTY winsize including pixel dimensions |
+| `get_winsize` | `get_winsize() → Winsize` | Read the current PTY winsize |
 | `wait` | `await wait(timeout=None) → ExitStatus \| None` | Wait for child exit; returns `ExitStatus` (repeated calls return the same status), `None` only if the status was lost; raises `TimeoutError` past `timeout` |
 | `terminate` | `await terminate(grace_period=5.0) → None` | SIGTERM → wait → SIGKILL fallback |
 | `kill` | `kill() → None` | Force kill immediately |
@@ -427,6 +429,14 @@ VT100/VT220/xterm-compatible terminal emulation with scrollback.
 | `history_size` | `int` | Current scrollback line count |
 | `scrollback_lines` | `int` | Scrollback capacity |
 | `keyboard_mode` | `int` | Current Kitty keyboard enhancement flags (active screen) |
+| `alt_screen` | `bool` | Alternate screen buffer is active |
+| `app_cursor` | `bool` | DECCKM application cursor keys are active |
+| `bracketed_paste` | `bool` | Bracketed paste mode is active |
+| `cursor_visible` | `bool` | DECTCEM cursor visibility |
+| `cursor_blink` | `bool` | Cursor blink state from DECSCUSR |
+| `cursor_shape` | `str` | `"block"`, `"underline"`, or `"bar"` |
+| `mouse_proto` | `int` | Active mouse protocol: 1003, 1002, 1000, or 0 |
+| `sgr_mouse` | `bool` | SGR mouse encoding (?1006) is active |
 
 **Kitty key encoding:**
 

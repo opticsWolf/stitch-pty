@@ -104,6 +104,8 @@ exit within `timeout` seconds.
 | `await write(data)` | Write bytes to PTY, returns bytes written |
 | `await write_all(data)` | Write all bytes (handles partial writes) |
 | `resize(rows, cols)` | Resize PTY backend + emulator in one call (reflows on column change) |
+| `set_winsize(rows, cols, xpixel=0, ypixel=0)` | Set full PTY winsize including pixels |
+| `get_winsize()` | Read current PTY winsize |
 | `await terminate(grace_period=5.0)` | SIGTERM → wait → SIGKILL fallback |
 | `kill()` | Force kill |
 | `interrupt()` | Send Ctrl+C (SIGINT) on POSIX; raises `NotImplementedError` on Windows |
@@ -181,6 +183,10 @@ exit within `timeout` seconds.
 | `history_size` | Current scrollback line count |
 | `scrollback_lines` | Scrollback capacity |
 | `keyboard_mode` | Current Kitty keyboard enhancement flags (active screen) |
+| `alt_screen` / `app_cursor` | Alternate screen / DECCKM state |
+| `bracketed_paste` / `sgr_mouse` | Bracketed paste / SGR mouse state |
+| `cursor_visible` / `cursor_blink` / `cursor_shape` | Cursor visibility, blink, shape |
+| `mouse_proto` | Active mouse protocol (1003/1002/1000/0) |
 
 ## Error Types
 
