@@ -7,6 +7,16 @@ follow-up fixes and docs may precede the release tag (see `docs/RELEASING.md`).
 
 ## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.15.0...HEAD)
 
+### Fixed
+- The PySide6 examples now use the current terminal and keyboard API. The
+  advanced emulator encodes key events through `PtySession.encode_key`, so
+  Kitty flags and Shift+Enter reach the child; it also cancels the old read
+  loop on restart, de-duplicates tab bell markers, and no longer imports
+  unused compatibility types. The light emulator hides `QTextEdit`'s leftover
+  horizontal scrollbar and shuts its background loop down cleanly.
+- `examples/requirements.txt` now requires `stitch-pty>=0.15.0`; the old 0.5.7
+  floor could not import the demos' keyboard API.
+
 ## [0.15.0 — Rust expect()](https://github.com/opticsWolf/stitch-pty/compare/v0.10.7...v0.15.0)
 
 Released 2026-11-15. This is the first published release since 0.10.7 and rolls

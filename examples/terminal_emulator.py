@@ -9,7 +9,7 @@ A small but capable terminal emulator demonstrating:
 - Full SGR attributes: bold, dim, italic, underline, blink, reverse, hidden,
   strikethrough
 - Cursor position, title, and history tracking
-- Keyboard input forwarding to the child process
+- Keyboard input forwarding through the Kitty-aware encoder
 - Window resize forwarding (SIGWINCH equivalent)
 - asyncio + Qt event loop integration (background thread)
 
@@ -182,6 +182,7 @@ class TerminalWidget(QTextEdit):
         self.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.setUndoRedoEnabled(False)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         font = QFont("Cascadia Code")
         if not font.exactMatch():
@@ -390,6 +391,7 @@ _QT_SPECIAL_KEYS = {
     Qt.Key.Key_Return: "enter",
     Qt.Key.Key_Enter: "enter",
     Qt.Key.Key_Tab: "tab",
+    Qt.Key.Key_Backtab: "tab",
     Qt.Key.Key_Backspace: "backspace",
     Qt.Key.Key_Escape: "escape",
     Qt.Key.Key_Space: "space",
@@ -511,9 +513,22 @@ class _AsyncRunner(QObject):
     def _run_loop(self) -> None:
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.loop.run_until_complete(self._start())
-        # Keep alive so schedule_write() / set_viewport() callbacks run.
-        self.loop.run_forever()
+        try:
+            self.loop.run_until_complete(self._start())
+            # Keep alive so schedule_write() / set_viewport() callbacks run.
+            self.loop.run_forever()
+        finally:
+            # `stop()` kills the child and stops the loop; cancel the read task
+            # here so it cannot be destroyed pending after the thread exits.
+            if not self.loop.is_closed():
+                pending = [t for t in asyncio.all_tasks(self.loop)
+                           if not t.done()]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    self.loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True))
+                self.loop.close()
 
     async def _start(self) -> None:
         self.session = await spawn(
@@ -655,8 +670,17 @@ class _AsyncRunner(QObject):
     # ── teardown ────────────────────────────────────────────────
 
     def stop(self) -> None:
-        if self.loop:
-            self.loop.call_soon_threadsafe(self.loop.stop)
+        if self.loop and self.loop.is_running():
+            def _shutdown() -> None:
+                # Kill before stopping; scheduling an asyncio task and then
+                # stopping immediately leaves it pending and unawaited.
+                if self.session:
+                    try:
+                        self.session.kill()
+                    except Exception:
+                        pass
+                self.loop.stop()
+            self.loop.call_soon_threadsafe(_shutdown)
         self.thread.quit()
         self.thread.wait(2000)
 
@@ -836,7 +860,6 @@ class MainWindow(QMainWindow):
     # ── close ───────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:
-        self.runner.schedule_kill()
         self.runner.stop()
         event.accept()
 

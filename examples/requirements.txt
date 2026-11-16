@@ -1,2 +1,3 @@
+# Both demos use the current terminal + Kitty key API.
 PySide6>=6.6
-stitch-pty>=0.5.7
+stitch-pty>=0.15.0

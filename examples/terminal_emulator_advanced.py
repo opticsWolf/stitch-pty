@@ -21,6 +21,7 @@ Input
   • Complete keyboard map: arrows, F1–F12, Home/End/PgUp/PgDn/Ins/Del,
     application-cursor-key mode (DECCKM), xterm modifier encoding,
     Ctrl-letters, Alt-as-Meta (ESC prefix), Shift-Tab
+  • Kitty keyboard protocol through PtySession.encode_key (CSI u, active flags)
   • Mouse reporting to apps (X10/normal/button/any-event + SGR 1006)
   • Bracketed-paste support (DEC 2004)
 
@@ -73,20 +74,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QObject, Qt, QThread, QTimer, Signal, QRect, QPoint, QSize, QEvent,
+    QObject, Qt, QThread, QTimer, Signal, QRect, QPoint, QSize,
     QSettings, QUrl,
 )
 from PySide6.QtGui import (
     QAction, QActionGroup, QFont, QFontMetricsF, QKeySequence, QPainter,
-    QColor, QPen, QBrush, QClipboard, QDesktopServices, QShortcut, QKeyEvent,
+    QColor, QPen, QClipboard, QDesktopServices, QShortcut, QKeyEvent,
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QScrollBar, QHBoxLayout, QVBoxLayout,
-    QStatusBar, QTabWidget, QLineEdit, QToolButton, QLabel, QMenu, QFileDialog,
+    QTabWidget, QLineEdit, QToolButton, QLabel, QMenu, QFileDialog,
     QSizePolicy,
 )
 
-from stitch_pty import ExitStatus, PtyError, PtySession, Winsize, spawn
+from stitch_pty import Modifiers, PtyError, PtySession, Winsize, spawn
 
 
 IS_WINDOWS = platform.system() == "Windows"
@@ -121,7 +122,7 @@ def _theme(name, bg, fg, cur, sel, palette) -> Theme:
             "white",
             "brightblack", "brightred", "brightgreen", "brightbrown",
             "brightblue", "brightmagenta", "brightcyan", "brightwhite"]
-    ansi = dict(zip(keys, palette))
+    ansi = dict(zip(keys, palette, strict=True))
     # The Rust layer sometimes uses "yellow"/"brightyellow" aliases.
     ansi["yellow"] = ansi["brown"]
     ansi["brightyellow"] = ansi["brightbrown"]
@@ -244,110 +245,103 @@ class Frame:
     text_rows: list = field(default_factory=list)  # full buffer as plain text
 
 
+@dataclass(frozen=True)
+class KeyInput:
+    """A toolkit-neutral key event; encoded in the PTY thread."""
+    key: str
+    modifiers: int = 0
+    kind: str = "press"
+    text: str | None = None
+
+
 # ─────────────────────────────────────────────────────────────────────
-# Key → PTY byte translation
+# Qt key → toolkit-neutral KeyInput
 # ─────────────────────────────────────────────────────────────────────
 
-def _xterm_mod(shift: bool, alt: bool, ctrl: bool, meta: bool) -> int:
-    return 1 + (1 if shift else 0) + (2 if alt else 0) \
-             + (4 if ctrl else 0) + (8 if meta else 0)
-
-
-_NAV = {  # key: (final-letter for SS3/CSI form)
-    Qt.Key.Key_Up: "A", Qt.Key.Key_Down: "B",
-    Qt.Key.Key_Right: "C", Qt.Key.Key_Left: "D",
-    Qt.Key.Key_Home: "H", Qt.Key.Key_End: "F",
+_QT_SPECIAL_KEYS = {
+    Qt.Key.Key_Return: "enter",
+    Qt.Key.Key_Enter: "enter",
+    Qt.Key.Key_Tab: "tab",
+    Qt.Key.Key_Backtab: "tab",
+    Qt.Key.Key_Backspace: "backspace",
+    Qt.Key.Key_Escape: "escape",
+    Qt.Key.Key_Space: "space",
+    Qt.Key.Key_Insert: "insert",
+    Qt.Key.Key_Delete: "delete",
+    Qt.Key.Key_Left: "left",
+    Qt.Key.Key_Right: "right",
+    Qt.Key.Key_Up: "up",
+    Qt.Key.Key_Down: "down",
+    Qt.Key.Key_PageUp: "pageup",
+    Qt.Key.Key_PageDown: "pagedown",
+    Qt.Key.Key_Home: "home",
+    Qt.Key.Key_End: "end",
 }
-_TILDE = {  # key: numeric code for CSI <n> ~
-    Qt.Key.Key_Insert: 2, Qt.Key.Key_Delete: 3,
-    Qt.Key.Key_PageUp: 5, Qt.Key.Key_PageDown: 6,
+
+_QT_PUNCTUATION = {
+    Qt.Key.Key_Comma: ",",
+    Qt.Key.Key_Period: ".",
+    Qt.Key.Key_Slash: "/",
+    Qt.Key.Key_Semicolon: ";",
+    Qt.Key.Key_Apostrophe: "'",
+    Qt.Key.Key_BracketLeft: "[",
+    Qt.Key.Key_BracketRight: "]",
+    Qt.Key.Key_Backslash: "\\",
+    Qt.Key.Key_Minus: "-",
+    Qt.Key.Key_Equal: "=",
+    Qt.Key.Key_QuoteLeft: "`",
 }
-_FN_SS3 = {Qt.Key.Key_F1: "P", Qt.Key.Key_F2: "Q",
-           Qt.Key.Key_F3: "R", Qt.Key.Key_F4: "S"}
-_FN_TILDE = {Qt.Key.Key_F5: 15, Qt.Key.Key_F6: 17, Qt.Key.Key_F7: 18,
-             Qt.Key.Key_F8: 19, Qt.Key.Key_F9: 20, Qt.Key.Key_F10: 21,
-             Qt.Key.Key_F11: 23, Qt.Key.Key_F12: 24}
 
 
-def key_event_to_bytes(event: QKeyEvent, app_cursor: bool) -> bytes | None:
-    """Translate a Qt key event to the bytes a real terminal would send."""
+def _modifier_bits(mods) -> int:
+    bits = 0
+    if mods & Qt.KeyboardModifier.ShiftModifier:
+        bits |= Modifiers.SHIFT
+    if mods & Qt.KeyboardModifier.AltModifier:
+        bits |= Modifiers.ALT
+    if mods & Qt.KeyboardModifier.ControlModifier:
+        bits |= Modifiers.CTRL
+    if mods & Qt.KeyboardModifier.MetaModifier:
+        bits |= Modifiers.SUPER
+    return int(bits)
+
+
+def _qt_key_name(event: QKeyEvent) -> str | None:
     key = event.key()
+    if key in _QT_SPECIAL_KEYS:
+        return _QT_SPECIAL_KEYS[key]
+    if Qt.Key.Key_F1 <= key <= Qt.Key.Key_F35:
+        return f"f{int(key) - int(Qt.Key.Key_F1) + 1}"
+    if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+        return chr(ord("a") + int(key) - int(Qt.Key.Key_A))
+    if Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+        digit = chr(ord("0") + int(key) - int(Qt.Key.Key_0))
+        if event.modifiers() & Qt.KeyboardModifier.KeypadModifier:
+            return f"kp_{digit}"
+        return digit
+    if key in _QT_PUNCTUATION:
+        return _QT_PUNCTUATION[key]
     text = event.text()
-    mods = event.modifiers()
-    ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
-    shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-    alt = bool(mods & Qt.KeyboardModifier.AltModifier)
-    meta = bool(mods & Qt.KeyboardModifier.MetaModifier)
-    mod_any = ctrl or shift or alt or meta
-    code = _xterm_mod(shift, alt, ctrl, meta)
-
-    def esc_prefix(b: bytes) -> bytes:
-        return (b"\x1b" + b) if alt else b
-
-    # Navigation / arrows / Home / End ──────────────────────────────
-    if key in _NAV:
-        letter = _NAV[key]
-        if mod_any:
-            return f"\x1b[1;{code}{letter}".encode()
-        if app_cursor and key in (Qt.Key.Key_Up, Qt.Key.Key_Down,
-                                  Qt.Key.Key_Right, Qt.Key.Key_Left,
-                                  Qt.Key.Key_Home, Qt.Key.Key_End):
-            return f"\x1bO{letter}".encode()
-        return f"\x1b[{letter}".encode()
-
-    # PgUp / PgDn / Insert / Delete ──────────────────────────────────
-    if key in _TILDE:
-        n = _TILDE[key]
-        if mod_any:
-            return f"\x1b[{n};{code}~".encode()
-        return f"\x1b[{n}~".encode()
-
-    # Function keys ──────────────────────────────────────────────────
-    if key in _FN_SS3:
-        letter = _FN_SS3[key]
-        if mod_any:
-            return f"\x1b[1;{code}{letter}".encode()
-        return f"\x1bO{letter}".encode()
-    if key in _FN_TILDE:
-        n = _FN_TILDE[key]
-        if mod_any:
-            return f"\x1b[{n};{code}~".encode()
-        return f"\x1b[{n}~".encode()
-
-    # Editing / control keys ─────────────────────────────────────────
-    if key == Qt.Key.Key_Backspace:
-        return esc_prefix(b"\x08" if ctrl else b"\x7f")
-    if key == Qt.Key.Key_Tab:
-        return b"\t"
-    if key == Qt.Key.Key_Backtab or (key == Qt.Key.Key_Tab and shift):
-        return b"\x1b[Z"
-    if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-        return esc_prefix(b"\r")
-    if key == Qt.Key.Key_Escape:
-        return b"\x1b"
-
-    # Ctrl + key combinations ────────────────────────────────────────
-    if ctrl and not alt:
-        if key == Qt.Key.Key_Space or key == Qt.Key.Key_2:
-            return b"\x00"
-        if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
-            return bytes([(key - Qt.Key.Key_A) + 1])
-        ctrl_punct = {
-            Qt.Key.Key_BracketLeft: 0x1b, Qt.Key.Key_Backslash: 0x1c,
-            Qt.Key.Key_BracketRight: 0x1d, Qt.Key.Key_AsciiCircum: 0x1e,
-            Qt.Key.Key_6: 0x1e, Qt.Key.Key_Underscore: 0x1f,
-            Qt.Key.Key_Minus: 0x1f, Qt.Key.Key_Slash: 0x1f,
-        }
-        if key in ctrl_punct:
-            return bytes([ctrl_punct[key]])
-
-    # Printable text (optionally Alt = Meta → ESC prefix) ────────────
-    if text and text.isprintable():
-        data = text.encode("utf-8", errors="replace")
-        return esc_prefix(data)
-    if text:
-        return esc_prefix(text.encode("utf-8", errors="replace"))
+    if text and len(text) == 1 and ord(text) >= 0x20:
+        # Layout fallback: the encoder wants the unshifted key where possible.
+        return text.lower() if text.isalpha() else text
     return None
+
+
+def _qt_key_input(event: QKeyEvent) -> KeyInput | None:
+    """Translate a Qt key event; return None for keys we cannot encode."""
+    key = _qt_key_name(event)
+    if key is None:
+        return None
+    text = event.text()
+    if not text or any(ord(c) < 0x20 for c in text):
+        text = None
+    return KeyInput(
+        key=key,
+        modifiers=_modifier_bits(event.modifiers()),
+        kind="repeat" if event.isAutoRepeat() else "press",
+        text=text,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -378,10 +372,12 @@ class TerminalView(QWidget):
 
     Renders `Frame` snapshots, handles keyboard/mouse input, selection,
     clipboard, scrollback navigation, URL hovering and search highlighting.
-    Emits `key_input` for everything that should reach the child process.
+    Emits `key_pressed` for keyboard events and `key_input` for raw paste/mouse
+    bytes; both are written to the child by the PTY thread.
     """
 
-    key_input = Signal(bytes)            # bytes to write to the PTY
+    key_pressed = Signal(object)         # KeyInput; encoded in the PTY thread
+    key_input = Signal(bytes)            # raw bytes for paste / mouse reports
     grid_resized = Signal(int, int)      # (rows, cols) when the grid changes
     scroll_to_bottom_requested = Signal()
     viewport_changed = Signal(bool, int, int)  # (follow, top_row, rows)
@@ -1006,11 +1002,9 @@ class TerminalView(QWidget):
         lines = int(notches * 3) or (1 if notches > 0 else -1)
         # In an alt-screen app the wheel scrolls the application, not history.
         if self._flags.alt_screen and not self._mouse_reporting():
-            seq = b"\x1b[A" if lines > 0 else b"\x1b[B"
-            if self._flags.app_cursor:
-                seq = b"\x1bOA" if lines > 0 else b"\x1bOB"
+            key = KeyInput("up" if lines > 0 else "down")
             for _ in range(abs(lines)):
-                self.key_input.emit(seq)
+                self.key_pressed.emit(key)
             return
         if self._mouse_reporting():
             row, col = self._cell_at(event.position().toPoint())
@@ -1216,13 +1210,13 @@ class TerminalView(QWidget):
             if event.key() == Qt.Key.Key_PageDown:
                 self.scroll_lines(self.rows - 1); return
 
-        data = key_event_to_bytes(event, self._flags.app_cursor)
-        if data is not None:
+        key = _qt_key_input(event)
+        if key is not None:
             self.scroll_to_bottom()
             if self.has_selection() and not (
                     mods & Qt.KeyboardModifier.ShiftModifier):
                 self.clear_selection()
-            self.key_input.emit(data)
+            self.key_pressed.emit(key)
             event.accept()
         else:
             event.ignore()
@@ -1297,6 +1291,7 @@ class _AsyncRunner(QObject):
         self._dirty = False               # output arrived but not yet rendered
         self._stopping = False            # shutting down: stop the render pump
         self._pump_handle = None          # asyncio TimerHandle for the pump
+        self._read_task = None            # current read coroutine
         self._follow = True               # view stuck to the bottom?
         self._view_top = 0                # absolute top row when not following
         self._view_rows = winsize.rows if winsize else 24  # visible row count
@@ -1326,18 +1321,22 @@ class _AsyncRunner(QObject):
             self.session.terminal.set_scrollback_lines(self.scrollback)
         except Exception:
             pass
-        asyncio.create_task(self._read_loop())
+        self._read_task = asyncio.create_task(self._read_loop())
         self._pump()                      # start the independent render pump
 
     # ── read loop ──────────────────────────────────────────────────────
 
     async def _read_loop(self) -> None:
-        assert self.session is not None
+        # Hold this session locally: a restart replaces self.session, and the
+        # old loop must never start reading or waiting on the new child.
+        session = self.session
+        if session is None:
+            return
         while True:
             try:
-                data = await self.session.read_timeout(8192, 0.05)
+                data = await session.read_timeout(8192, 0.05)
             except asyncio.CancelledError:
-                return                   # shutdown requested — stop at once
+                return                   # shutdown/restart requested
             except PtyError:
                 data = None              # idle read timeout — normal at a prompt
             except Exception:
@@ -1346,16 +1345,18 @@ class _AsyncRunner(QObject):
                 # Edge-triggered bell from the emulator itself: the parser
                 # rings only on a lone BEL (OSC terminators excluded), so no
                 # raw-stream scanning is needed here.
-                if self.session.take_bell():
+                if session.take_bell():
                     self.bell.emit()
                 self._dirty = True       # the render pump will pick this up
-            elif not self.session.is_alive:
+            elif not session.is_alive:
                 break
+        if self.session is not session:
+            return                       # a restart already took over
         self._dirty = True
         self._emit_frame(force=True)     # guarantee the final state is shown
         code = -1
         try:
-            res = await self.session.wait()
+            res = await session.wait()
             # wait() returns an ExitStatus dataclass (None if already
             # reaped) — never a dict.
             if res is not None and res.exit_code is not None:
@@ -1449,6 +1450,18 @@ class _AsyncRunner(QObject):
                     pass
         self._schedule(_w)
 
+    def schedule_key(self, key: KeyInput) -> None:
+        async def _k():
+            if self.session:
+                try:
+                    data = self.session.encode_key(
+                        key.key, key.modifiers, key.kind, key.text)
+                    if data:
+                        await self.session.write_all(data)
+                except Exception:
+                    pass
+        self._schedule(_k)
+
     def schedule_resize(self, rows: int, cols: int) -> None:
         async def _r():
             if self.session:
@@ -1492,6 +1505,13 @@ class _AsyncRunner(QObject):
     def schedule_restart(self) -> None:
         async def _re():
             try:
+                old_task, self._read_task = self._read_task, None
+                if old_task and not old_task.done():
+                    old_task.cancel()
+                    try:
+                        await old_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
                 if self.session:
                     try:
                         await self.session.terminate(grace_period=2.0)
@@ -1500,7 +1520,7 @@ class _AsyncRunner(QObject):
                 self.session = await spawn(self.program, self.args,
                                            winsize=self.winsize)
                 self.session.terminal.set_scrollback_lines(self.scrollback)
-                asyncio.create_task(self._read_loop())
+                self._read_task = asyncio.create_task(self._read_loop())
                 self._emit_frame(force=True)
             except Exception:
                 pass
@@ -1622,6 +1642,9 @@ class TerminalTab(QWidget):
         # to schedule_write would never be delivered. A direct connection runs
         # schedule_write on the GUI thread, where it hands off to the asyncio
         # loop via the thread-safe call_soon_threadsafe.
+        self.view.key_pressed.connect(
+            self.runner.schedule_key,
+            Qt.ConnectionType.DirectConnection)
         self.view.key_input.connect(
             self.runner.schedule_write,
             Qt.ConnectionType.DirectConnection)
@@ -1829,12 +1852,16 @@ class MainWindow(QMainWindow):
     def _on_tab_bell(self, tab: TerminalTab) -> None:
         idx = self.tabs.indexOf(tab)
         if idx >= 0 and tab is not self.current_tab():
-            self.tabs.setTabText(idx, "🔔 " + self.tabs.tabText(idx))
+            text = self.tabs.tabText(idx)
+            if not text.startswith("🔔 "):
+                self.tabs.setTabText(idx, "🔔 " + text)
 
     def _on_tab_exit(self, tab: TerminalTab, code: int) -> None:
         idx = self.tabs.indexOf(tab)
         if idx >= 0:
-            txt = self.tabs.tabText(idx).removeprefix("🔔 ")
+            txt = self.tabs.tabText(idx)
+            while txt.startswith("🔔 "):
+                txt = txt[2:]
             self.tabs.setTabText(idx, f"[exited] {txt}")
         if tab is self.current_tab():
             self.statusBar().showMessage(

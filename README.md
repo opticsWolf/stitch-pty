@@ -774,18 +774,22 @@ asyncio.run(main())
 
 ### PySide6 Terminal Emulator (GUI)
 
-A full terminal emulator with real-time rendering, keyboard input, resize handling, and styled viewport:
+A full terminal emulator with real-time rendering, keyboard input, resize handling, and styled viewport.
+`terminal_emulator.py` is the focused QTextEdit version; `terminal_emulator_advanced.py` is the
+custom-painted, tabbed version with selection, search, mouse reporting, and themes.
 
 ```bash
 pip install PySide6 stitch-pty
 python examples/terminal_emulator.py
 python examples/terminal_emulator.py --cmd "whoami"
 python examples/terminal_emulator.py --rows 30 --cols 100
+python examples/terminal_emulator_advanced.py
+python examples/terminal_emulator_advanced.py --rows 30 --cols 100
 ```
 
 **Key features demonstrated:**
 - Async PTY + Qt event loop integration (background thread)
-- Real-time styled rendering via `styled_viewport()` with HTML
+- Real-time windowed rendering via `styled_range()` with HTML
 - Cursor position tracking via `absolute_cursor()`
 - Keyboard input forwarding through the Kitty-aware encoder (Ctrl/Alt/Shift/Win, function keys)
 - Window resize forwarding (rate-limited during drag)
