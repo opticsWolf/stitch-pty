@@ -84,8 +84,9 @@ async def test_spawn_env_dedupes_case_insensitive_keys(read_all):
 
 
 @pytest.mark.asyncio
-async def test_spawn_with_winsize():
-    session = await spawn("bash", ["-c", "echo hi"], winsize=Winsize(30, 100))
+async def test_spawn_with_winsize(shell):
+    program, args = shell("echo hi")
+    session = await spawn(program, args, winsize=Winsize(30, 100))
     try:
         ws = session.get_winsize()
         assert ws.rows == 30
