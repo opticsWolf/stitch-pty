@@ -28,7 +28,7 @@ pub use terminal::{
 pub mod session;
 pub mod terminal_session;
 pub use expect::{ExpectError, ExpectOptions, ExpectPattern, ExpectResult};
-pub use session::{PtyReader, PtySession, PtyWriter};
+pub use session::{DrainEnd, PtyReader, PtySession, PtyWriter};
 pub use terminal_session::TerminalSession;
 pub use winsize::Winsize;
 

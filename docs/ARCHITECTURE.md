@@ -1,5 +1,7 @@
 # stitch-pty Architecture
 
+Applies to stitch-pty 0.16.0.
+
 ## Design Goals
 
 1. **Cross-platform**: Single codebase supporting Linux, macOS, Windows 10+
@@ -217,6 +219,13 @@ Windows `ClosePseudoConsole` call runs on a blocking thread. On Windows, child
 exit is published by a dedicated `WaitForSingleObject` watcher thread through a
 `watch` channel, so `wait()` does not rely on the 50 ms fallback poll.
 
+A streaming consumer can call `PtySession::drain_output` or
+`PtyReader::drain_output` after child exit. The current reader retains
+exclusive ownership, and a fixed-size buffer calls the consumer in chunk
+order. `DrainEnd` reports EOF, a quiet period, or the total deadline. Read
+errors remain `PtyErrorKind`. A multiplexer can apply each chunk to its
+screen before announcing the pane's completion.
+
 - `spawn` inherits the parent environment; `spawn_with_env` takes the exact
   environment (an empty slice is empty). `spawn_platform` mirrors this with
   `Option` (`None` = inherit). Explicit env keys are deduplicated last-wins;
@@ -315,6 +324,19 @@ URI, OSC 9;9 path) is **rejoined with `;`** before parsing — Windows paths
 and file URIs legally contain semicolons. A lone BEL (0x07) in `Ground`
 state rings the bell; OSC BEL terminators never do (they end `osc_dispatch`
 instead).
+
+`HistoryScreen::set_write_process_input` installs a synchronous sink for
+DA, DSR, and Kitty keyboard responses. The parser dispatches replies using
+the cursor and modes at the query position. A host can queue those replies
+for the PTY writer.
+
+The optional `set_osc_observer` callback receives each completed numeric OSC
+with dispatch coordinates and pending scrollback. It preserves separators,
+caps payloads at 8 KiB, and reports overflow through `OscPayload`. OSC 8
+hyperlink tracking is separately opt-in. Its URI metadata lives on drawn
+cells, so scrolling, overwrite, and width reflow follow normal cell
+operations. `HistoryScreen::row_cells` exposes raw cells across scrollback
+and the visible screen.
 
 ### Event pipeline (`terminal/events.rs`)
 

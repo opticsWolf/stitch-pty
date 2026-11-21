@@ -10,6 +10,30 @@
 //! one consumes the pending bell for both (see `Screen::take_bell` and
 //! `Screen::take_events`).
 
+/// Maximum payload length delivered to an OSC observer, excluding the code.
+pub const MAX_OSC_PAYLOAD: usize = 8 * 1024;
+
+/// Payload of a completed numeric OSC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OscPayload<'a> {
+    Bytes(&'a [u8]),
+    Overflow,
+}
+
+/// An OSC and the screen position when its terminator was parsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OscEvent<'a> {
+    pub code: u16,
+    pub payload: OscPayload<'a>,
+    pub row: usize,
+    pub col: usize,
+    pub alternate_screen: bool,
+    /// Lines pending transfer to scrollback during the current feed.
+    pub pending_scrollback: usize,
+}
+
+pub(crate) type OscObserver = Box<dyn FnMut(OscEvent<'_>) + Send + Sync + 'static>;
+
 /// A low-frequency terminal signal, in the order the parser produced it.
 ///
 /// `ScrollbackGrew` is the exception: it is a per-drain summary appended

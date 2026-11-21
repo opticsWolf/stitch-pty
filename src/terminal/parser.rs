@@ -4,6 +4,7 @@
 //! into [`Screen`] method calls, matching the behavior of `pyte.Stream`.
 
 use super::ansi_parser::{self, Params, Perform};
+use super::events::{MAX_OSC_PAYLOAD, OscEvent, OscPayload};
 use super::screen::Screen;
 
 /// A `Perform` implementation that translates parser events into `Screen` calls.
@@ -39,6 +40,54 @@ impl<'a> Perform for Performer<'a> {
     fn hook(&mut self, _params: &Params, _intermediates: &[u8], _ignore: bool, _action: char) {}
     fn put(&mut self, _byte: u8) {}
     fn unhook(&mut self) {}
+
+    fn observes_osc(&self) -> bool {
+        self.screen.osc_observer.is_some() || self.screen.track_hyperlinks
+    }
+
+    fn observe_osc(&mut self, record: &[u8], overflow: bool) {
+        let mut fields = record.splitn(2, |&byte| byte == b';');
+        let code = fields.next().unwrap_or_default();
+        if code.is_empty() || code.len() > 5 || !code.iter().all(u8::is_ascii_digit) {
+            return;
+        }
+        let Ok(code) = std::str::from_utf8(code).unwrap_or_default().parse() else {
+            return;
+        };
+        let bytes = fields.next().unwrap_or_default();
+        let payload = if overflow || bytes.len() > MAX_OSC_PAYLOAD {
+            OscPayload::Overflow
+        } else {
+            OscPayload::Bytes(bytes)
+        };
+        if code == 8 && self.screen.track_hyperlinks {
+            let uri = match payload {
+                OscPayload::Bytes(bytes) => bytes.splitn(2, |&byte| byte == b';').nth(1),
+                OscPayload::Overflow => None,
+            };
+            self.screen.active_hyperlink = uri
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                .filter(|uri| {
+                    !uri.is_empty() && uri.len() <= 2048 && !uri.chars().any(char::is_control)
+                })
+                .map(Into::into);
+        }
+        let Some(observer) = self.screen.osc_observer.as_mut() else {
+            return;
+        };
+        observer(OscEvent {
+            code,
+            payload,
+            row: self.screen.cursor.y,
+            col: self
+                .screen
+                .cursor
+                .x
+                .min(self.screen.columns.saturating_sub(1)),
+            alternate_screen: self.screen.alt_screen,
+            pending_scrollback: self.screen.scrolled_off.len(),
+        });
+    }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
         if params.is_empty() {

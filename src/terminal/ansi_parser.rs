@@ -51,6 +51,7 @@ const MAX_PARAMS: usize = 32;
 const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_PARAMS: usize = 16;
 const MAX_OSC_RAW: usize = 1024;
+const MAX_OSC_RECORD: usize = super::events::MAX_OSC_PAYLOAD + 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum State {
@@ -66,6 +67,7 @@ enum State {
     Escape,
     EscapeIntermediate,
     OscString,
+    OscEscape,
     SosPmApcString,
     #[default]
     Ground,
@@ -78,6 +80,10 @@ pub trait Perform {
     fn hook(&mut self, _params: &Params, _intermediates: &[u8], _ignore: bool, _action: char) {}
     fn put(&mut self, _byte: u8) {}
     fn unhook(&mut self) {}
+    fn observes_osc(&self) -> bool {
+        false
+    }
+    fn observe_osc(&mut self, _record: &[u8], _overflow: bool) {}
     fn osc_dispatch(&mut self, _params: &[&[u8]], _bell_terminated: bool) {}
     fn csi_dispatch(
         &mut self,
@@ -103,6 +109,9 @@ pub struct Parser {
     param: u16,
     ignoring: bool,
     osc_raw: Vec<u8>,
+    osc_observed: Vec<u8>,
+    osc_observing: bool,
+    osc_overflow: bool,
     osc_params: [(usize, usize); MAX_OSC_PARAMS],
     osc_num_params: usize,
     partial_utf8: [u8; 4],
@@ -148,6 +157,14 @@ impl Parser {
             State::Escape => self.advance_esc(performer, byte),
             State::EscapeIntermediate => self.advance_esc_intermediate(performer, byte),
             State::OscString => self.advance_osc_string(performer, byte),
+            State::OscEscape => {
+                if byte == b'\\' {
+                    self.osc_end(performer, byte);
+                }
+                self.reset_params();
+                self.state = State::Escape;
+                self.advance_esc(performer, byte);
+            }
             State::SosPmApcString => self.anywhere(performer, byte),
             State::Ground => unreachable!(),
         }
@@ -431,6 +448,9 @@ impl Parser {
             }
             0x5D => {
                 self.osc_raw.clear();
+                self.osc_observed.clear();
+                self.osc_observing = performer.observes_osc();
+                self.osc_overflow = false;
                 self.osc_num_params = 0;
                 self.state = State::OscString;
             }
@@ -468,17 +488,24 @@ impl Parser {
                 self.state = State::Ground;
             }
             0x18 | 0x1A => {
-                self.osc_end(performer, byte);
                 performer.execute(byte);
                 self.state = State::Ground;
             }
-            0x1B => {
-                self.osc_end(performer, byte);
-                self.reset_params();
-                self.state = State::Escape;
+            0x1B => self.state = State::OscEscape,
+            _ => {
+                if self.osc_observing {
+                    if self.osc_observed.len() < MAX_OSC_RECORD {
+                        self.osc_observed.push(byte);
+                    } else {
+                        self.osc_overflow = true;
+                    }
+                }
+                if byte == b';' {
+                    self.action_osc_put_param();
+                } else {
+                    self.action_osc_put(byte);
+                }
             }
-            0x3B => self.action_osc_put_param(),
-            _ => self.action_osc_put(byte),
         }
     }
 
@@ -593,6 +620,9 @@ impl Parser {
     }
 
     fn osc_end<P: Perform>(&mut self, performer: &mut P, byte: u8) {
+        if self.osc_observing {
+            performer.observe_osc(&self.osc_observed, self.osc_overflow);
+        }
         self.action_osc_put_param();
         let mut slices: Vec<&[u8]> = Vec::with_capacity(self.osc_num_params);
         for i in 0..self.osc_num_params {

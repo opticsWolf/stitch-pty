@@ -44,6 +44,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+/// Reason a bounded output drain completed successfully.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrainEnd {
+    /// The transport reported end of output.
+    Eof,
+    /// No data arrived during the quiet period.
+    Quiet,
+    /// The caller's total drain budget elapsed.
+    Deadline,
+}
+
 /// A child process attached to a PTY.
 ///
 /// Cloning the inner `Arc`s (via [`PtySession::pty`] / [`PtySession::child`])
@@ -282,26 +293,43 @@ impl PtySession {
             }
         }
 
-        let deadline = Instant::now() + drain_timeout;
-        loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            match tokio::time::timeout(
-                remaining.min(Duration::from_millis(100)),
-                self.read(&mut buf),
-            )
-            .await
-            {
-                Ok(Ok(0)) | Err(_) => break,
-                Ok(Ok(n)) => output.extend_from_slice(&buf[..n]),
-                Ok(Err(err)) => return Err(err),
-            }
-        }
-
+        self.drain_output(drain_timeout, |chunk| output.extend_from_slice(chunk))
+            .await?;
         self.eof.store(true, Ordering::SeqCst);
         Ok((output, status))
+    }
+
+    /// Drain output after child exit using a fixed-size buffer.
+    ///
+    /// Runs the consumer synchronously for each chunk, in read order. Use the
+    /// same task that owns the read loop, or hand off reading before calling.
+    /// Each callback finishes before this method returns. A 100 ms quiet
+    /// period allows completion when ConPTY or an inherited handle holds the
+    /// pipe open. Read errors are returned after delivering earlier chunks.
+    /// This leaves the session open and does not mark future reads as EOF.
+    pub async fn drain_output(
+        &self,
+        timeout: Duration,
+        mut consume: impl FnMut(&[u8]),
+    ) -> PtyResult<DrainEnd> {
+        let mut buf = [0; 8192];
+        let quiet = Duration::from_millis(100);
+        let start = Instant::now();
+        loop {
+            let remaining = timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                return Ok(DrainEnd::Deadline);
+            }
+            match self.read_timeout(&mut buf, remaining.min(quiet)).await {
+                Ok(0) => return Ok(DrainEnd::Eof),
+                Ok(n) => consume(&buf[..n]),
+                Err(PtyErrorKind::Timeout(_)) if remaining <= quiet => {
+                    return Ok(DrainEnd::Deadline);
+                }
+                Err(PtyErrorKind::Timeout(_)) => return Ok(DrainEnd::Quiet),
+                Err(err) => return Err(err),
+            }
+        }
     }
 
     /// Close the session and release the PTY.
@@ -429,6 +457,15 @@ impl PtyReader {
     /// Read with a timeout. See [`PtySession::read_timeout`].
     pub async fn read_timeout(&self, buf: &mut [u8], timeout: Duration) -> PtyResult<usize> {
         self.session.read_timeout(buf, timeout).await
+    }
+
+    /// Drain after child exit. See [`PtySession::drain_output`].
+    pub async fn drain_output(
+        &self,
+        timeout: Duration,
+        consume: impl FnMut(&[u8]),
+    ) -> PtyResult<DrainEnd> {
+        self.session.drain_output(timeout, consume).await
     }
 
     /// The session shared by this handle.

@@ -145,19 +145,34 @@ impl HistoryScreen {
     ) -> Vec<Vec<(String, String, String, u8)>> {
         let total = self.total_lines();
         let end = start.saturating_add(count).min(total);
-        let hlen = self.history.len();
-        let mut out = Vec::with_capacity(end.saturating_sub(start));
-        let mut i = start;
-        while i < end {
-            let row = if i < hlen {
-                &self.history[i]
-            } else {
-                &self.inner.buffer[i - hlen]
-            };
-            out.push(row.iter().map(pack_cell).collect());
-            i += 1;
+        (start..end)
+            .filter_map(|row| self.row_cells(row))
+            .map(|row| row.iter().map(pack_cell).collect())
+            .collect()
+    }
+
+    /// Raw cells for one row, using the same history-plus-screen index as
+    /// [`Self::styled_range`]. Inspect `Char::hyperlink` here when enabled.
+    pub fn row_cells(&self, row: usize) -> Option<&[Char]> {
+        if row < self.history.len() {
+            self.history.get(row).map(Vec::as_slice)
+        } else {
+            self.inner
+                .buffer
+                .get(row - self.history.len())
+                .map(Vec::as_slice)
         }
-        out
+    }
+
+    /// Track OSC 8 URIs on newly written cells. Tracking is off by default.
+    /// Disabling it closes the active link. Previously written cells keep
+    /// their metadata until overwritten or evicted.
+    pub fn set_hyperlink_tracking(&mut self, enabled: bool) {
+        self.inner.track_hyperlinks = enabled;
+        if !enabled {
+            self.inner.active_hyperlink = None;
+            self.inner.saved_hyperlink = None;
+        }
     }
 
     pub fn buffer(&self) -> &Vec<Vec<Char>> {
@@ -544,6 +559,7 @@ impl HistoryScreen {
                     // BCE-friendly, and the next flatten skips it again.
                     let mut cont = cell.clone();
                     cont.data = " ".to_string();
+                    cont.hyperlink = None;
                     row.push(cont);
                 }
                 if row.len() == columns {
@@ -674,9 +690,35 @@ impl HistoryScreen {
     pub fn tabstops(&self) -> &std::collections::HashSet<usize> {
         &self.inner.tabstops
     }
+    /// Replace the sink for responses generated while feeding child output.
+    ///
+    /// The sink runs synchronously at query dispatch. Queue bytes for the PTY
+    /// writer from this callback and keep it short. Parser state is preserved.
+    pub fn set_write_process_input(&mut self, sink: impl FnMut(&str) + Send + Sync + 'static) {
+        self.inner.write_process_input = Box::new(sink);
+    }
+
     pub fn write_process_input(&mut self) -> &mut dyn FnMut(&str) {
         &mut self.inner.write_process_input
     }
+    /// Observe completed numeric OSC records synchronously at dispatch.
+    ///
+    /// Payloads retain separator bytes and exclude framing and ignored C0
+    /// controls. Oversized records
+    /// report [`super::events::OscPayload::Overflow`]. Cancelled or interrupted
+    /// records are discarded. Built-in OSC handling remains active.
+    pub fn set_osc_observer(
+        &mut self,
+        observer: impl FnMut(super::events::OscEvent<'_>) + Send + Sync + 'static,
+    ) {
+        self.inner.osc_observer = Some(Box::new(observer));
+    }
+
+    /// Stop sending records to the OSC observer.
+    pub fn clear_osc_observer(&mut self) {
+        self.inner.osc_observer = None;
+    }
+
     pub fn title(&self) -> &str {
         &self.inner.title
     }
@@ -1238,6 +1280,121 @@ mod tests {
         hs.feed(b"\x1b[2;");
         hs.feed(b"3H");
         assert_eq!((hs.cursor().x, hs.cursor().y), (2, 1));
+    }
+
+    #[test]
+    fn response_sink_replacement_preserves_partial_query_and_dispatch_state() {
+        use std::sync::{Arc, Mutex};
+
+        let mut screen = HistoryScreen::new(20, 10, 20);
+        screen.set_write_process_input(|_| panic!("old sink called"));
+        screen.feed(b"\x1b[3;5H\x1b[6");
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&output);
+        screen.set_write_process_input(move |response| {
+            captured.lock().unwrap().push(response.to_owned());
+        });
+        screen.feed(b"n\x1b[1;1H\x1b[c\x1b[>c\x1b[5n\x1b[?6n\x1b[>3u\x1b[?u\x1b[<u");
+        assert_eq!(
+            *output.lock().unwrap(),
+            [
+                "\x1b[3;5R",
+                "\x1b[?6c",
+                "\x1b[>0;276;0c",
+                "\x1b[0n",
+                "\x1b[?1;1R",
+                "\x1b[?3u"
+            ]
+        );
+    }
+
+    #[test]
+    fn observer_gets_complete_bounded_osc_at_dispatch() {
+        use super::super::events::{MAX_OSC_PAYLOAD, OscPayload};
+        use std::sync::{Arc, Mutex};
+
+        let mut screen = HistoryScreen::new(20, 3, 20);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&events);
+        screen.set_osc_observer(move |event| {
+            let payload = match event.payload {
+                OscPayload::Bytes(bytes) => Some(bytes.to_vec()),
+                OscPayload::Overflow => None,
+            };
+            captured
+                .lock()
+                .unwrap()
+                .push((event.code, event.row, event.col, payload));
+        });
+        screen.feed(b"\x1b[2;3H\x1b]7501;working;extra\x1b");
+        assert!(events.lock().unwrap().is_empty());
+        screen.feed(b"\\\x1b[1;1H\x1b]7501;cancelled\x18\x1b]2;new title\x07");
+        assert_eq!(screen.title(), "new title");
+        assert!(!screen.take_bell());
+        screen.feed(b"\x1b]7501;");
+        let long = vec![b';'; MAX_OSC_PAYLOAD];
+        screen.feed(&long);
+        screen.feed(b"\x07\x1b]7501;");
+        screen.feed(&long);
+        screen.feed(b"extra\x07done");
+        assert_eq!(
+            *events.lock().unwrap(),
+            [
+                (7501, 1, 2, Some(b"working;extra".to_vec())),
+                (2, 0, 0, Some(b"new title".to_vec())),
+                (7501, 0, 0, Some(long)),
+                (7501, 0, 0, None),
+            ]
+        );
+        assert_eq!(screen.visible_display()[0].trim(), "done");
+    }
+
+    #[test]
+    fn hyperlinks_follow_cells_through_overwrite_scrollback_and_reflow() {
+        let mut screen = HistoryScreen::new(8, 3, 20);
+        let uri = "https://example.test/a;b";
+        screen.set_hyperlink_tracking(true);
+        screen.feed(format!("..\x1b]8;;{uri}\x1b\\AB\x1b]8;;\x07").as_bytes());
+        assert_eq!(
+            screen.row_cells(0).unwrap()[2].hyperlink.as_deref(),
+            Some(uri)
+        );
+        screen.feed(b"\x1b[1;3HX");
+        let row = screen.row_cells(0).unwrap();
+        assert!(row[2].hyperlink.is_none());
+        assert_eq!(row[3].hyperlink.as_deref(), Some(uri));
+
+        screen.feed(b"\r\nsecond\r\nthird\r\nfourth");
+        assert!(screen.history_size() > 0);
+        screen.resize(3, 12);
+        let linked: Vec<_> = (0..screen.total_lines())
+            .filter_map(|row| screen.row_cells(row))
+            .flatten()
+            .filter_map(|cell| {
+                cell.hyperlink
+                    .as_deref()
+                    .map(|uri| (cell.data.as_str(), uri))
+            })
+            .collect();
+        assert_eq!(linked, [("B", uri)]);
+    }
+
+    #[test]
+    fn alternate_screen_keeps_link_state_separate() {
+        let mut screen = HistoryScreen::new(10, 3, 20);
+        screen.set_hyperlink_tracking(true);
+        screen.feed(b"\x1b]8;;https://primary.test\x07A\x1b[?1049h");
+        screen.feed(b"\x1b[1;1HB\x1b]8;;https://alternate.test\x07C");
+        let alt = screen.row_cells(0).unwrap();
+        assert!(alt[0].hyperlink.is_none());
+        assert_eq!(alt[1].hyperlink.as_deref(), Some("https://alternate.test"));
+        screen.feed(b"\x1b[?1049lD");
+        let primary = screen.row_cells(0).unwrap();
+        assert_eq!(primary[1].data, "D");
+        assert_eq!(
+            primary[1].hyperlink.as_deref(),
+            Some("https://primary.test")
+        );
     }
 
     #[test]

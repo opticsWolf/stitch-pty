@@ -5,7 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each version has one version commit (implementation + bump/changelog);
 follow-up fixes and docs may precede the release tag (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.15.0...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.16.0...HEAD)
+
+## [0.16.0 ? Streaming terminal integration](https://github.com/opticsWolf/stitch-pty/compare/v0.15.0...v0.16.0)
+
+### Added
+- Rust terminal response sinks via `HistoryScreen::set_write_process_input`.
+  DA, DSR, and Kitty queries use the state at parser dispatch.
+- Opt-in numeric OSC observation with dispatch coordinates, complete
+  separator-preserving payloads up to 8 KiB, and typed overflow.
+- Opt-in OSC 8 tracking on drawn cells through scrollback and reflow.
+  `HistoryScreen::row_cells` exposes raw cells including the OSC 8 URI.
+- `PtySession::drain_output` and `PtyReader::drain_output` stream pending
+  output after child exit and distinguish EOF, quiet, and deadline.
+- A real child stdin regression covering normal console input under ConPTY.
+
+### Migration
+- Rust callers using exhaustive `Char` literals must initialize
+  `hyperlink` or use a constructor with defaults.
 
 ### Fixed
 - The PySide6 examples now use the current terminal and keyboard API. The

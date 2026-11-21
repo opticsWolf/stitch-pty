@@ -3,6 +3,8 @@ use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use unicode_width::UnicodeWidthChar;
 
+use std::sync::Arc;
+
 use super::charsets::CharsetRef;
 use super::control;
 use super::graphics as g;
@@ -23,6 +25,9 @@ pub struct Char {
     pub reverse: bool,
     pub hidden: bool,
     pub strikethrough: bool,
+    /// OSC 8 URI associated with a drawn cell when tracking is enabled.
+    /// A wide glyph stores its URI on its leading cell.
+    pub hyperlink: Option<Arc<str>>,
 }
 
 impl Char {
@@ -50,6 +55,7 @@ impl Char {
             && !self.reverse
             && !self.hidden
             && !self.strikethrough
+            && self.hyperlink.is_none()
             && self.fg == "default"
             && self.bg == "default"
     }
@@ -168,6 +174,10 @@ pub struct Screen {
     pub events: Vec<super::events::TermEvent>,
     /// Whether a BEL (0x07) arrived since the last `take_bell()` call.
     pub bell_pending: bool,
+    pub(crate) track_hyperlinks: bool,
+    pub(crate) active_hyperlink: Option<Arc<str>>,
+    pub(crate) saved_hyperlink: Option<Arc<str>>,
+    pub(crate) osc_observer: Option<super::events::OscObserver>,
     pub write_process_input: Box<dyn FnMut(&str) + Send + Sync + 'static>,
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
@@ -230,6 +240,10 @@ impl Screen {
             cwd: None,
             events: Vec::new(),
             bell_pending: false,
+            track_hyperlinks: false,
+            active_hyperlink: None,
+            saved_hyperlink: None,
+            osc_observer: None,
             write_process_input: Box::new(|_: &str| {})
                 as Box<dyn FnMut(&str) + Send + Sync + 'static>,
             cursor_style: CursorStyle::Default,
@@ -293,6 +307,8 @@ impl Screen {
         self.scrolled_off.clear();
         self.scrolled_off_wrapped.clear();
         self.alt_screen = false;
+        self.active_hyperlink = None;
+        self.saved_hyperlink = None;
         self.saved_buffer = None;
         self.saved_wrapped = None;
         self.alt_saved_cursor = None;
@@ -502,6 +518,7 @@ impl Screen {
         self.keyboard_mode = self.alt_keyboard_mode;
         self.keyboard_mode_stack = std::mem::take(&mut self.alt_keyboard_mode_stack);
 
+        self.saved_hyperlink = self.active_hyperlink.take();
         self.alt_screen = true;
         self.push_event(super::events::TermEvent::AltScreen { entered: true });
         self.mark_all_dirty();
@@ -521,6 +538,10 @@ impl Screen {
         self.alt_keyboard_mode_stack = std::mem::take(&mut self.keyboard_mode_stack);
         self.keyboard_mode = self.saved_keyboard_mode;
         self.keyboard_mode_stack = std::mem::take(&mut self.saved_keyboard_mode_stack);
+        self.active_hyperlink = self
+            .saved_hyperlink
+            .take()
+            .filter(|_| self.track_hyperlinks);
         self.alt_screen = false;
         if restore_cursor {
             if let Some(c) = self.alt_saved_cursor.take() {
@@ -601,6 +622,7 @@ impl Screen {
     fn erase_cell(&self) -> Char {
         let mut cell = self.cursor.attrs.clone();
         cell.data = " ".to_string();
+        cell.hyperlink = None;
         cell
     }
 
@@ -790,6 +812,7 @@ impl Screen {
             let cell = &mut self.buffer[self.cursor.y][self.cursor.x];
             *cell = self.cursor.attrs.clone();
             cell.data = ch.to_string();
+            cell.hyperlink = self.active_hyperlink.clone();
             if width >= 2 && self.cursor.x + 1 < self.columns {
                 self.buffer[self.cursor.y][self.cursor.x + 1] = self.erase_cell();
             }
@@ -1104,19 +1127,25 @@ impl Screen {
         (self.write_process_input)(&response);
     }
     pub fn report_device_status(&mut self, param: usize) {
+        self.report_status(param, false);
+    }
+
+    fn report_status(&mut self, param: usize, private: bool) {
         match param {
-            5 => {
+            5 if !private => {
                 let response = format!("{}[0n", control::ESC);
                 (self.write_process_input)(&response);
             }
             6 => {
                 let (row, col) = if self.mode.has_private(mo::DECOM) {
                     let (top, _) = self.scroll_region();
-                    (self.cursor.y - top + 1, self.cursor.x + 1)
+                    (self.cursor.y.saturating_sub(top) + 1, self.cursor.x + 1)
                 } else {
                     (self.cursor.y + 1, self.cursor.x + 1)
                 };
-                let response = format!("{}{}{};{}R", control::ESC, '[', row, col);
+                let col = col.min(self.columns);
+                let prefix = if private { "?" } else { "" };
+                let response = format!("{}[{prefix}{row};{col}R", control::ESC);
                 (self.write_process_input)(&response);
             }
             _ => {}
@@ -1432,16 +1461,18 @@ impl Screen {
                 let mode = params.first().copied().unwrap_or(0);
                 self.clear_tab_stop(mode);
             }
-            'n' => {
+            'n' if intermediates.is_empty() || intermediates == b"?" => {
                 let param = params.first().copied().unwrap_or(0) as usize;
-                self.report_device_status(param);
+                self.report_status(param, intermediates == b"?");
             }
             '8' => {
                 self.alignment_display();
             }
-            'c' => {
-                self.identify_terminal_primary();
-            }
+            'c' if params.is_empty() || params == [0] => match intermediates {
+                [] => self.report_device_attributes(),
+                [b'>'] => (self.write_process_input)("\x1b[>0;276;0c"),
+                _ => {}
+            },
             'q' if intermediates == *b" " => {
                 let style_id = params.first().copied().unwrap_or(0);
                 self.set_cursor_style(style_id);

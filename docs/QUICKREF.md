@@ -1,6 +1,6 @@
 # stitch-pty Quick Reference
 
-> Latest published release: **0.15.0**.
+> Release: **0.16.0**.
 
 ## Installation
 
@@ -221,6 +221,30 @@ exit.
 | Startup handshake | N/A | DSR reply (`\x1b[1;1R`) to conhost before child output flows |
 | Close random FDs | `close_random_fds()` (macOS/Linux FD leak fix) | N/A |
 
+On Windows the child reads from its ConPTY console with normal console stdin
+APIs, including Rust's `std::io::stdin().read_line()`. Send input from the host
+with `PtySession::write_all` or `PtyWriter::write_all` using a line terminator
+for line-oriented programs. The child receives a ConPTY attachment independent
+of the parent's redirected standard handles.
+
+## Rust streaming integration
+
+After `PtySession::wait` returns, the task that owns the PTY output can call
+`PtySession::drain_output(timeout, consume)` or the corresponding
+`PtyReader` method. The fixed-size buffer emits chunks in order. A consumer
+such as `|chunk| screen.feed(chunk)` completes before the drain returns.
+`DrainEnd` distinguishes EOF, 100 ms of quiet, and the deadline. Read errors
+arrive through `Result`. Use the actual completion reason when reporting
+whether the consumer reached EOF.
+
+Call `HistoryScreen::set_write_process_input` to route terminal query
+responses to a PTY writer. Call `set_osc_observer` to receive numeric OSC
+records synchronously at dispatch, with a bounded payload and parser cursor
+coordinates. Enable `set_hyperlink_tracking(true)` to include OSC 8 URIs in
+the raw cells returned by `row_cells`. Construct Rust `Char` values with
+`Char::new`, `Char::blank`, or a default initializer to accommodate the
+new hyperlink field.
+
 ## Terminal Emulation (pyte_rs)
 
 **Background color erase (BCE):** erase and insert operations (`CSI J/K`,
@@ -236,6 +260,7 @@ Full reset (`RIS`) and DECALN still use defaults.
 | `fg` | `str` — `"default"`, ANSI name, or 6-hex RGB |
 | `bg` | `str` — same format as fg |
 | `bold`, `dim`, `italics`, `underscore`, `blink`, `reverse`, `hidden`, `strikethrough` | `bool` |
+| `hyperlink` | Rust `Option<Arc<str>>` for an OSC 8 URI when tracking is enabled |
 
 ### Cursor
 

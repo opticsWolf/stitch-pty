@@ -17,10 +17,7 @@ fn shell(command: &str) -> (&'static str, Vec<String>) {
 
 fn quiet_long_running() -> (&'static str, Vec<String>) {
     if cfg!(windows) {
-        (
-            "cmd.exe",
-            vec!["/C".into(), "ping -n 30 127.0.0.1 > NUL".into()],
-        )
+        ("cmd.exe", vec!["/D".into(), "/Q".into()])
     } else {
         ("sh", vec!["-c".into(), "sleep 30".into()])
     }

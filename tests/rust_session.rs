@@ -25,10 +25,7 @@ fn shell(command: &str) -> (&'static str, Vec<String>) {
 /// `(program, args)` for a long-running child that produces no output.
 fn quiet_long_running() -> (&'static str, Vec<String>) {
     if cfg!(windows) {
-        (
-            "cmd.exe",
-            vec!["/C".into(), "ping -n 30 127.0.0.1 > NUL".into()],
-        )
+        ("cmd.exe", vec!["/D".into(), "/Q".into()])
     } else {
         ("sh", vec!["-c".into(), "sleep 30".into()])
     }
@@ -671,4 +668,59 @@ async fn read_after_read_until_exit_returns_eof() {
         .read_timeout(&mut buf, Duration::from_millis(250))
         .await;
     assert_eq!(eof, Ok(0), "expected EOF after read_until_exit");
+}
+
+// Run the same Rust child on every platform. The harness supplies a portable
+// executable path without relying on the shell's own stdin implementation.
+#[test]
+#[ignore = "spawned by rust_child_can_read_stdin"]
+fn child_stdio_fixture() {
+    use std::io::Write;
+
+    if !std::env::args().any(|arg| arg == "child_stdio_fixture") {
+        return;
+    }
+    println!("stitch-stdin-ready");
+    std::io::stdout().flush().expect("flush");
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line).expect("child stdin");
+    assert_eq!(line.trim_end(), "stitch-stdio-input");
+    println!("stitch-stdin-complete");
+    std::io::stdout().flush().expect("flush");
+}
+
+#[tokio::test]
+async fn rust_child_can_read_stdin() {
+    let program = std::env::current_exe().expect("test executable");
+    let args = ["--ignored", "--exact", "child_stdio_fixture", "--nocapture"].map(str::to_owned);
+    let session = PtySession::spawn(program.to_str().unwrap(), &args, size(), None)
+        .await
+        .expect("spawn Rust child");
+    let exercise = async {
+        let mut out = Vec::new();
+        let mut buf = [0; 4096];
+        while !String::from_utf8_lossy(&out).contains("stitch-stdin-ready") {
+            let n = session.read(&mut buf).await.expect("read fixture");
+            assert!(n > 0, "child exited before announcing readiness");
+            out.extend_from_slice(&buf[..n]);
+        }
+        session
+            .write_all(b"stitch-stdio-input\r\n")
+            .await
+            .expect("write line");
+        let status = session.wait().await.expect("child status");
+        let end = session
+            .drain_output(Duration::from_secs(2), |bytes| {
+                out.extend_from_slice(bytes);
+            })
+            .await
+            .expect("drain child output");
+        (status, out, end)
+    };
+    let result = tokio::time::timeout(Duration::from_secs(10), exercise).await;
+    session.close().await.expect("close fixture");
+    let (status, out, end) = result.expect("fixture did not finish");
+    let out = String::from_utf8_lossy(&out);
+    assert!(status.success(), "{status}: {out}");
+    assert!(out.contains("stitch-stdin-complete"), "{end:?}: {out}");
 }

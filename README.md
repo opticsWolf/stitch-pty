@@ -157,6 +157,27 @@ If you want the PTY and one screen in a single type, `TerminalSession` owns a
 both (including reflow). `PtySession` remains transport-only, so a multiplexer
 can still keep one screen per pane. See `examples/terminal_session.rs`.
 
+Multiplexers can send terminal replies through
+`HistoryScreen::set_write_process_input` and observe bounded numeric OSC
+records at dispatch with `set_osc_observer`. Enable
+`set_hyperlink_tracking(true)` and read `row_cells` to get OSC 8 links
+associated with the cells that display them.
+
+After waiting for the child, the task that owns PTY reads can stream pending
+bytes directly into its screen:
+
+```rust,ignore
+let status = session.wait().await;
+let end = session
+    .drain_output(std::time::Duration::from_secs(5), |chunk| screen.feed(chunk))
+    .await?;
+```
+
+`DrainEnd` distinguishes transport EOF, 100 ms of quiet, and the deadline.
+The callback applies each chunk before completion. In 0.16.0, Rust code
+that initializes every public `Char` field must include `hyperlink: None`
+or use a constructor with defaults.
+
 Rust also has byte-oriented `PtySession::expect(patterns, timeout)`
 (`ExpectPattern::Bytes`, `ExpectPattern::Str`, and an optional
 `ExpectPattern::regex` behind the `regex` feature). Patterns are checked after
@@ -164,7 +185,7 @@ each read, so matches span chunks without requiring UTF-8 or line boundaries;
 timeout/EOF errors carry the bytes read so far. Enable regex with:
 
 ```toml
-stitch-pty = { version = "0.15.0", features = ["regex"] }
+stitch-pty = { version = "0.16.0", features = ["regex"] }
 ```
 
 `PtySession::spawn` inherits the parent environment. `spawn_with_env` takes
@@ -823,7 +844,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.15.0"
+stitch-pty = "0.16.0"
 ```
 
 To build and test the pure Rust code locally:
@@ -962,7 +983,7 @@ or embedded into this project.
 |----------|--------|
 | **Source** | `../other packages/vte-master` |
 | **Repository** | [github.com/alacritty/vte](https://github.com/alacritty/vte) |
-| **Version** | 0.15.0 |
+| **Version** | 0.16.0 |
 | **Authors** | Joe Wilm, Christian Duerr |
 | **License** | Apache-2.0 OR MIT |
 | **Role** | ECMA-48 ANSI escape sequence state machine (embedded as `terminal/ansi_parser.rs`) |
