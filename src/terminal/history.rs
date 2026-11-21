@@ -192,6 +192,19 @@ impl HistoryScreen {
         }
     }
 
+    fn collect_scrollback(&mut self) {
+        let count = self.inner.scrolled_off.len();
+        if count == 0 {
+            return;
+        }
+        self.inner.scrolled_off_wrapped.resize(count, false);
+        self.history.append(&mut self.inner.scrolled_off);
+        self.history_wrapped
+            .append(&mut self.inner.scrolled_off_wrapped);
+        self.scrollback_grew += count as u64;
+        self.trim_history();
+    }
+
     fn push_history(&mut self, line: Vec<Char>, wrapped: bool) {
         self.history.push(line);
         self.history_wrapped.push(wrapped);
@@ -458,14 +471,7 @@ impl HistoryScreen {
     fn reflow(&mut self, lines: usize, columns: usize) {
         let old_cols = self.inner.columns.max(1);
         // Drain any pending scrolled-off lines first so nothing is lost.
-        if !self.inner.scrolled_off.is_empty() {
-            let pending = std::mem::take(&mut self.inner.scrolled_off);
-            let pending_w = std::mem::take(&mut self.inner.scrolled_off_wrapped);
-            for (i, line) in pending.into_iter().enumerate() {
-                let wrapped = pending_w.get(i).copied().unwrap_or(false);
-                self.push_history(line, wrapped);
-            }
-        }
+        self.collect_scrollback();
         let total_rows = self.history.len() + self.inner.buffer.len();
         // ── 1. Flatten into logical lines (owned: borrows end here). ──
         struct LogicalLine {
@@ -775,14 +781,7 @@ impl HistoryScreen {
         // Capture any lines that scrolled off the top during this feed into the
         // scrollback history. (The parser drives the inner Screen directly, so
         // its scroll-up evicts into Screen::scrolled_off for us to collect.)
-        if !self.inner.scrolled_off.is_empty() {
-            let lines = std::mem::take(&mut self.inner.scrolled_off);
-            let flags = std::mem::take(&mut self.inner.scrolled_off_wrapped);
-            for (i, line) in lines.into_iter().enumerate() {
-                let wrapped = flags.get(i).copied().unwrap_or(false);
-                self.push_history(line, wrapped);
-            }
-        }
+        self.collect_scrollback();
     }
 }
 
@@ -797,6 +796,20 @@ mod tests {
     }
 
     // ── Construction ────────────────────────────────────────────────────
+
+    #[test]
+    fn batched_history_keeps_the_latest_rows_and_counts_all_evictions() {
+        let mut hs = make_history(4, 3, 2);
+        hs.feed(b"1\r\n2\r\n3\r\n4\r\n5\r\n6");
+
+        assert_eq!(hs.history_display(), ["2   ", "3   "]);
+        assert_eq!(hs.visible_display(), ["4   ", "5   ", "6   "]);
+        assert_eq!(hs.history_wrapped, [false, false]);
+        assert_eq!(
+            hs.take_events(),
+            [crate::terminal::events::TermEvent::ScrollbackGrew(3)]
+        );
+    }
 
     #[test]
     fn test_new() {

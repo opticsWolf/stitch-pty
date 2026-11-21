@@ -142,6 +142,57 @@ cursor in pending-wrap indexed out of bounds; fixed v0.7.2).
 
 ---
 
+## Throughput investigation plan
+
+### Baselines and correctness
+
+1. Run baseline and candidate from the same machine and toolchain with the
+   release profile and the same lockfile and feature set. Record the revision,
+   OS, CPU, profile, viewport dimensions, scrollback cap, feed size, and actual
+   byte count. Build into separate Cargo target directories and record which
+   executable produced each sample. Warm up each lane, then alternate baseline
+   and candidate for at least 30 samples. Report median and p95 elapsed time, MB/s (decimal), and
+   the raw samples. Keep setup, teardown, and assertions outside the timer.
+2. Before accepting a timing sample, check the expected screen. Compare
+   visible and retained rows, glyph text and widths, cursor and pending wrap,
+   colors and attributes, links, wrap flags, and parser events at the relevant
+   checkpoints. Verify whole-stream and split-stream results against known
+   expected output. Exercise split UTF-8, CSI, OSC and ST, scroll margins,
+   alternate-screen restore, and history eviction under reflow.
+3. Include a mixed ASCII/CJK/combining corpus with explicit expected cell
+   positions. Stitch PTY 0.16.0 leaves the cursor stationary for consecutive
+   width-two characters. Treat that as a failing Unicode correctness case
+   until wide-character placement and wrapping are repaired.
+
+### Workloads and measurements
+
+| Lane | Workload | What to measure |
+|---|---|---|
+| Native parser | Same raw bytes through `terminal::ansi_parser::Parser` with counting callbacks | Time, printed/control counts, and split-record parity. Label synthetic Kitty APC as skipped string data. |
+| Draw without scroll | Printable ASCII overwrites, alternating SGR runs, and mixed-width text | Allocations per MiB, CPU time, and dirty rows. Compare direct draw to parser plus draw to size an ASCII run fast path. |
+| Scroll and retain | Numbered ASCII rows, soft wrapping, alternate screen, and partial scroll regions | Compare 80x24, 80x48, and 200x60. Sweep 1,000, 2,000, and 20,000 history rows plus the alternate screen. Measure how copies and allocations scale with width, height, and feed size. |
+| Erase and repaint | Separate ED, EL, ECH, cursor-only movement, reverse index, and repeated styled redraws | Measure time and allocations per operation. Verify background-color erase and hyperlink removal, including on a resized screen. |
+| Resize and project | Reflow retained wrapped output, then read the viewport or capture history | Report reflow, borrowed row access, styled projection, and serialization separately. Track peak live bytes for large histories. |
+| PTY and Mux | One captured PTY byte trace replayed into the native screen and the daemon at the same geometry | Split transport, feed, viewport conversion, fan-out, and client apply. Run zero, one, and two clients and report completion time, throughput, and interactive latency. |
+
+Use 1 KiB, 16 KiB, and 64 KiB feeds for the steady-state runs. Include a
+byte-at-a-time correctness run and split boundaries inside escape sequences.
+Collect allocator counts and allocated bytes in a separate instrumented run
+and a CPU sampling profile for the slowest workloads. Profiling and allocation
+instrumentation can perturb the throughput numbers.
+
+### Next ablations
+
+- Compare a bounded pool of evicted primary rows against per-scroll allocation.
+  Include small and large feeds to show how much reuse survives until the next
+  feed. Report peak retained memory per pane and verify OSC dispatch positions
+  and scrollback growth events.
+- Compare safe printable ASCII run writes to direct character writes. Include
+  control-heavy input, SGR transitions, right-edge wrapping, and insert mode.
+- Consider a history ring only if large caps with small feeds show meaningful
+  time in front eviction after batching. Profile Mux viewport copies once the
+  screen-only lane improves.
+
 ## Known Issues & Mitigations
 
 ### macOS Tokio Timer Starvation (v0.5.6+)

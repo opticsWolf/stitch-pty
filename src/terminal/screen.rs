@@ -45,6 +45,26 @@ impl Char {
             ..Self::default()
         }
     }
+    fn copy_rendition(&mut self, attrs: &Self) {
+        self.fg.clone_from(&attrs.fg);
+        self.bg.clone_from(&attrs.bg);
+        self.bold = attrs.bold;
+        self.dim = attrs.dim;
+        self.italics = attrs.italics;
+        self.underscore = attrs.underscore;
+        self.blink = attrs.blink;
+        self.reverse = attrs.reverse;
+        self.hidden = attrs.hidden;
+        self.strikethrough = attrs.strikethrough;
+    }
+
+    fn erase_with(&mut self, attrs: &Self) {
+        self.copy_rendition(attrs);
+        self.data.clear();
+        self.data.push(' ');
+        self.hyperlink = None;
+    }
+
     pub fn is_blank(&self) -> bool {
         self.data == " "
             && !self.bold
@@ -620,9 +640,8 @@ impl Screen {
     /// DECSCNM retargets the whole buffer separately via
     /// `apply_reverse_to_buffer`.
     fn erase_cell(&self) -> Char {
-        let mut cell = self.cursor.attrs.clone();
-        cell.data = " ".to_string();
-        cell.hyperlink = None;
+        let mut cell = Char::default();
+        cell.erase_with(&self.cursor.attrs);
         cell
     }
 
@@ -769,7 +788,7 @@ impl Screen {
         }
     }
 
-    fn draw_char(&mut self, ch: char) {
+    pub(super) fn draw_char(&mut self, ch: char) {
         let width = ch.width().unwrap_or(1);
         if width == 0 {
             if self.cursor.x > 0 && self.cursor.y < self.lines {
@@ -810,11 +829,12 @@ impl Screen {
         }
         if self.cursor.x < self.columns && self.cursor.y < self.lines {
             let cell = &mut self.buffer[self.cursor.y][self.cursor.x];
-            *cell = self.cursor.attrs.clone();
-            cell.data = ch.to_string();
-            cell.hyperlink = self.active_hyperlink.clone();
+            cell.copy_rendition(&self.cursor.attrs);
+            cell.data.clear();
+            cell.data.push(ch);
+            cell.hyperlink.clone_from(&self.active_hyperlink);
             if width >= 2 && self.cursor.x + 1 < self.columns {
-                self.buffer[self.cursor.y][self.cursor.x + 1] = self.erase_cell();
+                self.buffer[self.cursor.y][self.cursor.x + 1].erase_with(&self.cursor.attrs);
             }
             self.dirty.insert(self.cursor.y);
         }
@@ -836,9 +856,9 @@ impl Screen {
         let x = self.cursor.x;
         let y = self.cursor.y;
         let end = (x + count).min(self.columns);
-        let blank = self.erase_cell();
+        let attrs = &self.cursor.attrs;
         for cell in self.buffer[y].iter_mut().take(end).skip(x) {
-            *cell = blank.clone();
+            cell.erase_with(attrs);
         }
         self.dirty.insert(y);
     }
@@ -849,9 +869,9 @@ impl Screen {
         for i in x..self.columns - (end - x) {
             self.buffer[self.cursor.y][i] = self.buffer[self.cursor.y][end + (i - x)].clone();
         }
-        let blank = self.erase_cell();
+        let attrs = &self.cursor.attrs;
         for i in self.columns - (end - x)..self.columns {
-            self.buffer[self.cursor.y][i] = blank.clone();
+            self.buffer[self.cursor.y][i].erase_with(attrs);
         }
         self.dirty.insert(self.cursor.y);
     }
@@ -861,18 +881,18 @@ impl Screen {
         for i in (x..self.columns.saturating_sub(count)).rev() {
             self.buffer[self.cursor.y][i + count] = self.buffer[self.cursor.y][i].clone();
         }
-        let blank = self.erase_cell();
+        let attrs = &self.cursor.attrs;
         for i in x..(x + count).min(self.columns) {
-            self.buffer[self.cursor.y][i] = blank.clone();
+            self.buffer[self.cursor.y][i].erase_with(attrs);
         }
         self.dirty.insert(self.cursor.y);
     }
     pub fn erase_in_line(&mut self, mode: usize) {
-        let blank = self.erase_cell();
+        let attrs = &self.cursor.attrs;
         match mode {
             0 => {
                 for i in self.cursor.x..self.columns {
-                    self.buffer[self.cursor.y][i] = blank.clone();
+                    self.buffer[self.cursor.y][i].erase_with(attrs);
                 }
             }
             // Clamped: cursor.x == columns is the legal pending-wrap state
@@ -880,19 +900,19 @@ impl Screen {
             // buffer[y][columns] — out of bounds. Cf. erase_in_display below.
             1 => {
                 for i in 0..=self.cursor.x.min(self.columns - 1) {
-                    self.buffer[self.cursor.y][i] = blank.clone();
+                    self.buffer[self.cursor.y][i].erase_with(attrs);
                 }
             }
             2 => {
                 for i in 0..self.columns {
-                    self.buffer[self.cursor.y][i] = blank.clone();
+                    self.buffer[self.cursor.y][i].erase_with(attrs);
                 }
                 // Whole-row erase replaces the line unit: hard row again.
                 self.wrapped[self.cursor.y] = false;
             }
             _ => {
                 for i in 0..self.columns {
-                    self.buffer[self.cursor.y][i] = blank.clone();
+                    self.buffer[self.cursor.y][i].erase_with(attrs);
                 }
                 self.wrapped[self.cursor.y] = false;
             }
@@ -904,16 +924,16 @@ impl Screen {
     }
     pub fn erase_in_display(&mut self, mode: usize) {
         let (top, bottom) = self.scroll_region();
-        let blank = self.erase_cell();
+        let attrs = &self.cursor.attrs;
         match mode {
             0 => {
                 for i in self.cursor.x..self.columns {
-                    self.buffer[self.cursor.y][i] = blank.clone();
+                    self.buffer[self.cursor.y][i].erase_with(attrs);
                 }
                 self.dirty.insert(self.cursor.y);
                 for y in (self.cursor.y + 1)..=bottom {
                     for x in 0..self.columns {
-                        self.buffer[y][x] = blank.clone();
+                        self.buffer[y][x].erase_with(attrs);
                     }
                     self.wrapped[y] = false;
                     self.dirty.insert(y);
@@ -922,20 +942,20 @@ impl Screen {
             1 => {
                 for y in top..self.cursor.y {
                     for x in 0..self.columns {
-                        self.buffer[y][x] = blank.clone();
+                        self.buffer[y][x].erase_with(attrs);
                     }
                     self.wrapped[y] = false;
                     self.dirty.insert(y);
                 }
                 for i in 0..=self.cursor.x.min(self.columns - 1) {
-                    self.buffer[self.cursor.y][i] = blank.clone();
+                    self.buffer[self.cursor.y][i].erase_with(attrs);
                 }
                 self.dirty.insert(self.cursor.y);
             }
             2 | 3 => {
                 for y in top..=bottom {
                     for x in 0..self.columns {
-                        self.buffer[y][x] = blank.clone();
+                        self.buffer[y][x].erase_with(attrs);
                     }
                     self.wrapped[y] = false;
                     self.dirty.insert(y);
@@ -984,24 +1004,36 @@ impl Screen {
     }
     pub fn scroll_up(&mut self, rows: usize) {
         let (top, bottom) = self.scroll_region();
-        let default_line = vec![self.erase_cell(); self.columns];
         let rows = rows.min(bottom - top + 1);
-        // Only a full-screen scroll on the primary buffer feeds the scrollback;
-        // alt-screen scrolls and margin-region scrolls (pagers) must not.
-        let to_history = self.margins.is_none() && !self.alt_screen;
-        for _ in 0..rows {
-            if to_history {
-                self.scrolled_off.push(self.buffer[top].clone());
-                self.scrolled_off_wrapped.push(self.wrapped[top]);
-            }
-            for y in top..bottom {
-                self.buffer[y] = std::mem::replace(&mut self.buffer[y + 1], default_line.clone());
-                self.wrapped[y] = self.wrapped[y + 1];
-            }
-            self.buffer[bottom] = default_line.clone();
-            self.wrapped[bottom] = false;
-            self.dirty.insert(bottom);
+        if rows == 0 {
+            return;
         }
+
+        // Rotate row owners and flags together. The rows that leave the top
+        // now occupy the bottom slots in their original order.
+        self.buffer[top..=bottom].rotate_left(rows);
+        self.wrapped[top..=bottom].rotate_left(rows);
+        let first_blank = bottom + 1 - rows;
+        let to_history = self.margins.is_none() && !self.alt_screen;
+        if to_history {
+            self.scrolled_off_wrapped
+                .extend_from_slice(&self.wrapped[first_blank..=bottom]);
+        }
+
+        let attrs = &self.cursor.attrs;
+        for line in &mut self.buffer[first_blank..=bottom] {
+            if to_history {
+                self.scrolled_off.push(std::mem::take(line));
+            }
+            // Alternate screens and scrolling regions reuse the outgoing
+            // row directly. A new or resized row takes the same erase path.
+            line.resize_with(self.columns, Char::default);
+            for cell in line {
+                cell.erase_with(attrs);
+            }
+        }
+        self.wrapped[first_blank..=bottom].fill(false);
+        self.dirty.insert(bottom);
     }
     pub fn scroll_down(&mut self, rows: usize) {
         let (top, bottom) = self.scroll_region();
@@ -1898,6 +1930,98 @@ mod tests {
         s.delete_lines(1);
         assert!(s.wrapped[1], "delete restores the flag to row 1");
         assert_wrapped_len(&s);
+    }
+
+    #[test]
+    fn primary_scroll_moves_multiple_rows_to_history_in_order() {
+        let mut s = make_screen(3, 4);
+        for (row, text) in s.buffer.iter_mut().zip(["a", "b", "c", "d"]) {
+            row[0].data = text.to_owned();
+        }
+        s.buffer[0][0].hyperlink = Some("https://example.test".into());
+        s.wrapped.copy_from_slice(&[false, true, true, false]);
+        s.select_graphic_rendition(&[44]);
+
+        s.scroll_up(2);
+
+        assert_eq!(
+            s.buffer
+                .iter()
+                .map(|row| row[0].data.as_str())
+                .collect::<Vec<_>>(),
+            ["c", "d", " ", " "]
+        );
+        assert_eq!(s.wrapped, [true, false, false, false]);
+        assert_eq!(
+            s.scrolled_off
+                .iter()
+                .map(|row| row[0].data.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+        assert_eq!(s.scrolled_off_wrapped, [false, true]);
+        assert_eq!(
+            s.scrolled_off[0][0].hyperlink.as_deref(),
+            Some("https://example.test")
+        );
+        assert!(
+            s.buffer[2..]
+                .iter()
+                .flatten()
+                .all(|cell| cell.bg == "blue" && cell.hyperlink.is_none())
+        );
+    }
+
+    #[test]
+    fn partial_scroll_reuses_row_and_clears_its_link_and_wrap() {
+        let mut s = make_screen(3, 4);
+        s.set_margins(Some(2), Some(3));
+        s.buffer[1][0].data = "old".into();
+        s.buffer[1][0].hyperlink = Some("https://example.test".into());
+        s.buffer[2][0].data = "keep".into();
+        s.wrapped[1] = true;
+        s.wrapped[2] = true;
+        let recycled = s.buffer[1].as_ptr();
+        s.select_graphic_rendition(&[44]);
+
+        s.scroll_up(1);
+
+        assert_eq!(s.buffer[1][0].data, "keep");
+        assert_eq!(s.buffer[2].as_ptr(), recycled);
+        assert_eq!(s.wrapped, [false, true, false, false]);
+        assert!(
+            s.buffer[2]
+                .iter()
+                .all(|cell| cell.data == " " && cell.bg == "blue" && cell.hyperlink.is_none())
+        );
+        assert!(s.scrolled_off.is_empty());
+    }
+
+    #[test]
+    fn inplace_erase_applies_rendition_and_removes_links() {
+        let mut s = make_screen(4, 2);
+        s.active_hyperlink = Some("https://example.test".into());
+        s.draw("abcd");
+        let glyph = s.buffer[0][0].data.as_ptr();
+        s.cursor_position(1, 1);
+        s.select_graphic_rendition(&[1, 44]);
+
+        s.erase_characters(1);
+        assert_eq!(s.buffer[0][0].data.as_ptr(), glyph);
+        assert_eq!(s.buffer[0][0].data, " ");
+        assert_eq!(s.buffer[0][0].bg, "blue");
+        assert!(s.buffer[0][0].bold);
+        assert!(s.buffer[0][0].hyperlink.is_none());
+        assert_eq!(s.buffer[0][1].data, "b");
+        assert!(s.buffer[0][1].hyperlink.is_some());
+
+        s.erase_in_display(2);
+        assert!(
+            s.buffer
+                .iter()
+                .flatten()
+                .all(|cell| cell.data == " " && cell.bg == "blue" && cell.hyperlink.is_none())
+        );
     }
 
     #[test]

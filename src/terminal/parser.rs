@@ -20,7 +20,7 @@ impl<'a> Performer<'a> {
 
 impl<'a> Perform for Performer<'a> {
     fn print(&mut self, c: char) {
-        self.screen.draw(&c.to_string());
+        self.screen.draw_char(c);
     }
 
     fn execute(&mut self, byte: u8) {
