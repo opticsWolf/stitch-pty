@@ -687,6 +687,13 @@ fn child_stdio_fixture() {
     assert_eq!(line.trim_end(), "stitch-stdio-input");
     println!("stitch-stdin-complete");
     std::io::stdout().flush().expect("flush");
+    // Darwin can discard unread output when the slave closes. Keep the
+    // child alive until the parent has seen the marker on the master.
+    line.clear();
+    std::io::stdin()
+        .read_line(&mut line)
+        .expect("child acknowledgement");
+    assert_eq!(line.trim_end(), "stitch-stdio-ack");
 }
 
 #[tokio::test]
@@ -697,30 +704,31 @@ async fn rust_child_can_read_stdin() {
         .await
         .expect("spawn Rust child");
     let exercise = async {
-        let mut out = Vec::new();
-        let mut buf = [0; 4096];
-        while !String::from_utf8_lossy(&out).contains("stitch-stdin-ready") {
-            let n = session.read(&mut buf).await.expect("read fixture");
-            assert!(n > 0, "child exited before announcing readiness");
-            out.extend_from_slice(&buf[..n]);
-        }
+        let ready =
+            read_until_contains(&session, "stitch-stdin-ready", Duration::from_secs(5)).await;
+        assert!(ready.contains("stitch-stdin-ready"), "{ready}");
+        let (input, ack) = if cfg!(windows) {
+            (&b"stitch-stdio-input\r"[..], &b"stitch-stdio-ack\r"[..])
+        } else {
+            (&b"stitch-stdio-input\n"[..], &b"stitch-stdio-ack\n"[..])
+        };
+        session.write_all(input).await.expect("write input");
+        let complete =
+            read_until_contains(&session, "stitch-stdin-complete", Duration::from_secs(5)).await;
+        assert!(complete.contains("stitch-stdin-complete"), "{complete}");
         session
-            .write_all(b"stitch-stdio-input\r\n")
+            .write_all(ack)
             .await
-            .expect("write line");
+            .expect("acknowledge completion");
         let status = session.wait().await.expect("child status");
-        let end = session
-            .drain_output(Duration::from_secs(2), |bytes| {
-                out.extend_from_slice(bytes);
-            })
+        session
+            .drain_output(Duration::from_secs(2), |_| {})
             .await
             .expect("drain child output");
-        (status, out, end)
+        status
     };
-    let result = tokio::time::timeout(Duration::from_secs(10), exercise).await;
+    let result = tokio::time::timeout(Duration::from_secs(15), exercise).await;
     session.close().await.expect("close fixture");
-    let (status, out, end) = result.expect("fixture did not finish");
-    let out = String::from_utf8_lossy(&out);
-    assert!(status.success(), "{status}: {out}");
-    assert!(out.contains("stitch-stdin-complete"), "{end:?}: {out}");
+    let status = result.expect("fixture did not finish");
+    assert!(status.success(), "{status}");
 }

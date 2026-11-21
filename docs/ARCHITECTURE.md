@@ -225,6 +225,8 @@ exclusive ownership, and a fixed-size buffer calls the consumer in chunk
 order. `DrainEnd` reports EOF, a quiet period, or the total deadline. Read
 errors remain `PtyErrorKind`. A multiplexer can apply each chunk to its
 screen before announcing the pane's completion.
+Keep reading while the child runs. On macOS, closing the PTY slave can
+discard output that the master has yet to read.
 
 - `spawn` inherits the parent environment; `spawn_with_env` takes the exact
   environment (an empty slice is empty). `spawn_platform` mirrors this with
