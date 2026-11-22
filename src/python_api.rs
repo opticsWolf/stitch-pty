@@ -91,7 +91,7 @@ impl PtyMaster {
     fn raw_fd(&self) -> i32 {
         #[cfg(unix)]
         {
-            self.inner.raw_handle() as i32
+            self.inner.raw_handle()
         }
         #[cfg(windows)]
         {
