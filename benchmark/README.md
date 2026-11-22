@@ -64,6 +64,8 @@ instrumented passes:
 - `ascii_ground_profile` — ESC scan, UTF-8 validation, ground dispatch
 - `screen_ground_profile` — parser feed, `Screen::scroll_up`, blank-row erase,
   scrollback collection, and remaining draw/other work
+- `cursor_erase_profile` — the stitch-mux cursor workload, split into ED2,
+  EL, cursor movement, and remaining work
 
 Timers add overhead, so use the percentages as a guide rather than as absolute
 cost. The screen profile attributes ~86% of feed time to scroll-up erase.

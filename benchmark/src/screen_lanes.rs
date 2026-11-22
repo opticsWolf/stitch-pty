@@ -66,6 +66,13 @@ fn repeat(unit: &[u8], bytes: usize) -> Vec<u8> {
     out
 }
 
+fn cursor_erase_payload(bytes: usize) -> Vec<u8> {
+    repeat(
+        b"\x1b[H\x1b[2J\x1b[12;40H cursor-move-test-row-column \x1b[1;5H\x1b[K\r\n",
+        bytes,
+    )
+}
+
 fn numbered_rows(bytes: usize) -> Vec<u8> {
     let line = format!("{:08} {}\r\n", 0, "x".repeat(62));
     repeat(line.as_bytes(), bytes)
@@ -374,6 +381,20 @@ pub fn run(
         ));
     }
 
+    let cursor_payload = cursor_erase_payload(bytes);
+    results.push(feed_lane(
+        "erase_cursor_mixed".to_owned(),
+        "home + ED2 + cursor move + print + EL0 loop",
+        json!({"geometry": "80x24", "scrollback": 1_000, "feed_bytes": largest_feed}),
+        samples,
+        warmup,
+        &cursor_payload,
+        largest_feed,
+        || HistoryScreen::new(80, 24, 1_000),
+        1_000,
+        failures,
+    ));
+
     // Resize and project. Setup (including the initial feed) is outside the timer.
     let project_payload = numbered_rows(bytes);
     let make_projected = || {
@@ -495,5 +516,36 @@ pub fn profile(bytes: usize, feed: usize) -> Value {
         }),
         "draw_ns_per_cell": if stats.draw_cells == 0 { 0.0 } else { other_ns as f64 / stats.draw_cells as f64 },
         "history_rows": screen.history_size(),
+    })
+}
+
+pub fn cursor_erase_profile(bytes: usize, feed: usize) -> Value {
+    let data = cursor_erase_payload(bytes);
+    let mut screen = HistoryScreen::new(80, 24, 1_000);
+    screen_profile::reset();
+    screen_profile::set_enabled(true);
+    feed_all(&mut screen, &data, feed);
+    screen_profile::set_enabled(false);
+    let stats = screen_profile::snapshot();
+    let mib = data.len() as f64 / MIB;
+    let total = stats.feed_ns.max(1);
+    let pct = |ns: u64| ns as f64 / total as f64;
+    json!({
+        "note": "single instrumented pass over the stitch-mux cursor payload; percentages include timer overhead",
+        "feed_bytes": data.len(),
+        "feed_bytes_per_chunk": feed,
+        "feed_ns": stats.feed_ns,
+        "erase_display_ns": stats.erase_display_ns,
+        "erase_line_ns": stats.erase_line_ns,
+        "cursor_ns": stats.cursor_ns,
+        "erase_cells": stats.erase_cells,
+        "erase_ops": stats.erase_ops,
+        "draw_cells": stats.draw_cells,
+        "erase_display_pct": pct(stats.erase_display_ns),
+        "erase_line_pct": pct(stats.erase_line_ns),
+        "cursor_pct": pct(stats.cursor_ns),
+        "remaining_pct": pct(total.saturating_sub(stats.erase_display_ns + stats.erase_line_ns + stats.cursor_ns)),
+        "erase_ns_per_cell": if stats.erase_cells == 0 { 0.0 } else { (stats.erase_display_ns + stats.erase_line_ns) as f64 / stats.erase_cells as f64 },
+        "feed_ns_per_mib": stats.feed_ns as f64 / mib,
     })
 }

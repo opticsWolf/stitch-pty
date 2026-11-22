@@ -235,6 +235,14 @@ enough blanks during a full reflow. Remaining allocations are content cells
 change rather than another reuse pool. Allocation fields are now reported as
 `allocations` / `allocated_bytes` with an explicit unit per lane.
 
+`cursor_erase_profile` instruments the stitch-mux cursor workload (home,
+ED2, cursor move, short print, EL0). ED2 is ~88% of feed time, EL ~4%, cursor
+movement <1%, with ~2.38M cells erased per 64 KiB. `Char::erase_with` now
+returns immediately when both the cell and the target attributes are already
+default blank, cutting erase cost from ~7.3 ns/cell to ~4.8 ns/cell. The
+local-linked stitch-mux `raw_pty_cursor_mb_s` lane rose from ~2.38 to ~4.39
+MB/s. ED2 still dominates; row-level blank tracking is the next target.
+
 ### Next ablations
 
 - Compare a bounded pool of evicted primary rows against per-scroll allocation.

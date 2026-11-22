@@ -26,6 +26,11 @@ pub mod screen_profile {
     pub(crate) static SCROLL_ROWS: AtomicU64 = AtomicU64::new(0);
     pub(crate) static DRAW_CELLS: AtomicU64 = AtomicU64::new(0);
     pub(crate) static COLLECT_ROWS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static ERASE_DISPLAY_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static ERASE_LINE_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static CURSOR_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static ERASE_CELLS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static ERASE_OPS: AtomicU64 = AtomicU64::new(0);
 
     #[derive(Clone, Copy, Debug, Default)]
     pub struct Snapshot {
@@ -36,6 +41,11 @@ pub mod screen_profile {
         pub scroll_rows: u64,
         pub draw_cells: u64,
         pub collect_rows: u64,
+        pub erase_display_ns: u64,
+        pub erase_line_ns: u64,
+        pub cursor_ns: u64,
+        pub erase_cells: u64,
+        pub erase_ops: u64,
     }
 
     pub fn set_enabled(enabled: bool) {
@@ -50,6 +60,11 @@ pub mod screen_profile {
         SCROLL_ROWS.store(0, Ordering::Relaxed);
         DRAW_CELLS.store(0, Ordering::Relaxed);
         COLLECT_ROWS.store(0, Ordering::Relaxed);
+        ERASE_DISPLAY_NS.store(0, Ordering::Relaxed);
+        ERASE_LINE_NS.store(0, Ordering::Relaxed);
+        CURSOR_NS.store(0, Ordering::Relaxed);
+        ERASE_CELLS.store(0, Ordering::Relaxed);
+        ERASE_OPS.store(0, Ordering::Relaxed);
     }
 
     pub fn snapshot() -> Snapshot {
@@ -61,6 +76,11 @@ pub mod screen_profile {
             scroll_rows: SCROLL_ROWS.load(Ordering::Relaxed),
             draw_cells: DRAW_CELLS.load(Ordering::Relaxed),
             collect_rows: COLLECT_ROWS.load(Ordering::Relaxed),
+            erase_display_ns: ERASE_DISPLAY_NS.load(Ordering::Relaxed),
+            erase_line_ns: ERASE_LINE_NS.load(Ordering::Relaxed),
+            cursor_ns: CURSOR_NS.load(Ordering::Relaxed),
+            erase_cells: ERASE_CELLS.load(Ordering::Relaxed),
+            erase_ops: ERASE_OPS.load(Ordering::Relaxed),
         }
     }
 
@@ -130,6 +150,12 @@ impl Char {
     }
 
     pub(crate) fn erase_with(&mut self, attrs: &Self) {
+        // Repeated full-display erases mostly touch cells that are already
+        // default blank. Skipping those avoids three string operations per
+        // cell and dominates the cursor/ED2 workload.
+        if self.is_blank() && attrs.is_blank() {
+            return;
+        }
         self.copy_rendition(attrs);
         self.data.clear();
         self.data.push(' ');
@@ -788,6 +814,8 @@ impl Screen {
 
     // ── Cursor Movement ──────────────────────────────────────────
     pub fn cursor_position(&mut self, row: usize, col: usize) {
+        #[cfg(feature = "bench-profile")]
+        let cursor_start = screen_profile::begin();
         let (top, bottom) = self.scroll_region();
         let row = if row == 0 { 1 } else { row };
         let col = if col == 0 { 1 } else { col };
@@ -798,6 +826,8 @@ impl Screen {
             self.cursor.y = (row - 1).min(self.lines - 1);
             self.cursor.x = (col - 1).min(self.columns - 1);
         }
+        #[cfg(feature = "bench-profile")]
+        screen_profile::record(&screen_profile::CURSOR_NS, cursor_start);
     }
     pub fn cursor_to_line(&mut self, row: usize) {
         self.cursor_position(row, self.cursor.x + 1);
@@ -1009,6 +1039,8 @@ impl Screen {
         self.dirty.insert(self.cursor.y);
     }
     pub fn erase_in_line(&mut self, mode: usize) {
+        #[cfg(feature = "bench-profile")]
+        let erase_start = screen_profile::begin();
         let attrs = &self.cursor.attrs;
         match mode {
             0 => {
@@ -1042,12 +1074,27 @@ impl Screen {
         if mode == 0 {
             self.cursor.x = self.cursor.x.min(self.columns - 1);
         }
+        #[cfg(feature = "bench-profile")]
+        {
+            screen_profile::add(&screen_profile::ERASE_CELLS, self.columns as u64);
+            screen_profile::record(&screen_profile::ERASE_LINE_NS, erase_start);
+            screen_profile::add(&screen_profile::ERASE_OPS, 1);
+        }
     }
     pub fn erase_in_display(&mut self, mode: usize) {
+        #[cfg(feature = "bench-profile")]
+        let erase_start = screen_profile::begin();
         let (top, bottom) = self.scroll_region();
         let attrs = &self.cursor.attrs;
         match mode {
             0 => {
+                #[cfg(feature = "bench-profile")]
+                screen_profile::add(
+                    &screen_profile::ERASE_CELLS,
+                    ((self.columns.saturating_sub(self.cursor.x))
+                        + bottom.saturating_sub(self.cursor.y).saturating_mul(self.columns))
+                        as u64,
+                );
                 for i in self.cursor.x..self.columns {
                     self.buffer[self.cursor.y][i].erase_with(attrs);
                 }
@@ -1061,6 +1108,12 @@ impl Screen {
                 }
             }
             1 => {
+                #[cfg(feature = "bench-profile")]
+                screen_profile::add(
+                    &screen_profile::ERASE_CELLS,
+                    (self.cursor.y.saturating_sub(top).saturating_mul(self.columns)
+                        + self.cursor.x.min(self.columns - 1) + 1) as u64,
+                );
                 for y in top..self.cursor.y {
                     for x in 0..self.columns {
                         self.buffer[y][x].erase_with(attrs);
@@ -1074,6 +1127,11 @@ impl Screen {
                 self.dirty.insert(self.cursor.y);
             }
             2 | 3 => {
+                #[cfg(feature = "bench-profile")]
+                screen_profile::add(
+                    &screen_profile::ERASE_CELLS,
+                    (bottom - top + 1).saturating_mul(self.columns) as u64,
+                );
                 for y in top..=bottom {
                     for x in 0..self.columns {
                         self.buffer[y][x].erase_with(attrs);
@@ -1083,6 +1141,11 @@ impl Screen {
                 }
             }
             _ => {}
+        }
+        #[cfg(feature = "bench-profile")]
+        {
+            screen_profile::record(&screen_profile::ERASE_DISPLAY_NS, erase_start);
+            screen_profile::add(&screen_profile::ERASE_OPS, 1);
         }
     }
     pub fn insert_lines(&mut self, count: usize) {

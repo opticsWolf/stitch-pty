@@ -509,6 +509,7 @@ fn main() {
         "tool": "stitch-pty-parser-bench",
         "ascii_ground_profile": profile_ascii(bytes, largest_feed),
         "screen_ground_profile": screen_lanes::profile(screen_bytes, largest_feed),
+        "cursor_erase_profile": screen_lanes::cursor_erase_profile(screen_bytes, largest_feed),
         "config": {
             "samples": samples,
             "warmup": warmup,
