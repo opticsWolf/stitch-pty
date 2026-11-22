@@ -10,6 +10,77 @@ use super::control;
 use super::graphics as g;
 use super::modes::{self as mo, Modes};
 
+/// Opt-in phase counters for the screen feed path. Enabled only by the
+/// `bench-profile` feature so normal builds pay only relaxed atomic loads.
+#[cfg(feature = "bench-profile")]
+#[doc(hidden)]
+pub mod screen_profile {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::time::Instant;
+
+    static ENABLED: AtomicBool = AtomicBool::new(false);
+    pub(crate) static FEED_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static COLLECT_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static SCROLL_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static SCROLL_ERASE_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static SCROLL_ROWS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static DRAW_CELLS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static COLLECT_ROWS: AtomicU64 = AtomicU64::new(0);
+
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct Snapshot {
+        pub feed_ns: u64,
+        pub collect_ns: u64,
+        pub scroll_ns: u64,
+        pub scroll_erase_ns: u64,
+        pub scroll_rows: u64,
+        pub draw_cells: u64,
+        pub collect_rows: u64,
+    }
+
+    pub fn set_enabled(enabled: bool) {
+        ENABLED.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn reset() {
+        FEED_NS.store(0, Ordering::Relaxed);
+        COLLECT_NS.store(0, Ordering::Relaxed);
+        SCROLL_NS.store(0, Ordering::Relaxed);
+        SCROLL_ERASE_NS.store(0, Ordering::Relaxed);
+        SCROLL_ROWS.store(0, Ordering::Relaxed);
+        DRAW_CELLS.store(0, Ordering::Relaxed);
+        COLLECT_ROWS.store(0, Ordering::Relaxed);
+    }
+
+    pub fn snapshot() -> Snapshot {
+        Snapshot {
+            feed_ns: FEED_NS.load(Ordering::Relaxed),
+            collect_ns: COLLECT_NS.load(Ordering::Relaxed),
+            scroll_ns: SCROLL_NS.load(Ordering::Relaxed),
+            scroll_erase_ns: SCROLL_ERASE_NS.load(Ordering::Relaxed),
+            scroll_rows: SCROLL_ROWS.load(Ordering::Relaxed),
+            draw_cells: DRAW_CELLS.load(Ordering::Relaxed),
+            collect_rows: COLLECT_ROWS.load(Ordering::Relaxed),
+        }
+    }
+
+    pub(crate) fn begin() -> Option<Instant> {
+        ENABLED.load(Ordering::Relaxed).then(Instant::now)
+    }
+
+    pub(crate) fn record(slot: &AtomicU64, start: Option<Instant>) {
+        if let Some(start) = start {
+            slot.fetch_add(start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn add(slot: &AtomicU64, value: u64) {
+        if ENABLED.load(Ordering::Relaxed) {
+            slot.fetch_add(value, Ordering::Relaxed);
+        }
+    }
+}
+
 // ── Character Cell ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -45,7 +116,7 @@ impl Char {
             ..Self::default()
         }
     }
-    fn copy_rendition(&mut self, attrs: &Self) {
+    pub(crate) fn copy_rendition(&mut self, attrs: &Self) {
         self.fg.clone_from(&attrs.fg);
         self.bg.clone_from(&attrs.bg);
         self.bold = attrs.bold;
@@ -58,7 +129,7 @@ impl Char {
         self.strikethrough = attrs.strikethrough;
     }
 
-    fn erase_with(&mut self, attrs: &Self) {
+    pub(crate) fn erase_with(&mut self, attrs: &Self) {
         self.copy_rendition(attrs);
         self.data.clear();
         self.data.push(' ');
@@ -197,6 +268,12 @@ pub struct Screen {
     pub(crate) track_hyperlinks: bool,
     pub(crate) active_hyperlink: Option<Arc<str>>,
     pub(crate) saved_hyperlink: Option<Arc<str>>,
+    /// Rows evicted from capped scrollback, erased and ready for reuse by
+    /// `scroll_up` instead of allocating fresh cells for every blank row.
+    pub(crate) blank_rows: Vec<Vec<Char>>,
+    /// Blank cells reclaimed during reflow, kept so later resizes do not
+    /// allocate fresh strings for padding.
+    pub(crate) blank_cells: Vec<Char>,
     pub(crate) osc_observer: Option<super::events::OscObserver>,
     pub write_process_input: Box<dyn FnMut(&str) + Send + Sync + 'static>,
     pub cursor_style: CursorStyle,
@@ -263,6 +340,8 @@ impl Screen {
             track_hyperlinks: false,
             active_hyperlink: None,
             saved_hyperlink: None,
+            blank_rows: Vec::new(),
+            blank_cells: Vec::new(),
             osc_observer: None,
             write_process_input: Box::new(|_: &str| {})
                 as Box<dyn FnMut(&str) + Send + Sync + 'static>,
@@ -283,6 +362,46 @@ impl Screen {
         };
         screen.init_tabstops();
         screen
+    }
+
+    /// Conform a row to the current width and erase it in place, preserving
+    /// the `String` allocations in existing cells.
+    pub(crate) fn conform_and_erase(line: &mut Vec<Char>, attrs: &Char, columns: usize) {
+        if line.len() < columns {
+            line.resize_with(columns, Char::default);
+        } else {
+            line.truncate(columns);
+        }
+        for cell in line {
+            cell.erase_with(attrs);
+        }
+    }
+
+    /// Take evicted history rows and keep a bounded pool of erased rows for
+    /// the next scroll-up. Their cell allocations are reused rather than
+    /// dropped and rebuilt.
+    pub(crate) fn recycle_rows(&mut self, rows: impl IntoIterator<Item = Vec<Char>>) {
+        let attrs = self.default_char.clone();
+        let mut pool = std::mem::take(&mut self.blank_rows);
+        for mut row in rows {
+            Self::conform_and_erase(&mut row, &attrs, self.columns);
+            pool.push(row);
+        }
+        pool.truncate(self.lines + 8);
+        self.blank_rows = pool;
+    }
+
+    /// Store erased blank cells for reuse as reflow padding.
+    pub(crate) fn recycle_blank_cells(&mut self, cells: impl IntoIterator<Item = Char>, limit: usize) {
+        let attrs = self.default_char.clone();
+        let limit = limit.max(64);
+        for mut cell in cells {
+            if self.blank_cells.len() >= limit {
+                break;
+            }
+            cell.erase_with(&attrs);
+            self.blank_cells.push(cell);
+        }
     }
 
     pub(crate) fn init_tabstops(&mut self) {
@@ -828,6 +947,8 @@ impl Screen {
             self.insert_characters(1);
         }
         if self.cursor.x < self.columns && self.cursor.y < self.lines {
+            #[cfg(feature = "bench-profile")]
+            screen_profile::add(&screen_profile::DRAW_CELLS, 1);
             let cell = &mut self.buffer[self.cursor.y][self.cursor.x];
             cell.copy_rendition(&self.cursor.attrs);
             cell.data.clear();
@@ -1003,6 +1124,8 @@ impl Screen {
         self.cursor.x = 0;
     }
     pub fn scroll_up(&mut self, rows: usize) {
+        #[cfg(feature = "bench-profile")]
+        let scroll_start = screen_profile::begin();
         let (top, bottom) = self.scroll_region();
         let rows = rows.min(bottom - top + 1);
         if rows == 0 {
@@ -1020,33 +1143,51 @@ impl Screen {
                 .extend_from_slice(&self.wrapped[first_blank..=bottom]);
         }
 
+        #[cfg(feature = "bench-profile")]
+        let erase_start = screen_profile::begin();
         let attrs = &self.cursor.attrs;
+        let mut recycled = self.blank_rows.pop();
         for line in &mut self.buffer[first_blank..=bottom] {
             if to_history {
                 self.scrolled_off.push(std::mem::take(line));
+                if let Some(mut pooled) = recycled.take() {
+                    Self::conform_and_erase(&mut pooled, attrs, self.columns);
+                    *line = pooled;
+                    continue;
+                }
             }
             // Alternate screens and scrolling regions reuse the outgoing
-            // row directly. A new or resized row takes the same erase path.
-            line.resize_with(self.columns, Char::default);
-            for cell in line {
-                cell.erase_with(attrs);
-            }
+            // row directly. A recycled row or a fresh row takes the same path.
+            Self::conform_and_erase(line, attrs, self.columns);
         }
         self.wrapped[first_blank..=bottom].fill(false);
         self.dirty.insert(bottom);
+        #[cfg(feature = "bench-profile")]
+        {
+            screen_profile::record(&screen_profile::SCROLL_ERASE_NS, erase_start);
+            screen_profile::record(&screen_profile::SCROLL_NS, scroll_start);
+            screen_profile::add(&screen_profile::SCROLL_ROWS, rows as u64);
+        }
     }
+
     pub fn scroll_down(&mut self, rows: usize) {
         let (top, bottom) = self.scroll_region();
-        let default_line = vec![self.erase_cell(); self.columns];
         let rows = rows.min(bottom - top + 1);
-        for _ in 0..rows {
-            for y in (top + 1)..=bottom {
-                self.buffer[y] = std::mem::replace(&mut self.buffer[y - 1], default_line.clone());
-                self.wrapped[y] = self.wrapped[y - 1];
-            }
-            self.buffer[top] = default_line.clone();
-            self.wrapped[top] = false;
-            self.dirty.insert(top);
+        if rows == 0 {
+            return;
+        }
+        // Mirror scroll_up: rotate owners once, then erase only the rows that
+        // actually moved into the top slots. The previous implementation
+        // allocated a blank row and cloned it for every shifted line.
+        self.buffer[top..=bottom].rotate_right(rows);
+        self.wrapped[top..=bottom].rotate_right(rows);
+        let attrs = &self.cursor.attrs;
+        for line in &mut self.buffer[top..top + rows] {
+            Self::conform_and_erase(line, attrs, self.columns);
+        }
+        self.wrapped[top..top + rows].fill(false);
+        for y in top..top + rows {
+            self.dirty.insert(y);
         }
     }
 

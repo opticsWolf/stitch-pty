@@ -5,45 +5,89 @@
 //! and delegates parsed actions to a [`Perform`] implementation.
 
 /// CSI parameters — a list of sub-parameter groups.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+///
+/// Stored in fixed-capacity arrays so parsing a CSI sequence never allocates.
+/// `MAX_PARAMS` is the same limit the previous `Vec<Vec<u16>>` representation
+/// enforced; `group_starts` is a prefix-offset table into `values`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Params {
-    pub subparams: Vec<Vec<u16>>,
+    values: [u16; MAX_PARAMS],
+    group_starts: [u8; MAX_PARAMS + 1],
+    group_count: usize,
     total_len: usize,
+}
+
+impl Default for Params {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Params {
     pub fn new() -> Self {
         Self {
-            subparams: Vec::new(),
+            values: [0; MAX_PARAMS],
+            group_starts: [0; MAX_PARAMS + 1],
+            group_count: 0,
             total_len: 0,
         }
     }
 
     pub fn push(&mut self, value: u16) {
-        self.subparams.push(vec![value]);
+        if self.is_full() {
+            return;
+        }
+        self.values[self.total_len] = value;
+        self.group_starts[self.group_count] = self.total_len as u8;
         self.total_len += 1;
+        self.group_count += 1;
+        self.group_starts[self.group_count] = self.total_len as u8;
     }
 
     pub fn extend(&mut self, value: u16) {
-        if self.subparams.is_empty() {
-            self.subparams.push(vec![value]);
-        } else if let Some(last) = self.subparams.last_mut() {
-            last.push(value);
+        if self.is_full() {
+            return;
         }
+        if self.group_count == 0 {
+            self.push(value);
+            return;
+        }
+        self.values[self.total_len] = value;
         self.total_len += 1;
+        self.group_starts[self.group_count] = self.total_len as u8;
     }
 
     pub fn is_full(&self) -> bool {
         self.total_len >= MAX_PARAMS
     }
 
-    pub fn clear(&mut self) {
-        self.subparams.clear();
-        self.total_len = 0;
+    pub fn is_empty(&self) -> bool {
+        self.total_len == 0
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Vec<u16>> {
-        self.subparams.iter()
+    pub fn len(&self) -> usize {
+        self.total_len
+    }
+
+    pub fn clear(&mut self) {
+        self.group_count = 0;
+        self.total_len = 0;
+        self.group_starts[0] = 0;
+    }
+
+    /// All parameter values flattened in dispatch order.
+    pub fn flat(&self) -> &[u16] {
+        &self.values[..self.total_len]
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &[u16]> {
+        let values = &self.values;
+        let starts = &self.group_starts;
+        (0..self.group_count).map(move |group| {
+            let start = starts[group] as usize;
+            let end = starts[group + 1] as usize;
+            &values[start..end]
+        })
     }
 }
 
@@ -52,6 +96,65 @@ const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_PARAMS: usize = 16;
 const MAX_OSC_RAW: usize = 1024;
 const MAX_OSC_RECORD: usize = super::events::MAX_OSC_PAYLOAD + 6;
+
+/// Opt-in phase timers for the parser ground state. Enabled only by the
+/// `bench-profile` feature so normal builds pay only an atomic load.
+#[cfg(feature = "bench-profile")]
+#[doc(hidden)]
+pub mod bench_profile {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::time::Instant;
+
+    static ENABLED: AtomicBool = AtomicBool::new(false);
+    pub(crate) static SCAN_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static UTF8_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static DISPATCH_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static CALLS: AtomicU64 = AtomicU64::new(0);
+
+    #[derive(Clone, Copy, Debug, Default)]
+    pub struct Snapshot {
+        pub calls: u64,
+        pub scan_ns: u64,
+        pub utf8_ns: u64,
+        pub dispatch_ns: u64,
+    }
+
+    pub fn set_enabled(enabled: bool) {
+        ENABLED.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn reset() {
+        SCAN_NS.store(0, Ordering::Relaxed);
+        UTF8_NS.store(0, Ordering::Relaxed);
+        DISPATCH_NS.store(0, Ordering::Relaxed);
+        CALLS.store(0, Ordering::Relaxed);
+    }
+
+    pub fn snapshot() -> Snapshot {
+        Snapshot {
+            calls: CALLS.load(Ordering::Relaxed),
+            scan_ns: SCAN_NS.load(Ordering::Relaxed),
+            utf8_ns: UTF8_NS.load(Ordering::Relaxed),
+            dispatch_ns: DISPATCH_NS.load(Ordering::Relaxed),
+        }
+    }
+
+    pub(crate) fn begin() -> Option<Instant> {
+        ENABLED.load(Ordering::Relaxed).then(Instant::now)
+    }
+
+    pub(crate) fn record(slot: &AtomicU64, start: Option<Instant>) {
+        if let Some(start) = start {
+            slot.fetch_add(start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn record_call() {
+        if ENABLED.load(Ordering::Relaxed) {
+            CALLS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum State {
@@ -171,8 +274,14 @@ impl Parser {
     }
 
     fn advance_ground<P: Perform>(&mut self, performer: &mut P, bytes: &[u8]) -> usize {
+        #[cfg(feature = "bench-profile")]
+        bench_profile::record_call();
         let num_bytes = bytes.len();
+        #[cfg(feature = "bench-profile")]
+        let scan_start = bench_profile::begin();
         let plain_chars = bytes.iter().position(|&b| b == 0x1B).unwrap_or(num_bytes);
+        #[cfg(feature = "bench-profile")]
+        bench_profile::record(&bench_profile::SCAN_NS, scan_start);
 
         if plain_chars == 0 {
             self.state = State::Escape;
@@ -180,9 +289,18 @@ impl Parser {
             return 1;
         }
 
-        match std::str::from_utf8(&bytes[..plain_chars]) {
+        #[cfg(feature = "bench-profile")]
+        let utf8_start = bench_profile::begin();
+        let utf8 = std::str::from_utf8(&bytes[..plain_chars]);
+        #[cfg(feature = "bench-profile")]
+        bench_profile::record(&bench_profile::UTF8_NS, utf8_start);
+        match utf8 {
             Ok(parsed) => {
+                #[cfg(feature = "bench-profile")]
+                let dispatch_start = bench_profile::begin();
                 Self::ground_dispatch(performer, parsed);
+                #[cfg(feature = "bench-profile")]
+                bench_profile::record(&bench_profile::DISPATCH_NS, dispatch_start);
                 let mut processed = plain_chars;
                 if processed < num_bytes {
                     self.state = State::Escape;
@@ -194,7 +312,11 @@ impl Parser {
             Err(err) => {
                 let valid_bytes = err.valid_up_to();
                 let parsed = unsafe { std::str::from_utf8_unchecked(&bytes[..valid_bytes]) };
+                #[cfg(feature = "bench-profile")]
+                let dispatch_start = bench_profile::begin();
                 Self::ground_dispatch(performer, parsed);
+                #[cfg(feature = "bench-profile")]
+                bench_profile::record(&bench_profile::DISPATCH_NS, dispatch_start);
 
                 match err.error_len() {
                     Some(len) => {
@@ -235,38 +357,44 @@ impl Parser {
     }
 
     fn advance_partial_utf8<P: Perform>(&mut self, performer: &mut P, bytes: &[u8]) -> usize {
-        let old_bytes = self.partial_utf8_len;
-        let to_copy = bytes.len().min(self.partial_utf8.len() - old_bytes);
-        self.partial_utf8[old_bytes..old_bytes + to_copy].copy_from_slice(&bytes[..to_copy]);
-        self.partial_utf8_len += to_copy;
-
-        match std::str::from_utf8(&self.partial_utf8[..self.partial_utf8_len]) {
-            Ok(parsed) => {
-                let c = parsed.chars().next().unwrap();
-                performer.print(c);
+        // Complete one code point at a time. Copying up to four bytes at once
+        // can append part of the *next* character and corrupt this sequence.
+        // On an invalid continuation, emit U+FFFD but leave the offending byte
+        // for the main loop so it can start a fresh sequence.
+        let mut consumed = 0;
+        while consumed < bytes.len() {
+            let len = self.partial_utf8_len;
+            if len >= self.partial_utf8.len() {
+                performer.print('\u{FFFD}');
                 self.partial_utf8_len = 0;
-                c.len_utf8() - old_bytes
+                return consumed;
             }
-            Err(err) => {
-                let valid_bytes = err.valid_up_to();
-                if valid_bytes > 0 {
-                    let parsed =
-                        unsafe { std::str::from_utf8_unchecked(&self.partial_utf8[..valid_bytes]) };
-                    let c = parsed.chars().next().unwrap();
-                    performer.print(c);
+            let mut candidate = [0_u8; 4];
+            candidate[..len].copy_from_slice(&self.partial_utf8[..len]);
+            candidate[len] = bytes[consumed];
+            match std::str::from_utf8(&candidate[..len + 1]) {
+                Ok(parsed) => {
+                    self.partial_utf8[len] = bytes[consumed];
                     self.partial_utf8_len = 0;
-                    return valid_bytes - old_bytes;
-                }
-                match err.error_len() {
-                    Some(invalid_len) => {
-                        performer.print('\u{FFFD}');
-                        self.partial_utf8_len = 0;
-                        invalid_len - old_bytes
+                    consumed += 1;
+                    for c in parsed.chars() {
+                        performer.print(c);
                     }
-                    None => to_copy,
+                    return consumed;
+                }
+                Err(err) if err.error_len().is_some() => {
+                    performer.print('\u{FFFD}');
+                    self.partial_utf8_len = 0;
+                    return consumed;
+                }
+                Err(_) => {
+                    self.partial_utf8[len] = bytes[consumed];
+                    self.partial_utf8_len = len + 1;
+                    consumed += 1;
                 }
             }
         }
+        consumed
     }
 
     fn advance_csi_entry<P: Perform>(&mut self, performer: &mut P, byte: u8) {
@@ -674,7 +802,7 @@ mod tests {
         }
 
         fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
-            let params = params.subparams.to_vec();
+            let params = params.iter().map(|group| group.to_vec()).collect();
             self.dispatched
                 .push(Sequence::Csi(params, intermediates.to_vec(), ignore, c));
         }
@@ -685,7 +813,7 @@ mod tests {
         }
 
         fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, c: char) {
-            let params = params.subparams.to_vec();
+            let params = params.iter().map(|group| group.to_vec()).collect();
             self.dispatched
                 .push(Sequence::DcsHook(params, intermediates.to_vec(), ignore, c));
         }
@@ -821,6 +949,23 @@ mod tests {
             Sequence::Csi(params, ..) => assert_eq!(params, &[vec![0], vec![4]]),
             _ => panic!("expected CSI"),
         }
+    }
+
+    #[test]
+    fn test_params_fixed_storage() {
+        let mut params = Params::new();
+        params.push(1);
+        params.extend(2);
+        params.extend(3);
+        params.push(4);
+        assert_eq!(params.flat(), &[1, 2, 3, 4]);
+        assert_eq!(
+            params.iter().map(|group| group.to_vec()).collect::<Vec<_>>(),
+            vec![vec![1, 2, 3], vec![4]]
+        );
+        params.clear();
+        assert!(params.is_empty());
+        assert_eq!(params.flat(), &[] as &[u16]);
     }
 
     #[test]
@@ -1073,6 +1218,26 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 2);
         assert_eq!(dispatcher.dispatched[0], Sequence::Print('\u{0138}')); // ĸ
         assert_eq!(dispatcher.dispatched[1], Sequence::Print('\u{1F389}')); // 🎉
+    }
+
+    #[test]
+    fn test_partial_utf8_chunked_matches_whole_stream() {
+        let input = "日本語テスト combining: e\u{0301} 日本語テスト\r\n"
+            .repeat(20)
+            .into_bytes();
+        let collect = |feed: usize| {
+            let mut dispatcher = Dispatcher::default();
+            let mut parser = Parser::new();
+            for part in input.chunks(feed.max(1)) {
+                parser.advance(&mut dispatcher, part);
+            }
+            dispatcher.dispatched
+        };
+        let expected = collect(input.len());
+        assert!(expected.iter().any(|s| matches!(s, Sequence::Print('テ'))));
+        for feed in [1, 7, 17, 31, 64] {
+            assert_eq!(collect(feed), expected, "feed size {feed}");
+        }
     }
 
     #[test]

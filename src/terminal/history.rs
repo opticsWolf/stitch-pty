@@ -3,8 +3,14 @@
 /// Extends ``Screen`` with a fixed-capacity scrollback history.  When the
 /// visible area scrolls, lines are pushed into (or popped from) the history
 /// buffer.
+/// Internal granularity for moving evicted rows into scrollback. Small
+/// enough that capped histories recycle rows during a single large feed.
+const SCROLL_COLLECT_CHUNK: usize = 2_048;
+
 use super::parser::Parser;
 use super::screen::{Char, Margins, Screen};
+#[cfg(feature = "bench-profile")]
+use super::screen::screen_profile;
 
 /// Pack a cell into the Python tuple shape (text, fg, bg, attrs_bitmask).
 fn pack_cell(c: &Char) -> (String, String, String, u8) {
@@ -39,10 +45,16 @@ fn pack_cell(c: &Char) -> (String, String, String, u8) {
 /// Drop trailing default-blank cells (uncolored, unstyled spaces) from a
 /// flattened logical line: reflow- or erase-introduced padding, not content.
 /// BCE-colored tails are *not* blank and survive.
-fn trim_trailing_blanks(cells: &mut Vec<Char>) {
+fn take_blank(pool: &mut Vec<Char>) -> Char {
+    pool.pop().unwrap_or_else(Char::blank)
+}
+
+fn trim_trailing_blanks(cells: &mut Vec<Char>) -> Vec<Char> {
+    let mut reclaimed = Vec::new();
     while cells.last().is_some_and(Char::is_blank) {
-        cells.pop();
+        reclaimed.push(cells.pop().expect("checked by is_some_and"));
     }
+    reclaimed
 }
 
 pub struct HistoryScreen {
@@ -187,12 +199,15 @@ impl HistoryScreen {
     fn trim_history(&mut self) {
         if self.scrollback_lines > 0 && self.history.len() > self.scrollback_lines {
             let excess = self.history.len() - self.scrollback_lines;
-            self.history.drain(..excess);
+            let evicted: Vec<_> = self.history.drain(..excess).collect();
             self.history_wrapped.drain(..excess);
+            self.inner.recycle_rows(evicted);
         }
     }
 
     fn collect_scrollback(&mut self) {
+        #[cfg(feature = "bench-profile")]
+        let collect_start = screen_profile::begin();
         let count = self.inner.scrolled_off.len();
         if count == 0 {
             return;
@@ -203,6 +218,11 @@ impl HistoryScreen {
             .append(&mut self.inner.scrolled_off_wrapped);
         self.scrollback_grew += count as u64;
         self.trim_history();
+        #[cfg(feature = "bench-profile")]
+        {
+            screen_profile::record(&screen_profile::COLLECT_NS, collect_start);
+            screen_profile::add(&screen_profile::COLLECT_ROWS, count as u64);
+        }
     }
 
     fn push_history(&mut self, line: Vec<Char>, wrapped: bool) {
@@ -228,41 +248,49 @@ impl HistoryScreen {
     pub fn scroll_up_with_history(&mut self, rows: usize) {
         let (top, bottom) = self.scroll_region();
         let rows = rows.min(bottom - top + 1);
-        for _ in 0..rows {
-            if top < self.inner.buffer.len() {
-                let line = self.inner.buffer[top].clone();
-                let wrapped = self.inner.wrapped.get(top).copied().unwrap_or(false);
+        if rows == 0 {
+            return;
+        }
+        self.inner.buffer[top..=bottom].rotate_left(rows);
+        self.inner.wrapped[top..=bottom].rotate_left(rows);
+        let attrs = self.inner.cursor.attrs.clone();
+        for y in bottom + 1 - rows..=bottom {
+            if y < self.inner.buffer.len() {
+                let line = std::mem::take(&mut self.inner.buffer[y]);
+                let wrapped = self.inner.wrapped[y];
                 self.push_history(line, wrapped);
             }
-            for y in top..bottom {
-                self.inner.buffer[y] = self.inner.buffer[y + 1].clone();
-                self.inner.wrapped[y] = self.inner.wrapped[y + 1];
-            }
-            self.inner.buffer[bottom] = vec![self.inner.default_char.clone(); self.inner.columns];
-            self.inner.wrapped[bottom] = false;
-            self.inner.dirty.insert(bottom);
+            Self::refill_row(&mut self.inner.buffer[y], &attrs, self.inner.columns);
+            self.inner.wrapped[y] = false;
+            self.inner.dirty.insert(y);
         }
     }
 
     pub fn scroll_down_with_history(&mut self, rows: usize) {
-        let (top, _bottom) = self.scroll_region();
-        let rows = rows.min(self.inner.lines - top);
-        for _ in 0..rows {
-            for y in (top + 1)..=self.scroll_region().1 {
-                self.inner.buffer[y] = self.inner.buffer[y - 1].clone();
-                self.inner.wrapped[y] = self.inner.wrapped[y - 1];
-            }
+        let (top, bottom) = self.scroll_region();
+        let rows = rows.min(bottom - top + 1);
+        if rows == 0 {
+            return;
+        }
+        self.inner.buffer[top..=bottom].rotate_right(rows);
+        self.inner.wrapped[top..=bottom].rotate_right(rows);
+        let attrs = self.inner.cursor.attrs.clone();
+        for y in top..top + rows {
             if let Some((line, wrapped)) = self.pop_history() {
                 // History rows always match the buffer width (alt-path
                 // resizes conform them), so the flag travels as-is.
-                self.inner.buffer[top] = line;
-                self.inner.wrapped[top] = wrapped;
+                self.inner.buffer[y] = line;
+                self.inner.wrapped[y] = wrapped;
             } else {
-                self.inner.buffer[top] = vec![self.inner.default_char.clone(); self.inner.columns];
-                self.inner.wrapped[top] = false;
+                Self::refill_row(&mut self.inner.buffer[y], &attrs, self.inner.columns);
+                self.inner.wrapped[y] = false;
             }
-            self.inner.dirty.insert(top);
+            self.inner.dirty.insert(y);
         }
+    }
+
+    fn refill_row(row: &mut Vec<Char>, attrs: &Char, columns: usize) {
+        Screen::conform_and_erase(row, attrs, columns);
     }
 
     fn scroll_region(&self) -> (usize, usize) {
@@ -472,7 +500,26 @@ impl HistoryScreen {
         let old_cols = self.inner.columns.max(1);
         // Drain any pending scrolled-off lines first so nothing is lost.
         self.collect_scrollback();
-        let total_rows = self.history.len() + self.inner.buffer.len();
+        let mut blank_pool = std::mem::take(&mut self.inner.blank_cells);
+        let mut reclaimed_blanks: Vec<Char> = Vec::new();
+        let old_hist = self.history.len();
+        let cur_row = old_hist + self.inner.cursor.y;
+        // Take ownership of every source row. Reflow rebuilds both buffers,
+        // so moving cells here avoids cloning the entire screen repeatedly.
+        let old_history = std::mem::take(&mut self.history);
+        let old_history_wrapped = std::mem::take(&mut self.history_wrapped);
+        let old_buffer = std::mem::take(&mut self.inner.buffer);
+        let old_wrapped = std::mem::take(&mut self.inner.wrapped);
+        let mut all_rows: Vec<(Vec<Char>, bool)> =
+            Vec::with_capacity(old_history.len() + old_buffer.len());
+        for (index, row) in old_history.into_iter().enumerate() {
+            let wrapped = old_history_wrapped.get(index).copied().unwrap_or(false);
+            all_rows.push((row, wrapped));
+        }
+        for (index, row) in old_buffer.into_iter().enumerate() {
+            let wrapped = old_wrapped.get(index).copied().unwrap_or(false);
+            all_rows.push((row, wrapped));
+        }
         // ── 1. Flatten into logical lines (owned: borrows end here). ──
         struct LogicalLine {
             cells: Vec<Char>,
@@ -482,49 +529,37 @@ impl HistoryScreen {
         let mut cur: Vec<Char> = Vec::new();
         let mut cur_start = 0usize;
         let mut skip_next_blank = false;
-        for r in 0..total_rows {
-            let (row, wrapped) = if r < self.history.len() {
-                (
-                    &self.history[r],
-                    self.history_wrapped.get(r).copied().unwrap_or(false),
-                )
-            } else {
-                let i = r - self.history.len();
-                (
-                    &self.inner.buffer[i],
-                    self.inner.wrapped.get(i).copied().unwrap_or(false),
-                )
-            };
+        for (r, (row, wrapped)) in all_rows.into_iter().enumerate() {
             if r > 0 && !wrapped {
-                trim_trailing_blanks(&mut cur);
+                reclaimed_blanks.extend(trim_trailing_blanks(&mut cur));
                 logical.push(LogicalLine {
                     cells: std::mem::take(&mut cur),
                     start_row: cur_start,
                 });
                 cur_start = r;
             }
-            for cell in row.iter() {
+            for cell in row {
                 // A wide glyph's continuation cell is a blank directly
                 // behind it — skip exactly one (a real following space is
                 // kept: the one-shot is consumed by the continuation).
                 if skip_next_blank && cell.data == " " {
                     skip_next_blank = false;
+                    reclaimed_blanks.push(cell);
                     continue;
                 }
                 skip_next_blank = false;
                 if cell.width() >= 2 {
                     skip_next_blank = true;
                 }
-                cur.push(cell.clone());
+                cur.push(cell);
             }
         }
-        trim_trailing_blanks(&mut cur);
+        reclaimed_blanks.extend(trim_trailing_blanks(&mut cur));
         logical.push(LogicalLine {
             cells: cur,
             start_row: cur_start,
         });
         // ── 2. Cursor anchor: logical line + flat cell offset. ──
-        let cur_row = self.history.len() + self.inner.cursor.y;
         let mut anchor_line = 0usize;
         for (i, line) in logical.iter().enumerate() {
             if line.start_row <= cur_row {
@@ -540,36 +575,45 @@ impl HistoryScreen {
         // Per line: (first reflowed row, trimmed cell count).
         let mut line_spans: Vec<(usize, usize)> = Vec::with_capacity(logical.len());
         let mut rows: Vec<(Vec<Char>, bool)> = Vec::new();
-        for line in &logical {
+        for line in logical {
+            let line_len = line.cells.len();
             let first = rows.len();
             let mut row: Vec<Char> = Vec::new();
-            let flush = |row: &mut Vec<Char>, rows: &mut Vec<(Vec<Char>, bool)>| {
+            let flush = |row: &mut Vec<Char>,
+                         rows: &mut Vec<(Vec<Char>, bool)>,
+                         pool: &mut Vec<Char>| {
                 while row.len() < columns {
-                    row.push(Char::blank());
+                    row.push(take_blank(pool));
                 }
                 rows.push((std::mem::take(row), true));
             };
-            for cell in line.cells.iter() {
-                let need = if cell.width() >= 2 { 2 } else { 1 };
+            for cell in line.cells {
+                let wide = cell.width() >= 2;
+                let need = if wide { 2 } else { 1 };
                 if row.len() + need > columns {
                     // Pad a gap rather than stranding a wide glyph with one
                     // slot left — it starts the next row whole.
                     if need == 2 && row.len() + 1 == columns {
-                        row.push(Char::blank());
+                        row.push(take_blank(&mut blank_pool));
                     }
-                    flush(&mut row, &mut rows);
+                    flush(&mut row, &mut rows, &mut blank_pool);
                 }
-                row.push(cell.clone());
-                if cell.width() >= 2 && row.len() < columns {
+                if wide {
                     // Continuation cell: the glyph's style, blank text —
                     // BCE-friendly, and the next flatten skips it again.
                     let mut cont = cell.clone();
-                    cont.data = " ".to_string();
+                    cont.data.clear();
+                    cont.data.push(' ');
                     cont.hyperlink = None;
-                    row.push(cont);
+                    row.push(cell);
+                    if row.len() < columns {
+                        row.push(cont);
+                    }
+                } else {
+                    row.push(cell);
                 }
                 if row.len() == columns {
-                    flush(&mut row, &mut rows);
+                    flush(&mut row, &mut rows, &mut blank_pool);
                 }
             }
             // End of logical line: emit the tail — except when the line
@@ -577,10 +621,10 @@ impl HistoryScreen {
             // An empty line still emits its single blank row, so hard
             // breaks (including blank lines) survive the round trip.
             if !row.is_empty() || rows.len() == first {
-                flush(&mut row, &mut rows);
+                flush(&mut row, &mut rows, &mut blank_pool);
             }
             rows[first].1 = false;
-            line_spans.push((first, line.cells.len()));
+            line_spans.push((first, line_len));
         }
         // ── 4. Overflow trim from the front (row-granular). ──
         let cap = self.scrollback_lines;
@@ -598,17 +642,31 @@ impl HistoryScreen {
         }
         // ── 5. Repack: last `lines` rows visible, rest to history. ──
         let total = rows.len();
+        let blank_pool_limit = total.saturating_mul(columns);
         let vis_start = total.saturating_sub(lines);
-        let old_hist = self.history.len();
-        self.history = rows[..vis_start].iter().map(|(c, _)| c.clone()).collect();
-        self.history_wrapped = rows[..vis_start].iter().map(|(_, w)| *w).collect();
+        // Move row owners into the two destinations; cloning here was the
+        // last full-screen copy in the reflow path.
+        let mut kept = rows.into_iter().skip(overflow);
+        self.history = Vec::with_capacity(vis_start);
+        self.history_wrapped = Vec::with_capacity(vis_start);
+        for (cells, wrapped) in kept.by_ref().take(vis_start) {
+            self.history.push(cells);
+            self.history_wrapped.push(wrapped);
+        }
         self.trim_history();
-        let mut new_buffer: Vec<Vec<Char>> =
-            rows[vis_start..].iter().map(|(c, _)| c.clone()).collect();
-        let mut new_wrapped: Vec<bool> = rows[vis_start..].iter().map(|(_, w)| *w).collect();
+        let mut new_buffer: Vec<Vec<Char>> = Vec::with_capacity(lines);
+        let mut new_wrapped: Vec<bool> = Vec::with_capacity(lines);
+        for (cells, wrapped) in kept {
+            new_buffer.push(cells);
+            new_wrapped.push(wrapped);
+        }
         // Short screens pad at the bottom, like the row-count grow path.
         while new_buffer.len() < lines {
-            new_buffer.push(vec![Char::blank(); columns]);
+            let mut row = Vec::with_capacity(columns);
+            while row.len() < columns {
+                row.push(take_blank(&mut blank_pool));
+            }
+            new_buffer.push(row);
             new_wrapped.push(false);
         }
         self.inner.buffer = new_buffer;
@@ -637,6 +695,8 @@ impl HistoryScreen {
             .saturating_sub(vis_start)
             .min(lines.saturating_sub(1));
         self.inner.cursor.x = new_col.min(columns.saturating_sub(1));
+        blank_pool.extend(reclaimed_blanks);
+        self.inner.recycle_blank_cells(blank_pool, blank_pool_limit);
     }
     pub fn set_title(&mut self, title: &str) {
         self.inner.set_title(title);
@@ -774,14 +834,22 @@ impl HistoryScreen {
     }
 
     /// Feed raw bytes into the terminal state machine.
+    ///
+    /// Scrollback is collected every `SCROLL_COLLECT_CHUNK` bytes instead of
+    /// only at the end of the call. That lets capped histories return evicted
+    /// rows to the screen's blank-row pool during a large burst, rather than
+    /// allocating fresh cells for every line until the final collection.
     pub fn feed(&mut self, data: &[u8]) {
+        #[cfg(feature = "bench-profile")]
+        let feed_start = screen_profile::begin();
         // Reuse one parser for the lifetime of the screen; replacing it here
         // would discard a partial CSI/OSC/DCS/UTF-8 sequence at a chunk edge.
-        self.parser.feed(&mut self.inner, data);
-        // Capture any lines that scrolled off the top during this feed into the
-        // scrollback history. (The parser drives the inner Screen directly, so
-        // its scroll-up evicts into Screen::scrolled_off for us to collect.)
-        self.collect_scrollback();
+        for part in data.chunks(SCROLL_COLLECT_CHUNK) {
+            self.parser.feed(&mut self.inner, part);
+            self.collect_scrollback();
+        }
+        #[cfg(feature = "bench-profile")]
+        screen_profile::record(&screen_profile::FEED_NS, feed_start);
     }
 }
 
@@ -809,6 +877,22 @@ mod tests {
             hs.take_events(),
             [crate::terminal::events::TermEvent::ScrollbackGrew(3)]
         );
+    }
+
+    #[test]
+    fn trimmed_history_rows_are_recycled_for_later_scrolls() {
+        let mut hs = make_history(4, 2, 1);
+        hs.feed(b"1\r\n2\r\n3\r\n4\r\n");
+
+        assert!(
+            !hs.inner.blank_rows.is_empty(),
+            "evicted history rows should be kept as blank-row pool"
+        );
+        assert_eq!(hs.buffer().len(), 2);
+        assert!(hs.visible_display()[0].starts_with('4'));
+        for row in hs.buffer() {
+            assert_eq!(row.len(), 4);
+        }
     }
 
     #[test]

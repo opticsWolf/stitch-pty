@@ -147,12 +147,7 @@ impl<'a> Perform for Performer<'a> {
     }
 
     fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
-        let params_vec: Vec<u16> = params
-            .subparams
-            .iter()
-            .flat_map(|sp| sp.iter().copied())
-            .collect();
-        self.screen.csi_dispatch(&params_vec, intermediates, action);
+        self.screen.csi_dispatch(params.flat(), intermediates, action);
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {

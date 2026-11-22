@@ -1,0 +1,15 @@
+[package]
+name = "stitch-pty-parser-bench"
+description = "Parser-only throughput harness for stitch-pty"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "stitch-pty-parser-bench"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+stitch-pty = { path = "..", features = ["bench-profile"] }
+vte = "0.15"

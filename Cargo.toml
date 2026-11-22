@@ -19,6 +19,8 @@ name = "stitch_pty"
 default = []
 python = ["dep:pyo3", "dep:pyo3-async-runtimes"]
 regex = ["dep:regex"]
+# Opt-in timing counters for parser ground-state phases (benchmark only).
+bench-profile = []
 
 [dependencies]
 # PyO3 bindings for Python

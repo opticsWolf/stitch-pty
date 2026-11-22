@@ -181,6 +181,60 @@ Collect allocator counts and allocated bytes in a separate instrumented run
 and a CPU sampling profile for the slowest workloads. Profiling and allocation
 instrumentation can perturb the throughput numbers.
 
+### Progress
+
+The native-parser lane is implemented in `benchmark/` with the four payload
+families above, three feed sizes, alternating native/vte samples, and a
+split-record parity gate. The gate caught a native UTF-8 split-boundary bug:
+multi-byte feeds that ended inside a code point lost following characters.
+`ansi_parser.rs` now completes one code point at a time, leaves invalid
+continuation bytes for the main loop, and has a regression test covering
+whole-stream, byte-at-a-time, and chunked feeds. The external `vte` candidate
+still shows the same split-boundary mismatch; it is reported as a candidate
+note rather than failing the native lane.
+
+Allocator instrumentation is built into the benchmark's global allocator and
+reported as allocations/bytes per MiB parsed. It shows **0 allocations** for
+native and vte parser-only lanes. The earlier CSI slowness came from
+`Params` being `Vec<Vec<u16>>`, which allocated per parameter; it is now a
+fixed-capacity array with group offsets, and `Parser` passes `Params::flat()`
+directly to `Screen::csi_dispatch`. CSI p50 rose from ~120 MB/s to ~280–340
+MB/s while vte stayed ~340–420 MB/s.
+
+An opt-in `bench-profile` feature times the native ground-state phases. On a
+single instrumented ASCII pass it attributes ~75% of measured phase time to
+`ground_dispatch`, ~23% to the ESC scan, and ~2% to `from_utf8`. These are
+indicative percentages from an instrumented pass, not a CPU sampler, and the
+remaining gap to vte is still unattributed.
+
+The same `bench-profile` feature now times `HistoryScreen::feed`. On a
+single numbered-ASCII pass it attributes ~86% of measured phase time to
+`Screen::scroll_up`, almost all of that to blank-row erase, ~0.5% to
+scrollback collection, and ~14% to drawing/other work. Direct screen lanes
+for draw, scroll, erase, resize, and projection live in `benchmark/` and are
+reported as `screen_results`.
+
+Following that profile, `Screen::scroll_down` and both
+`HistoryScreen::scroll_*_with_history` methods now rotate row owners and erase
+only the moved rows instead of allocating and cloning blank rows. Capped
+scrollback returns evicted rows to a bounded `blank_rows` pool, and
+`HistoryScreen::feed` collects scrollback every 2 KiB so the pool is reused
+during a large burst rather than only at its end. In the direct lanes, an
+80x24 screen with cap 100 dropped from ~3.37M to ~0.50M allocations per MiB
+and rose from ~5 MB/s to ~19–21 MB/s. Larger caps are unchanged because their
+histories do not evict within a 64 KiB payload, which is the expected result.
+`reflow` now takes ownership of source rows instead of cloning the whole
+screen three times. `resize_reflow` now runs eight alternating 80->60->80 cycles per sample to
+measure steady state. It rose from ~13.6 to ~86–110 ops/s. Allocations fell
+from ~26M per MiB fed in the original three-clone reflow to ~24.5k per
+resize. The gains came from moving row owners instead of cloning the screen,
+then recycling trimmed and continuation blank cells into a `blank_cells` pool
+used for padding; the pool limit had to be raised to `rows * columns` to keep
+enough blanks during a full reflow. Remaining allocations are content cells
+(`String` per glyph/color), so further reduction needs a cell representation
+change rather than another reuse pool. Allocation fields are now reported as
+`allocations` / `allocated_bytes` with an explicit unit per lane.
+
 ### Next ablations
 
 - Compare a bounded pool of evicted primary rows against per-scroll allocation.
