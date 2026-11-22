@@ -5,7 +5,73 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each version has one version commit (implementation + bump/changelog);
 follow-up fixes and docs may precede the release tag (see `docs/RELEASING.md`).
 
-## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.16.0...HEAD)
+## [Unreleased](https://github.com/opticsWolf/stitch-pty/compare/v0.17.0...HEAD)
+
+## [0.17.0 — Performance and API hardening](https://github.com/opticsWolf/stitch-pty/compare/v0.16.0...v0.17.0)
+
+### Highlights
+
+- **Parser throughput:** the native CSI lane improved from roughly **120 MB/s
+to ~290–310 MB/s** after CSI parameters moved from `Vec<Vec<u16>>` to fixed
+  arrays. Native ASCII now runs around **1.0 GB/s**, Unicode around
+  **0.7 GB/s**, and all native parser lanes report **0 allocations per MiB**
+  on the benchmark host (Windows x86_64, release, 32 CPUs).
+- **Screen and reflow:** blank-cell/blank-row pools and in-place row rotation
+  raised `resize_reflow` from about **13.6 ops/s** to **86–110 ops/s** and cut
+  per-resize allocations from millions to about **24.5k**. Full-display erase
+  dropped from ~7.3 ns/cell to ~4.8 ns/cell; a 64 KiB cursor payload now
+  erases ~286k cells instead of ~2.38M, taking raw cursor throughput from
+  ~2.38 MB/s to **22–29 MB/s**.
+- **Same-session A/B check:** against the pre-review tree, Unicode parser
+  throughput improved **+6–7%**, mixed-width draw **+5.7%**, alternate-screen
+  scroll **+5.9%**, style-range projection **+7.3%**, while ASCII, images,
+  erase, and scroll lanes were neutral or improved. Native CSI drifted within
+  the -4% noise band in that A/B set; it remains far above 0.16.0.
+
+These are headless benchmark numbers from the checked-in harness, not
+cross-project latency claims. See `benchmark/README.md` and
+`benchmark/results/parser.json` for host, profile, parameters, raw samples,
+and correctness gates.
+
+### Added
+- `PtyFailure`, `TypedPtyResult`, and canonical helpers (`kind`, `backtrace`,
+  `is_eof`, `is_timeout`, `is_closed`, `with_source`). `PtyErrorKind` and the
+  Python exception mapping remain unchanged.
+- `Path`-based Rust spawn APIs: `PtySession::spawn_path`,
+  `spawn_path_with_env`, and the matching `TerminalSession` constructors.
+  Program and cwd paths preserve non-UTF-8 bytes on Unix and use UTF-16 on
+  Windows.
+- `spawn_platform_os` for callers that already hold `OsStr` paths.
+- A headless `benchmark/` crate with parser, screen, resize, erase, cursor,
+  and projection lanes, phase profiles, allocator counters, and correctness
+  gates.
+- `Debug` implementations for public reader/writer handles, parser/stream
+  types, screen/history types, and platform backends.
+- `docs/REVIEW_REMEDIATION_PLAN.md` recording the guideline-driven review and
+  its validation evidence.
+
+### Changed
+- **Migration:** `ansi_parser::Params::iter()` now yields `&[u16]` instead of
+  `&Vec<u16>`; the backing storage is fixed-size, so no parser CSI path
+  allocates. Callers that name the item type explicitly must update it.
+- Consecutive width-two glyphs advance the cursor by two cells and pre-wrap
+  before a glyph would span the right margin. At the bottom-right corner the
+  glyph is reanchored to the final cells instead of overflowing the screen.
+- Windows child and thread handles now use refcounted ownership, so cloned
+  `ChildKiller` values no longer close the same handle more than once.
+- `styled_viewport()` delegates to a capacity-aware `styled_range()`; the
+  latter pre-sizes row and cell vectors.
+- Unused direct dependencies (`tokio-util`, `tracing`, `unicode-segmentation`)
+  were removed. The default build remains PyO3-free.
+
+### Fixed
+- Consecutive wide-character placement and wrapping (previously documented as
+  an open correctness issue).
+- Windows cloned-killer double-close risk.
+- Production panic sites now use typed errors or contextual `expect` messages.
+- CI runs clippy with and without `--all-features`; formatting and lint drift
+  are caught before release.
+- Unsafe code now carries `SAFETY` rationale at each site.
 
 ## [0.16.0 ? Streaming terminal integration](https://github.com/opticsWolf/stitch-pty/compare/v0.15.0...v0.16.0)
 

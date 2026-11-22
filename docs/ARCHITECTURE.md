@@ -1,6 +1,6 @@
 # stitch-pty Architecture
 
-Applies to stitch-pty 0.16.0.
+Applies to stitch-pty 0.17.0.
 
 ## Design Goals
 
@@ -20,18 +20,18 @@ src/
 ├── python_api.rs             # PyO3 bindings: PtyMaster, PtyChild, PtySession (gated)
 ├── terminal_api.rs           # PyO3 bindings: TerminalState (gated)
 ├── winsize.rs                # Winsize struct (PyO3 traits gated)
-├── errors.rs                 # PtyErrorKind enum + Python exception mapping (gated)
+├── errors.rs                 # PtyErrorKind enum, PtyFailure struct, Python mapping (gated)
 ├── async_io.rs               # read_timeout() helper (tokio AsyncFd / named pipes)
 ├── platform.rs               # Platform abstraction traits + dispatch
 │   ├── PtyBackend, ChildBackend, ChildKiller traits
 │   ├── ExitStatus struct
-│   ├── spawn_platform(), open_pty_platform() dispatch
+│   ├── spawn_platform(), spawn_platform_os(), open_pty_platform() dispatch
 ├── platform_unix.rs          # POSIX implementation (Linux, macOS, *BSD)
 │   ├── UnixPtyMaster, UnixChildProcess
 │   ├── PtyPair, close_random_fds()
 │   ├── fork/setsid/TIOCSCTTY/dup2/execvpe
 ├── platform_windows.rs       # Windows ConPTY implementation
-│   ├── WinPtyBackend, WinChildProcess, SendSyncHandle
+│   ├── WinPtyBackend, WinChildProcess, SendSyncHandle, SharedHandle
 │   ├── NamedPipeServer connect() + ConPTY
 │   ├── ArgvQuote algorithm + SafeAttributeList
 ├── session.rs                # High-level Rust PtySession (no PyO3 required)
@@ -90,6 +90,11 @@ pub trait ChildKiller: Send + Sync {
 
 The Python API works with `Box<dyn PtyBackend>` / `Box<dyn ChildBackend>`,
 so the same Python code runs on all platforms without changes.
+
+**Path-aware spawn.** `spawn_platform` keeps the original `&str` API and
+delegates to `spawn_platform_os(program: &OsStr, ..., cwd: Option<&OsStr>)`,
+which preserves non-UTF-8 paths. `PtySession::spawn_path` and
+`TerminalSession::spawn_path` are the typed Rust entry points.
 
 **Raw-handle contract.** `raw_handle()` is platform-gated on purpose: Unix
 returns a borrowed `RawFd`, Windows returns a borrowed `HPCON` (`*mut c_void`).
@@ -197,8 +202,13 @@ let _ = input_server.write_all(b"\x1b[1;1R").await;  // DSR cursor position
 ```
 This answers conhost's startup query so it begins relaying child output.
 
-**SendSyncHandle:** Wrapper around `HANDLE` implementing `Send + Sync` + `Clone`,
-allowing Windows non-Send types to live across `.await` points.
+**Handle wrappers:** `SendSyncHandle` is a non-owning `HANDLE` wrapper that
+implements `Send + Sync` so raw handles can cross `.await` points. Ownership is
+explicit: process/thread handles use `SharedHandle(Arc<HandleOwner>)` so
+`clone_killer()` shares one owner and the raw handle is closed exactly once.
+ConPTY state is closed through `ClosePseudoConsole` and temporary pipe client
+handles are closed by their callers. Every `unsafe` block carries a `SAFETY`
+rationale.
 
 ## Rust Session Layer (`session.rs`)
 
@@ -371,7 +381,10 @@ scroll margins, and dirty tracking. Supports:
 - **Character sets**: G0/G1 with DEC Special line drawing
 - **Scroll region**: configurable top/bottom margins
 - **Kitty Keyboard Protocol**: per-screen push/pop/query and `CSI = flags ; mode` replace/union/difference
-- **Unicode**: width-1 and width-2 characters, combining marks, CJK, emoji
+- **Unicode**: width-1 and width-2 characters, combining marks, CJK, emoji.
+  Width-two glyphs advance the cursor by two cells and pre-wrap before
+  crossing the right margin; the bottom-right corner reanchors the glyph to
+  the final cells instead of overflowing.
 - **Shell cwd**: OSC 7 (`file://host/path`) / OSC 9;9 raw-path tracking
   (`terminal/cwd.rs`), surviving alt-screen switches and RIS
 - **Background color erase**: `Screen::erase_cell()` funnels every erase /
@@ -396,6 +409,7 @@ pub struct Char {
     pub fg: String,        // "default", ANSI name, or 6-hex RGB
     pub bg: String,        // Same format as fg
     pub bold, dim, italics, underscore, blink, reverse, hidden, strikethrough: bool
+    pub hyperlink: Option<Arc<str>>,  // OSC 8 URI when tracking is enabled
 }
 ```
 
@@ -575,10 +589,13 @@ WinPtyBackend (owns HPCON + NamedPipeServer handles)
 
 ### Send-Safe Windows Types
 
-`SendSyncHandle` wraps `HANDLE` with `Send + Sync + Clone`, allowing Windows
-non-Send types to cross `.await` boundaries. All non-Send locals (conpty,
-`STARTUPINFOEXW`, `PROCESS_INFORMATION`, attribute list) are scoped to a block
-that ends before the first `.await` after `CreateProcessW`.
+`SendSyncHandle` is the non-owning `Send + Sync` wrapper for raw `HANDLE`
+values; `SharedHandle(Arc<HandleOwner>)` adds reference-counted ownership for
+process/thread handles exposed through `ChildKiller::clone_killer()`. This
+prevents double-close when a cloned killer outlives the original child handle.
+All non-Send locals (`conpty`, `STARTUPINFOEXW`, `PROCESS_INFORMATION`,
+attribute list) are scoped to a block that ends before the first `.await` after
+`CreateProcessW`.
 
 ## Error Propagation
 
@@ -590,6 +607,8 @@ nix::Error / windows::core::Error
     │
     ▼
 PtyErrorKind (thiserror enum)
+    ├── PtyFailure: kind + source + backtrace + helper predicates
+    │   └── TypedPtyResult<T> = Result<T, PtyFailure>
     │
     ▼
 IntoPy<PyErr> (match on variant)
@@ -703,6 +722,32 @@ returning `ExitStatus | None`.
 | `total_lines()` | Total lines = history + visible |
 | `absolute_cursor()` | `(x, history_len + on_screen_y)` |
 
+## Performance
+
+0.17.0 includes a headless benchmark crate under `benchmark/` with parser,
+screen, resize, erase, cursor, and projection lanes. It reports p50/p95,
+raw samples, allocation counters, host/profile metadata, and correctness gates.
+The host in the checked-in report is Windows x86_64, release, 32 CPUs.
+
+Representative results relative to the 0.16.0 release line:
+
+| Area | Result |
+|------|--------|
+| Native parser allocations | 0 allocations per MiB |
+| Native ASCII parser | ~1.0 GB/s |
+| Native Unicode parser | ~0.7 GB/s; +6–7% A/B vs pre-review tree |
+| Native CSI parser | ~0.3 GB/s, roughly 2.5× the 0.16.0 lane |
+| `resize_reflow` | ~13.6 → 86–110 ops/s; ~24.5k allocations per resize |
+| Full-display erase | ~7.3 → ~4.8 ns/cell |
+| Cursor erase workload | ~2.38M → ~286k cells per 64 KiB payload |
+| Raw cursor throughput | ~2.38 → 22–29 MB/s |
+| Mixed-width draw / alt-screen scroll | +5.7% / +5.9% A/B |
+| `styled_range` projection | +7.3% A/B |
+
+A/B numbers are medians from 18 balanced 30-sample reports per side. Native
+CSI drifted -3.9% to -4.5% in the review-remediation A/B, inside the noise
+band. These are throughput measurements, not renderer latency claims.
+
 ## Testing Strategy
 
 Tests use `pytest.mark.skipif` to skip platform-incompatible tests:
@@ -719,6 +764,9 @@ CI runs full test suites on:
 - `ubuntu-latest` (POSIX path)
 - `macos-latest` (POSIX path)
 - `windows-latest` (ConPTY path)
+
+Lint gates run clippy with and without `--all-features`; the benchmark crate
+reports correctness failures separately from timing samples.
 
 ## Deployment Pipeline
 

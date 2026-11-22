@@ -29,11 +29,36 @@ binding layer.
 | No zombie processes | ✅ Unix reaper + Windows exit watcher | ⚠️ Manual | ⚠️ Manual |
 | Type-safe Python API | ✅ Full mypy support | ✅ | ✅ |
 
+## Performance highlights
+
+stitch-pty 0.17.0 ships the headless benchmark suite under `benchmark/`. On the
+checked-in Windows x86_64 release host (32 CPUs):
+
+- Native parser lanes run with **0 allocations per MiB**: ASCII ~1.0 GB/s,
+  Unicode ~0.7 GB/s, CSI ~0.3 GB/s.
+- CSI parsing is roughly **2.5× faster than 0.16.0** after switching to fixed
+  parameter arrays.
+- `resize_reflow` improved from ~13.6 ops/s to **86–110 ops/s**, with per-resize
+  allocations reduced from millions to ~24.5k.
+- Default-blank erase short-circuits and blank-row tracking cut a 64 KiB cursor
+  workload from ~2.38M erased cells to ~286k, raising raw cursor throughput to
+  **22–29 MB/s**.
+- In a same-session A/B check, Unicode parsing improved **+6–7%**, mixed-width
+  draw **+5.7%**, alternate-screen scroll **+5.9%**, and style-range projection
+  **+7.3%**; ASCII, images, erase, and scroll lanes were neutral or improved.
+
+These are parser/screen throughput numbers from a controlled headless harness,
+not renderer or keyboard-to-pixel latency claims. See
+[`benchmark/README.md`](benchmark/README.md) and
+[`benchmark/results/parser.json`](benchmark/results/parser.json) for host,
+profile, parameters, raw samples, and correctness gates.
+
 ---
 
 ## Table of Contents
 
 - [Why stitch-pty?](#why-stitch-pty)
+- [Performance highlights](#performance-highlights)
 - [Table of Contents](#table-of-contents)
 - [Quick Start](#quick-start)
 - [Rust API](#rust-api)
@@ -152,6 +177,17 @@ external `vt100` emulator crate. `open_pty_platform` is master-only (Unix
 closes the slave; Windows has no attached child); use `spawn_platform` for the
 native spawn path or implement `PtyBackend` and call `from_parts`.
 
+Rust callers who already hold paths should prefer `PtySession::spawn_path`
+and `spawn_path_with_env` (or the `TerminalSession` equivalents). They accept
+`impl AsRef<Path>` and preserve non-UTF-8 program/cwd bytes on Unix; the older
+`&str` constructors remain as compatibility wrappers. `spawn_platform_os` is
+the matching lower-level entry point for `OsStr` paths.
+
+Rust errors now also have an additive canonical form: `PtyFailure` carries a
+`PtyErrorKind`, optional source, and backtrace, with `is_eof`, `is_timeout`,
+`is_closed`, and `TypedPtyResult`. The existing `PtyResult`, `PtyErrorKind`,
+and Python exception contract are unchanged.
+
 If you want the PTY and one screen in a single type, `TerminalSession` owns a
 `PtySession` + `HistoryScreen`: reads feed the screen once, and resize updates
 both (including reflow). `PtySession` remains transport-only, so a multiplexer
@@ -185,7 +221,7 @@ each read, so matches span chunks without requiring UTF-8 or line boundaries;
 timeout/EOF errors carry the bytes read so far. Enable regex with:
 
 ```toml
-stitch-pty = { version = "0.16.0", features = ["regex"] }
+stitch-pty = { version = "0.17.0", features = ["regex"] }
 ```
 
 `PtySession::spawn` inherits the parent environment. `spawn_with_env` takes
@@ -507,6 +543,9 @@ ws = Winsize(50, 120, 0, 0)
 | `PtyError` | `Exception` | PTY open/operation failures, platform errors, **read timeouts** |
 | `ProcessError` | `PtyError` | Spawn/kill failures, process not running |
 | `IOError` | `PtyError` | I/O errors, winsize failures |
+
+Rust note: the additive `PtyFailure` type wraps a `PtyErrorKind` with an
+optional upstream cause and a backtrace; see the Rust API section above.
 
 EOF note: on Unix, after the child exits, `read()`/`read_timeout()` return
 `b""` instead of raising; natively the condition is `PtyErrorKind::Eof`,
@@ -844,7 +883,7 @@ To use `stitch-pty` in a Rust project, add it to your `Cargo.toml`. The Python b
 
 ```toml
 [dependencies]
-stitch-pty = "0.16.0"
+stitch-pty = "0.17.0"
 ```
 
 To build and test the pure Rust code locally:

@@ -1,6 +1,6 @@
 # stitch-pty Quick Reference
 
-> Release: **0.16.0**.
+> Release: **0.17.0**.
 
 ## Installation
 
@@ -198,7 +198,9 @@ exit within `timeout` seconds.
 These are the native exception classes registered by the Rust core and
 re-exported from `stitch_pty`, so `except stitch_pty.IOError` / `ProcessError`
 matches errors raised from native code. (Note: `stitch_pty.IOError` shadows the
-builtin `IOError`/`OSError` within this namespace.)
+builtin `IOError`/`OSError` within this namespace.) Rust callers can use the
+additive `PtyFailure` canonical struct described above; Python behavior is
+unchanged.
 
 **EOF:** on Unix, once the child exits, `read()`/`read_timeout()` return
 `b""` (never raise). Natively this is `PtyErrorKind::Eof`, surfaced as an
@@ -244,6 +246,37 @@ coordinates. Enable `set_hyperlink_tracking(true)` to include OSC 8 URIs in
 the raw cells returned by `row_cells`. Construct Rust `Char` values with
 `Char::new`, `Char::blank`, or a default initializer to accommodate the
 new hyperlink field.
+
+## Rust path and error APIs (0.17.0)
+
+- `PtySession::spawn_path` / `spawn_path_with_env` and the matching
+  `TerminalSession` constructors accept `impl AsRef<Path>` and preserve
+  non-UTF-8 paths on Unix. The `&str` constructors still work.
+- `spawn_platform_os` is the lower-level `OsStr` entry point.
+- `PtyFailure` is the additive canonical error struct: `kind()`,
+  `backtrace()`, `is_eof()`, `is_timeout()`, `is_closed()`, and
+  `with_source()`. `TypedPtyResult<T>` is the matching result alias.
+- `PtyErrorKind`, `PtyResult`, and the Python `kind == "eof"` contract are
+  unchanged.
+
+## Performance highlights (0.17.0)
+
+Headless benchmark host: Windows x86_64, release, 32 CPUs.
+
+| Lane | Result |
+|------|--------|
+| Native parser allocations | 0 allocations per MiB |
+| Native ASCII parser | ~1.0 GB/s |
+| Native Unicode parser | ~0.7 GB/s; +6–7% A/B vs pre-review tree |
+| Native CSI parser | ~0.3 GB/s, ~2.5× vs 0.16.0 |
+| `resize_reflow` | ~13.6 → 86–110 ops/s; ~24.5k allocs/resize |
+| Cursor erase workload | 2.38M → ~286k erased cells per 64 KiB |
+| Mixed-width draw | +5.7% A/B |
+| Alternate-screen scroll | +5.9% A/B |
+| `styled_range` projection | +7.3% A/B |
+
+See `benchmark/results/parser.json` for raw samples and correctness gates.
+These are throughput measurements, not renderer latency claims.
 
 ## Terminal Emulation (pyte_rs)
 
