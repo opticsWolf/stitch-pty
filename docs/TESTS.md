@@ -239,9 +239,11 @@ change rather than another reuse pool. Allocation fields are now reported as
 ED2, cursor move, short print, EL0). ED2 is ~88% of feed time, EL ~4%, cursor
 movement <1%, with ~2.38M cells erased per 64 KiB. `Char::erase_with` now
 returns immediately when both the cell and the target attributes are already
-default blank, cutting erase cost from ~7.3 ns/cell to ~4.8 ns/cell. The
-local-linked stitch-mux `raw_pty_cursor_mb_s` lane rose from ~2.38 to ~4.39
-MB/s. ED2 still dominates; row-level blank tracking is the next target.
+default blank, cutting erase cost from ~7.3 ns/cell to ~4.8 ns/cell. Row-level
+`row_blank` flags then let ED2 skip entirely blank rows, dropping erased cells
+from ~2.38M to ~286k per 64 KiB. The local-linked stitch-mux
+`raw_pty_cursor_mb_s` lane rose from ~2.38 to ~22–25 MB/s. ED2 share fell from
+~88% to ~44%; EL is now the largest remaining erase component.
 
 ### Next ablations
 

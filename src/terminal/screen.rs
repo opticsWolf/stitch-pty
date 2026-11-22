@@ -271,6 +271,10 @@ pub struct Screen {
     /// cells doesn't change the wrap structure. v0.9.0 reflow consumes
     /// these; v0.8.2 only records them (no behavior change).
     pub wrapped: Vec<bool>,
+    /// True only when the whole visible row is known to be default blank.
+    /// False negatives are fine; false positives would let ED2 skip real
+    /// content. Every cell mutation invalidates the flag.
+    pub(crate) row_blank: Vec<bool>,
     pub cursor: Cursor,
     pub default_char: Char,
     pub mode: Modes,
@@ -338,6 +342,7 @@ impl Screen {
         let default_char = Char::blank();
         let buffer = vec![vec![default_char.clone(); columns]; lines];
         let wrapped = vec![false; lines];
+        let row_blank = vec![true; lines];
         let mut tabstops = HashSet::new();
         for col in (8..columns).step_by(8) {
             tabstops.insert(col);
@@ -348,6 +353,7 @@ impl Screen {
             lines,
             buffer,
             wrapped,
+            row_blank,
             cursor: Cursor::default(),
             default_char,
             mode,
@@ -430,6 +436,16 @@ impl Screen {
         }
     }
 
+    pub(crate) fn invalidate_row(&mut self, row: usize) {
+        if let Some(flag) = self.row_blank.get_mut(row) {
+            *flag = false;
+        }
+    }
+
+    pub(crate) fn invalidate_all_rows(&mut self) {
+        self.row_blank.fill(false);
+    }
+
     pub(crate) fn init_tabstops(&mut self) {
         self.tabstops.clear();
         for col in (8..self.columns).step_by(8) {
@@ -484,6 +500,7 @@ impl Screen {
             }
             *w = false;
         }
+        self.row_blank.fill(true);
         self.mark_all_dirty();
     }
 
@@ -518,6 +535,7 @@ impl Screen {
         while rows.len() < lines {
             rows.push((vec![self.default_char.clone(); columns], false));
         }
+        self.row_blank = vec![false; lines];
         let (buf, wrap): (Vec<Vec<Char>>, Vec<bool>) = rows.into_iter().unzip();
         self.buffer = buf;
         self.wrapped = wrap;
@@ -676,6 +694,7 @@ impl Screen {
             &mut self.wrapped,
             vec![false; self.lines],
         ));
+        self.row_blank.fill(false);
         // Keyboard modes are per-screen: park the primary state and activate
         // the alternate screen's independent stack.
         self.saved_keyboard_mode = self.keyboard_mode;
@@ -697,6 +716,7 @@ impl Screen {
             let saved_w = self.saved_wrapped.take().unwrap_or_default();
             self.buffer = Self::conform_buffer(buf, self.lines, self.columns, &self.default_char);
             self.wrapped = Self::conform_wrapped(saved_w, self.lines);
+            self.row_blank.fill(false);
         }
         // Park the alternate-screen keyboard state and restore the primary's.
         self.alt_keyboard_mode = self.keyboard_mode;
@@ -765,6 +785,7 @@ impl Screen {
                 ch.reverse = reverse;
             }
         }
+        self.invalidate_all_rows();
     }
 
     /// Blank cell for erase/insert operations — background color erase (BCE).
@@ -941,6 +962,7 @@ impl Screen {
         let width = ch.width().unwrap_or(1);
         if width == 0 {
             if self.cursor.x > 0 && self.cursor.y < self.lines {
+                self.invalidate_row(self.cursor.y);
                 let cell = &mut self.buffer[self.cursor.y][self.cursor.x - 1];
                 cell.data.push(ch);
             }
@@ -977,6 +999,7 @@ impl Screen {
             self.insert_characters(1);
         }
         if self.cursor.x < self.columns && self.cursor.y < self.lines {
+            self.invalidate_row(self.cursor.y);
             #[cfg(feature = "bench-profile")]
             screen_profile::add(&screen_profile::DRAW_CELLS, 1);
             let cell = &mut self.buffer[self.cursor.y][self.cursor.x];
@@ -1003,6 +1026,7 @@ impl Screen {
 
     // ── Erase / Delete ──────────────────────────────────────────
     pub fn erase_characters(&mut self, count: usize) {
+        self.invalidate_row(self.cursor.y);
         let count = count.max(1);
         let x = self.cursor.x;
         let y = self.cursor.y;
@@ -1014,6 +1038,7 @@ impl Screen {
         self.dirty.insert(y);
     }
     pub fn delete_characters(&mut self, count: usize) {
+        self.invalidate_row(self.cursor.y);
         let count = count.max(1);
         let x = self.cursor.x;
         let end = (x + count).min(self.columns);
@@ -1027,6 +1052,7 @@ impl Screen {
         self.dirty.insert(self.cursor.y);
     }
     pub fn insert_characters(&mut self, count: usize) {
+        self.invalidate_row(self.cursor.y);
         let count = count.max(1);
         let x = self.cursor.x;
         for i in (x..self.columns.saturating_sub(count)).rev() {
@@ -1039,6 +1065,7 @@ impl Screen {
         self.dirty.insert(self.cursor.y);
     }
     pub fn erase_in_line(&mut self, mode: usize) {
+        self.invalidate_row(self.cursor.y);
         #[cfg(feature = "bench-profile")]
         let erase_start = screen_profile::begin();
         let attrs = &self.cursor.attrs;
@@ -1098,12 +1125,18 @@ impl Screen {
                 for i in self.cursor.x..self.columns {
                     self.buffer[self.cursor.y][i].erase_with(attrs);
                 }
+                if let Some(flag) = self.row_blank.get_mut(self.cursor.y) {
+                    *flag = false;
+                }
                 self.dirty.insert(self.cursor.y);
                 for y in (self.cursor.y + 1)..=bottom {
                     for x in 0..self.columns {
                         self.buffer[y][x].erase_with(attrs);
                     }
                     self.wrapped[y] = false;
+                    if let Some(flag) = self.row_blank.get_mut(y) {
+                        *flag = false;
+                    }
                     self.dirty.insert(y);
                 }
             }
@@ -1119,6 +1152,9 @@ impl Screen {
                         self.buffer[y][x].erase_with(attrs);
                     }
                     self.wrapped[y] = false;
+                    if let Some(flag) = self.row_blank.get_mut(y) {
+                        *flag = false;
+                    }
                     self.dirty.insert(y);
                 }
                 for i in 0..=self.cursor.x.min(self.columns - 1) {
@@ -1127,17 +1163,20 @@ impl Screen {
                 self.dirty.insert(self.cursor.y);
             }
             2 | 3 => {
-                #[cfg(feature = "bench-profile")]
-                screen_profile::add(
-                    &screen_profile::ERASE_CELLS,
-                    (bottom - top + 1).saturating_mul(self.columns) as u64,
-                );
+                let erase_to_blank = attrs.is_blank();
                 for y in top..=bottom {
+                    if erase_to_blank && self.row_blank[y] {
+                        self.wrapped[y] = false;
+                        continue;
+                    }
                     for x in 0..self.columns {
                         self.buffer[y][x].erase_with(attrs);
                     }
                     self.wrapped[y] = false;
+                    self.row_blank[y] = erase_to_blank;
                     self.dirty.insert(y);
+                    #[cfg(feature = "bench-profile")]
+                    screen_profile::add(&screen_profile::ERASE_CELLS, self.columns as u64);
                 }
             }
             _ => {}
@@ -1182,6 +1221,7 @@ impl Screen {
             }
             self.buffer[bottom] = default_line.clone();
             self.wrapped[bottom] = false;
+            self.row_blank[top..=bottom].fill(false);
             self.dirty.insert(self.cursor.y);
         }
         self.cursor.x = 0;
@@ -1199,6 +1239,7 @@ impl Screen {
         // now occupy the bottom slots in their original order.
         self.buffer[top..=bottom].rotate_left(rows);
         self.wrapped[top..=bottom].rotate_left(rows);
+        self.row_blank[top..=bottom].rotate_left(rows);
         let first_blank = bottom + 1 - rows;
         let to_history = self.margins.is_none() && !self.alt_screen;
         if to_history {
@@ -1223,7 +1264,9 @@ impl Screen {
             // row directly. A recycled row or a fresh row takes the same path.
             Self::conform_and_erase(line, attrs, self.columns);
         }
+        let recycled_blank = attrs.is_blank();
         self.wrapped[first_blank..=bottom].fill(false);
+        self.row_blank[first_blank..=bottom].fill(recycled_blank);
         self.dirty.insert(bottom);
         #[cfg(feature = "bench-profile")]
         {
@@ -1244,11 +1287,14 @@ impl Screen {
         // allocated a blank row and cloned it for every shifted line.
         self.buffer[top..=bottom].rotate_right(rows);
         self.wrapped[top..=bottom].rotate_right(rows);
+        self.row_blank[top..=bottom].rotate_right(rows);
         let attrs = &self.cursor.attrs;
         for line in &mut self.buffer[top..top + rows] {
             Self::conform_and_erase(line, attrs, self.columns);
         }
+        let recycled_blank = attrs.is_blank();
         self.wrapped[top..top + rows].fill(false);
+        self.row_blank[top..top + rows].fill(recycled_blank);
         for y in top..top + rows {
             self.dirty.insert(y);
         }
@@ -1353,6 +1399,7 @@ impl Screen {
             self.wrapped[y] = false;
             self.dirty.insert(y);
         }
+        self.invalidate_all_rows();
         self.cursor.x = 0;
         self.cursor.y = 0;
     }

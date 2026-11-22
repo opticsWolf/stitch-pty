@@ -253,6 +253,7 @@ impl HistoryScreen {
         }
         self.inner.buffer[top..=bottom].rotate_left(rows);
         self.inner.wrapped[top..=bottom].rotate_left(rows);
+        self.inner.row_blank[top..=bottom].rotate_left(rows);
         let attrs = self.inner.cursor.attrs.clone();
         for y in bottom + 1 - rows..=bottom {
             if y < self.inner.buffer.len() {
@@ -262,6 +263,7 @@ impl HistoryScreen {
             }
             Self::refill_row(&mut self.inner.buffer[y], &attrs, self.inner.columns);
             self.inner.wrapped[y] = false;
+            self.inner.row_blank[y] = attrs.is_blank();
             self.inner.dirty.insert(y);
         }
     }
@@ -274,6 +276,7 @@ impl HistoryScreen {
         }
         self.inner.buffer[top..=bottom].rotate_right(rows);
         self.inner.wrapped[top..=bottom].rotate_right(rows);
+        self.inner.row_blank[top..=bottom].rotate_right(rows);
         let attrs = self.inner.cursor.attrs.clone();
         for y in top..top + rows {
             if let Some((line, wrapped)) = self.pop_history() {
@@ -281,9 +284,11 @@ impl HistoryScreen {
                 // resizes conform them), so the flag travels as-is.
                 self.inner.buffer[y] = line;
                 self.inner.wrapped[y] = wrapped;
+                self.inner.row_blank[y] = false;
             } else {
                 Self::refill_row(&mut self.inner.buffer[y], &attrs, self.inner.columns);
                 self.inner.wrapped[y] = false;
+                self.inner.row_blank[y] = attrs.is_blank();
             }
             self.inner.dirty.insert(y);
         }
@@ -671,6 +676,7 @@ impl HistoryScreen {
         }
         self.inner.buffer = new_buffer;
         self.inner.wrapped = new_wrapped;
+        self.inner.row_blank = vec![false; lines];
         self.inner.lines = lines;
         self.inner.columns = columns;
         self.inner.margins = None;
