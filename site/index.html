@@ -60,7 +60,7 @@
             <a class="button button-quiet" href="https://github.com/opticsWolf/stitch-pty">View the source <span aria-hidden="true">↗</span></a>
           </div>
           <div class="hero-meta">
-            <span class="version"><i class="signal" aria-hidden="true"></i> v0.15.0</span>
+            <span class="version"><i class="signal" aria-hidden="true"></i> v0.17.0</span>
             <span>POSIX + ConPTY</span>
             <span>Rust 1.85+</span>
             <span>Python 3.12+</span>
@@ -90,7 +90,7 @@
               <span>asyncio</span>
             </div>
           </div>
-          <p class="terminal-caption">Illustrative session · v0.15.0</p>
+          <p class="terminal-caption">Illustrative session · v0.17.0</p>
         </div>
       </div>
     </section>
@@ -284,8 +284,10 @@
             </div>
 
             <p class="version-note">
-              <strong>0.15.0</strong> brings the Rust <code>TerminalSession</code>,
-              the Kitty key encoder, and byte-oriented <code>expect()</code>.
+              <strong>0.17.0</strong> brings a faster parser/screen core: CSI parsing
+              is roughly 2.5× faster than 0.16.0, native parser lanes allocate
+              zero bytes per MiB, and Rust gains path-aware spawn APIs plus the
+              canonical <code>PtyFailure</code> error struct.
             </p>
 
             <div class="quick-links">
@@ -396,7 +398,7 @@ asyncio.run(main())</code></pre>
         <a href="https://github.com/opticsWolf/stitch-pty/blob/main/CHANGELOG.md">Changelog</a>
         <a href="https://github.com/opticsWolf/stitch-pty/tree/main/docs">Docs</a>
       </nav>
-      <p class="footer-legal">v0.15.0 · MIT OR Apache-2.0<br><span>Built in Rust, bound to Python.</span></p>
+      <p class="footer-legal">v0.17.0 · MIT OR Apache-2.0<br><span>Built in Rust, bound to Python.</span></p>
     </div>
   </footer>
 
