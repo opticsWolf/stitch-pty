@@ -69,6 +69,11 @@ static mut CREATE_PSEUDO_CONSOLE: Option<PfnCreatePseudoConsole> = None;
 static mut RESIZE_PSEUDO_CONSOLE: Option<PfnResizePseudoConsole> = None;
 static mut CLOSE_PSEUDO_CONSOLE: Option<PfnClosePseudoConsole> = None;
 
+/// # Safety
+///
+/// `h_input`, `h_output`, and `ph_pc` must be valid for the duration of the
+/// call. The function pointer is installed once by `load_conpty_api` before any
+/// backend can be created.
 unsafe fn create_pseudoconsole(
     size: COORD,
     h_input: *mut std::ffi::c_void,
@@ -76,6 +81,8 @@ unsafe fn create_pseudoconsole(
     flags: u32,
     ph_pc: *mut HANDLE,
 ) -> i32 {
+    // SAFETY: `load_conpty_api` is the only writer and publishes the pointer
+    // before any ConPTY backend is created.
     if let Some(create_fn) = unsafe { CREATE_PSEUDO_CONSOLE } {
         create_fn(size, h_input, h_output, flags, ph_pc)
     } else {
@@ -86,6 +93,9 @@ unsafe fn create_pseudoconsole(
 static mut CONPTY_LOADED: bool = false;
 
 fn load_conpty_api() -> Result<(), PtyErrorKind> {
+    // SAFETY: all static mutable state here is confined to this process-wide
+    // one-time loader. Pointers are read only after `CONPTY_LOADED` is set and
+    // are never mutated while a backend can call them.
     unsafe {
         if CONPTY_LOADED {
             return Ok(());
@@ -110,7 +120,9 @@ fn load_conpty_api() -> Result<(), PtyErrorKind> {
         CREATE_PSEUDO_CONSOLE = Some(std::mem::transmute::<
             unsafe extern "system" fn() -> isize,
             PfnCreatePseudoConsole,
-        >(create_ptr.unwrap()));
+        >(
+            create_ptr.expect("CreatePseudoConsole pointer was checked above"),
+        ));
 
         let resize_name = b"ResizePseudoConsole\0";
         if let Some(ptr) = windows::Win32::System::LibraryLoader::GetProcAddress(
@@ -195,20 +207,95 @@ fn append_quoted_wide(arg: &OsStr, cmdline: &mut Vec<u16>) {
 // Windows ConPTY Backend
 // ============================================================================
 
+#[cfg(test)]
+static TEST_CLOSE_HANDLE_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+fn close_handle(handle: HANDLE) {
+    #[cfg(test)]
+    {
+        let _ = handle;
+        TEST_CLOSE_HANDLE_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+    #[cfg(not(test))]
+    {
+        // SAFETY: callers pass a handle they own and that has not been closed.
+        unsafe {
+            let _ = CloseHandle(handle);
+        }
+    }
+}
+
+/// Non-owning wrapper that makes a raw Win32 handle cross `.await` points.
+///
+/// Code that constructs this type is responsible for closing the handle exactly
+/// once. Handles that need shared ownership use [`SharedHandle`] instead.
 struct SendSyncHandle(HANDLE);
+
+// SAFETY: `HANDLE` is a process-wide kernel object reference. The wrapper does
+// not dereference the value; ownership and lifetime are enforced by the code
+// that creates and eventually closes it.
 unsafe impl Send for SendSyncHandle {}
+
+// SAFETY: all Win32 handle operations used here are thread-safe and the raw
+// handle value itself is immutable once wrapped.
 unsafe impl Sync for SendSyncHandle {}
+
 impl Clone for SendSyncHandle {
     fn clone(&self) -> Self {
         SendSyncHandle(self.0)
     }
 }
 
+/// Raw handle with reference-counted ownership.
+///
+/// Clones share one owner, so the underlying handle is closed once when the
+/// last clone is dropped. This is used for process and thread handles exposed
+/// through `ChildKiller::clone_killer()`.
+struct HandleOwner(HANDLE);
+
+impl Drop for HandleOwner {
+    fn drop(&mut self) {
+        // `HandleOwner` owns this handle value and is the only place that
+        // closes it. The value came from `CreateProcessW` or `DuplicateHandle`
+        // and remains valid until this drop runs.
+        close_handle(self.0);
+    }
+}
+
+// SAFETY: Win32 handles are process-wide references. Sharing the owning Arc
+// across threads is safe because all operations use the kernel object API and
+// the handle is closed once by `HandleOwner::drop`.
+unsafe impl Send for HandleOwner {}
+// SAFETY: see the `Send` impl above; the handle is immutable while shared.
+unsafe impl Sync for HandleOwner {}
+
+#[derive(Clone)]
+struct SharedHandle(Arc<HandleOwner>);
+
+impl SharedHandle {
+    fn new(handle: HANDLE) -> Self {
+        Self(Arc::new(HandleOwner(handle)))
+    }
+
+    fn as_raw(&self) -> HANDLE {
+        (self.0).0
+    }
+}
+
 pub struct WinChildProcess {
     pid: u32,
-    process_handle: SendSyncHandle,
-    thread_handle: SendSyncHandle,
+    process_handle: SharedHandle,
+    thread_handle: SharedHandle,
     exit: Arc<watch::Sender<Option<u32>>>,
+}
+
+impl std::fmt::Debug for WinChildProcess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WinChildProcess")
+            .field("pid", &self.pid)
+            .field("running", &self.is_running())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Drop for WinChildProcess {
@@ -219,10 +306,8 @@ impl Drop for WinChildProcess {
         if self.is_running() {
             let _ = self.do_kill();
         }
-        unsafe {
-            let _ = CloseHandle(self.process_handle.0);
-            let _ = CloseHandle(self.thread_handle.0);
-        }
+        // The shared owners close the process/thread handles when the last
+        // clone is dropped; no explicit CloseHandle belongs here.
     }
 }
 
@@ -292,7 +377,9 @@ impl WinChildProcess {
         }
 
         let mut code: u32 = 0;
-        let result = unsafe { GetExitCodeProcess(self.process_handle.0, &mut code) };
+        // SAFETY: `process_handle` owns a valid handle for the lifetime of
+        // this object; `code` is a valid out-parameter.
+        let result = unsafe { GetExitCodeProcess(self.process_handle.as_raw(), &mut code) };
         if result.is_ok() && code != 259 {
             self.record_exit(code);
             Some(code)
@@ -306,8 +393,10 @@ impl WinChildProcess {
     }
 
     fn do_kill(&self) -> Result<(), PtyErrorKind> {
+        // SAFETY: `process_handle` owns a valid process handle; terminating a
+        // process through it does not invalidate the handle itself.
         unsafe {
-            TerminateProcess(self.process_handle.0, 1)
+            TerminateProcess(self.process_handle.as_raw(), 1)
                 .map_err(|e| PtyErrorKind::ForkFailed(format!("TerminateProcess failed: {:?}", e)))
         }
     }
@@ -317,8 +406,11 @@ impl WinChildProcess {
 /// code through a `watch` channel. This is the Windows H3 watcher: no polling
 /// in the normal path.
 fn spawn_exit_watcher(process: HANDLE, exit: Arc<watch::Sender<Option<u32>>>) {
+    // SAFETY: `GetCurrentProcess` is always safe and returns a pseudo-handle.
     let current = unsafe { GetCurrentProcess() };
     let mut duplicate = INVALID_HANDLE_VALUE;
+    // SAFETY: `process` is a valid process handle owned by `WinChildProcess`.
+    // The duplicate gets its own `SendSyncHandle` owner in the watcher thread.
     let duplicated = unsafe {
         DuplicateHandle(
             current,
@@ -339,16 +431,18 @@ fn spawn_exit_watcher(process: HANDLE, exit: Arc<watch::Sender<Option<u32>>>) {
 }
 
 fn wait_for_exit(handle: SendSyncHandle, exit: Arc<watch::Sender<Option<u32>>>) {
+    // SAFETY: `handle` is the duplicated handle created in
+    // `spawn_exit_watcher` and is valid for this thread's lifetime.
     let waited = unsafe { WaitForSingleObject(handle.0, INFINITE) };
     if waited == WAIT_OBJECT_0 {
         let mut code: u32 = 0;
+        // SAFETY: the duplicated handle is still open and `code` is a valid
+        // out-parameter.
         if unsafe { GetExitCodeProcess(handle.0, &mut code) }.is_ok() {
             let _ = exit.send_replace(Some(code));
         }
     }
-    unsafe {
-        let _ = CloseHandle(handle.0);
-    }
+    close_handle(handle.0);
 }
 
 pub struct WinPtyBackend {
@@ -359,9 +453,21 @@ pub struct WinPtyBackend {
     closed: Arc<AtomicBool>,
 }
 
+impl std::fmt::Debug for WinPtyBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WinPtyBackend")
+            .field("size", &self.get_winsize())
+            .field("closed", &self.closed.load(Ordering::SeqCst))
+            .finish_non_exhaustive()
+    }
+}
+
 impl Clone for WinPtyBackend {
     fn clone(&self) -> Self {
-        let size = *self.size.lock().unwrap();
+        let size = *self
+            .size
+            .lock()
+            .expect("winsize mutex poisoned while cloning WinPtyBackend");
         WinPtyBackend {
             conpty_handle: self.conpty_handle.clone(),
             input_async: self.input_async.clone(),
@@ -430,6 +536,8 @@ impl PtyBackend for WinPtyBackend {
         if self.closed.load(Ordering::SeqCst) {
             return Err(PtyErrorKind::Closed);
         }
+        // SAFETY: the function pointer is published once during loader init
+        // and the conpty handle is valid until `close()` flips `closed`.
         if let Some(resize_fn) = unsafe { RESIZE_PSEUDO_CONSOLE } {
             let hr = resize_fn(
                 self.conpty_handle.0,
@@ -445,12 +553,18 @@ impl PtyBackend for WinPtyBackend {
                 )));
             }
         }
-        *self.size.lock().unwrap() = winsize;
+        *self
+            .size
+            .lock()
+            .expect("winsize mutex poisoned in set_winsize") = winsize;
         Ok(())
     }
 
     fn get_winsize(&self) -> PtyResult<Winsize> {
-        Ok(*self.size.lock().unwrap())
+        Ok(*self
+            .size
+            .lock()
+            .expect("winsize mutex poisoned in get_winsize"))
     }
 
     fn raw_handle(&self) -> *mut std::ffi::c_void {
@@ -469,6 +583,9 @@ impl PtyBackend for WinPtyBackend {
         if self.closed.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
+        // SAFETY: `closed.swap` makes this the sole close call for the
+        // pseudo-console handle. The function pointer was installed by the
+        // one-time loader and remains valid.
         if let Some(close_fn) = unsafe { CLOSE_PSEUDO_CONSOLE } {
             let hr = close_fn(self.conpty_handle.0);
             if hr < 0 {
@@ -509,6 +626,8 @@ async fn create_conpty_pipe_pair() -> Result<(NamedPipeServer, SendSyncHandle), 
         .map_err(|e| PtyErrorKind::OpenFailed(format!("NamedPipeServer create: {}", e)))?;
 
     let wide_name: Vec<u16> = pipe_name.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: `wide_name` is NUL-terminated and the access/share flags are
+    // valid for a named pipe client handle.
     let handle = unsafe {
         CreateFileW(
             PCWSTR(wide_name.as_ptr()),
@@ -555,6 +674,8 @@ pub async fn open_pty(
     let (output_server, stdout_handle) = create_conpty_pipe_pair().await?;
 
     let mut conpty: HANDLE = INVALID_HANDLE_VALUE;
+    // SAFETY: stdin/stdout are open pipe handles and `conpty` is a valid
+    // out-parameter. They are closed after the pseudo-console takes over.
     unsafe {
         let hr = create_pseudoconsole(
             COORD {
@@ -603,12 +724,12 @@ fn build_env_block(env: &[(String, String)]) -> Vec<u16> {
     block
 }
 
-pub async fn spawn(
-    program: &str,
+pub async fn spawn_os(
+    program: &OsStr,
     args: &[String],
     env: Option<&[(String, String)]>,
     winsize: Option<Winsize>,
-    cwd: Option<&str>,
+    cwd: Option<&OsStr>,
 ) -> Result<(Arc<dyn PtyBackend>, Arc<dyn ChildBackend>), PtyErrorKind> {
     let ws = winsize.unwrap_or(Winsize {
         rows: 24,
@@ -626,6 +747,8 @@ pub async fn spawn(
     let (conpty_handle, pid, process_handle, thread_handle) = {
         // Create pseudoconsole (synchronous Windows API call)
         let mut conpty: HANDLE = INVALID_HANDLE_VALUE;
+        // SAFETY: stdin/stdout are open pipe handles and `conpty` is a valid
+        // out-parameter. They are closed after the pseudo-console takes over.
         unsafe {
             let hr = create_pseudoconsole(
                 COORD {
@@ -649,7 +772,7 @@ pub async fn spawn(
 
         // Build command line with proper quoting and spaces
         let mut cmdline: Vec<u16> = Vec::new();
-        append_quoted_wide(OsStr::new(program), &mut cmdline);
+        append_quoted_wide(program, &mut cmdline);
         for arg in args {
             cmdline.push(' ' as u16);
             append_quoted_wide(OsStr::new(arg.as_str()), &mut cmdline);
@@ -658,12 +781,8 @@ pub async fn spawn(
 
         // Child working directory (NUL-terminated wide string for lpCurrentDirectory).
         // None inherits the parent's directory, as before.
-        let cwd_wide: Option<Vec<u16>> = cwd.map(|dir| {
-            OsStr::new(dir)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect()
-        });
+        let cwd_wide: Option<Vec<u16>> =
+            cwd.map(|dir| dir.encode_wide().chain(std::iter::once(0)).collect());
 
         // Build the environment block. `None` means inherit: pass a null
         // lpEnvironment. `Some(&[])` is an explicit empty environment, which
@@ -677,6 +796,8 @@ pub async fn spawn(
         const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x00020016;
 
         let mut attr_list_size: usize = 0;
+        // SAFETY: null list pointer requests only the required byte size; no
+        // attributes are written.
         let _ = unsafe {
             InitializeProcThreadAttributeList(
                 Some(LPPROC_THREAD_ATTRIBUTE_LIST(std::ptr::null_mut())),
@@ -687,6 +808,8 @@ pub async fn spawn(
         };
 
         let mut attr_list_buf = vec![0u8; attr_list_size];
+        // SAFETY: `attr_list_buf` is aligned for `c_void` and lives until the
+        // end of this block, which outlives every use of `attr_list`.
         let attr_list = unsafe {
             let ptr = attr_list_buf.as_mut_ptr() as *mut std::ffi::c_void;
             let typed_ptr = LPPROC_THREAD_ATTRIBUTE_LIST(ptr);
@@ -698,6 +821,8 @@ pub async fn spawn(
         };
 
         // Set the ConPTY attribute on the process thread attribute list.
+        // SAFETY: `attr_list` was initialized with capacity for one attribute
+        // and `conpty` is an open pseudo-console handle.
         unsafe {
             UpdateProcThreadAttribute(
                 attr_list,
@@ -711,6 +836,8 @@ pub async fn spawn(
             .map_err(|e| PtyErrorKind::ForkFailed(format!("UpdateProcThreadAttribute: {:?}", e)))?;
         }
 
+        // SAFETY: `STARTUPINFOEXW` is a plain struct whose all-zero bit pattern
+        // is valid; all used fields are overwritten below.
         let mut startup_info: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
         startup_info.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
         startup_info.StartupInfo.dwFlags = STARTUP_FLAGS;
@@ -723,8 +850,13 @@ pub async fn spawn(
         startup_info.StartupInfo.wShowWindow = SW_HIDE.0 as u16;
         startup_info.lpAttributeList = attr_list;
 
+        // SAFETY: `PROCESS_INFORMATION` is a plain struct and all-zero is a
+        // valid initial value before `CreateProcessW` fills it.
         let mut process_info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
 
+        // SAFETY: command line, environment, and cwd buffers are NUL-terminated
+        // and live until the call returns; `startup_info` and `process_info`
+        // are valid pointers.
         let success = unsafe {
             CreateProcessW(
                 None,
@@ -745,7 +877,8 @@ pub async fn spawn(
             )
         };
 
-        // Clean up attribute list regardless of success
+        // Clean up attribute list regardless of success.
+        // SAFETY: `attr_list` was successfully initialized above.
         unsafe {
             DeleteProcThreadAttributeList(attr_list);
         }
@@ -759,9 +892,11 @@ pub async fn spawn(
 
         // Extract Send-safe values before the block ends (drops all non-Send locals)
         let conpty_handle = SendSyncHandle(conpty);
+        // SAFETY: `CreateProcessW` succeeded and populated `process_info`
+        // with valid process/thread handles and process id.
         let pid = unsafe { GetProcessId(process_info.hProcess) };
-        let process_handle = SendSyncHandle(process_info.hProcess);
-        let thread_handle = SendSyncHandle(process_info.hThread);
+        let process_handle = SharedHandle::new(process_info.hProcess);
+        let thread_handle = SharedHandle::new(process_info.hThread);
 
         (conpty_handle, pid, process_handle, thread_handle)
     }; // <-- All non-Send locals (conpty, startup_info, process_info, attr_list_buf, cmdline, env_block) dropped here
@@ -772,7 +907,7 @@ pub async fn spawn(
     let backend = WinPtyBackend::new(conpty_handle, input_server, output_server, ws);
     let (exit_tx, _) = watch::channel::<Option<u32>>(None);
     let exit_tx = Arc::new(exit_tx);
-    spawn_exit_watcher(process_handle.0, Arc::clone(&exit_tx));
+    spawn_exit_watcher(process_handle.as_raw(), Arc::clone(&exit_tx));
 
     Ok((
         Arc::new(backend),
@@ -889,8 +1024,8 @@ mod tests {
     fn test_win_child_process_pid() {
         let _check: fn() -> WinChildProcess = || WinChildProcess {
             pid: 42,
-            process_handle: SendSyncHandle(HANDLE::default()),
-            thread_handle: SendSyncHandle(HANDLE::default()),
+            process_handle: SharedHandle::new(HANDLE::default()),
+            thread_handle: SharedHandle::new(HANDLE::default()),
             exit: Arc::new(watch::channel::<Option<u32>>(None).0),
         };
     }
@@ -899,8 +1034,8 @@ mod tests {
     fn test_win_child_process_clone() {
         let cp = WinChildProcess {
             pid: 42,
-            process_handle: SendSyncHandle(HANDLE::default()),
-            thread_handle: SendSyncHandle(HANDLE::default()),
+            process_handle: SharedHandle::new(HANDLE::default()),
+            thread_handle: SharedHandle::new(HANDLE::default()),
             exit: Arc::new(watch::channel::<Option<u32>>(None).0),
         };
         let cp2 = cp.clone();
@@ -930,6 +1065,17 @@ mod tests {
         let h1 = SendSyncHandle(HANDLE::default());
         let h2 = h1.clone();
         assert_eq!(h1.0.0, h2.0.0);
+    }
+
+    #[test]
+    fn test_shared_handle_closes_once() {
+        TEST_CLOSE_HANDLE_CALLS.store(0, Ordering::SeqCst);
+        let h1 = SharedHandle::new(HANDLE::default());
+        let h2 = h1.clone();
+        drop(h1);
+        assert_eq!(TEST_CLOSE_HANDLE_CALLS.load(Ordering::SeqCst), 0);
+        drop(h2);
+        assert_eq!(TEST_CLOSE_HANDLE_CALLS.load(Ordering::SeqCst), 1);
     }
 
     #[test]

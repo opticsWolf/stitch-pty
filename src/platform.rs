@@ -7,6 +7,7 @@
 
 use crate::errors::{PtyErrorKind, PtyResult};
 use crate::winsize::Winsize;
+use std::ffi::OsStr;
 
 // ── Exit Status (from portable-pty) ───────────────────────────────
 
@@ -294,7 +295,7 @@ fn dedupe_env(
 /// `CreateProcessW` failing with the OS error instead.) The Unix child still
 /// performs its own `chdir` (exiting 127 on failure), so a directory deleted
 /// between this check and the fork cannot cause silent misbehavior.
-pub(crate) fn validate_cwd(cwd: &str) -> PtyResult<()> {
+pub(crate) fn validate_cwd(cwd: &OsStr) -> PtyResult<()> {
     match std::fs::metadata(cwd) {
         Ok(m) if m.is_dir() => Ok(()),
         Ok(_) => Err(PtyErrorKind::ForkFailed(format!(
@@ -339,11 +340,22 @@ pub async fn spawn_platform(
     winsize: Option<Winsize>,
     cwd: Option<&str>,
 ) -> PtyResult<(ArcPtyBackend, ArcChildBackend)> {
+    spawn_platform_os(OsStr::new(program), args, env, winsize, cwd.map(OsStr::new)).await
+}
+
+/// Spawn with OS-native path types, preserving non-UTF-8 program and cwd paths.
+pub async fn spawn_platform_os(
+    program: &OsStr,
+    args: &[String],
+    env: Option<&[(String, String)]>,
+    winsize: Option<Winsize>,
+    cwd: Option<&OsStr>,
+) -> PtyResult<(ArcPtyBackend, ArcChildBackend)> {
     let winsize = Some(winsize.unwrap_or_else(|| Winsize::new(24, 80, 0, 0)));
 
     #[cfg(unix)]
     {
-        let (pty, child) = crate::platform_unix::spawn(program, args, env, winsize, cwd)?;
+        let (pty, child) = crate::platform_unix::spawn_os(program, args, env, winsize, cwd)?;
         Ok((
             std::sync::Arc::new(pty),
             std::sync::Arc::new(child) as std::sync::Arc<dyn ChildBackend>,
@@ -352,7 +364,8 @@ pub async fn spawn_platform(
 
     #[cfg(windows)]
     {
-        let (pty, child) = crate::platform_windows::spawn(program, args, env, winsize, cwd).await?;
+        let (pty, child) =
+            crate::platform_windows::spawn_os(program, args, env, winsize, cwd).await?;
         Ok((pty, child as std::sync::Arc<dyn ChildBackend>))
     }
 }
@@ -543,12 +556,12 @@ mod tests {
 
     #[test]
     fn test_validate_cwd_accepts_dirs() {
-        assert!(validate_cwd(std::env::temp_dir().to_str().unwrap()).is_ok());
+        assert!(validate_cwd(std::env::temp_dir().as_os_str()).is_ok());
     }
 
     #[test]
     fn test_validate_cwd_rejects_missing() {
-        match validate_cwd("Z:/definitely/missing/stitch-pty-test") {
+        match validate_cwd(OsStr::new("Z:/definitely/missing/stitch-pty-test")) {
             Err(PtyErrorKind::ForkFailed(msg)) => assert!(msg.contains("invalid cwd")),
             _ => panic!("expected ForkFailed"),
         }
@@ -558,7 +571,7 @@ mod tests {
     fn test_validate_cwd_rejects_file() {
         // The current test executable exists but is not a directory.
         let exe = std::env::current_exe().unwrap();
-        match validate_cwd(exe.to_str().unwrap()) {
+        match validate_cwd(exe.as_os_str()) {
             Err(PtyErrorKind::ForkFailed(msg)) => assert!(msg.contains("not a directory")),
             _ => panic!("expected ForkFailed"),
         }

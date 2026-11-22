@@ -18,7 +18,7 @@ create_exception!(stitch_pty, IOError, PtyError);
 
 // ── Rust Error Types ───────────────────────────────────────────
 
-#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum PtyErrorKind {
     #[error("PTY open failed: {0}")]
     OpenFailed(String),
@@ -173,6 +173,101 @@ pub fn is_eof_error(err: &std::io::Error) -> bool {
 
 pub type PtyResult<T> = Result<T, PtyErrorKind>;
 
+/// Canonical error value with context, cause, and backtrace.
+///
+/// `PtyErrorKind` remains the public compatibility enum. `PtyFailure` adds the
+/// structured context recommended by the Rust guidelines without changing the
+/// existing `PtyResult` alias or the Python exception mapping.
+#[derive(Debug)]
+pub struct PtyFailure {
+    kind: PtyErrorKind,
+    source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    backtrace: std::backtrace::Backtrace,
+}
+
+impl PtyFailure {
+    /// Create a canonical error from a compatibility error kind.
+    pub fn new(kind: PtyErrorKind) -> Self {
+        Self {
+            kind,
+            source: None,
+            backtrace: std::backtrace::Backtrace::capture(),
+        }
+    }
+
+    /// Create a canonical error with an upstream cause.
+    pub fn with_source(
+        kind: PtyErrorKind,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            kind,
+            source: Some(Box::new(source)),
+            backtrace: std::backtrace::Backtrace::capture(),
+        }
+    }
+
+    /// Return the compatibility error kind.
+    pub fn kind(&self) -> &PtyErrorKind {
+        &self.kind
+    }
+
+    /// Return the captured backtrace.
+    pub fn backtrace(&self) -> &std::backtrace::Backtrace {
+        &self.backtrace
+    }
+
+    /// True when the child side closed the PTY.
+    pub fn is_eof(&self) -> bool {
+        matches!(self.kind, PtyErrorKind::Eof)
+    }
+
+    /// True when the operation timed out.
+    pub fn is_timeout(&self) -> bool {
+        matches!(self.kind, PtyErrorKind::Timeout(_))
+    }
+
+    /// True when the PTY is closed.
+    pub fn is_closed(&self) -> bool {
+        matches!(self.kind, PtyErrorKind::Closed)
+    }
+
+    /// Consume this value and return the compatibility error kind.
+    pub fn into_kind(self) -> PtyErrorKind {
+        self.kind
+    }
+}
+
+impl std::fmt::Display for PtyFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.kind)
+    }
+}
+
+impl std::error::Error for PtyFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source
+            .as_deref()
+            .map(|e| e as &(dyn std::error::Error + 'static))
+    }
+}
+
+impl From<PtyErrorKind> for PtyFailure {
+    fn from(kind: PtyErrorKind) -> Self {
+        Self::new(kind)
+    }
+}
+
+#[cfg(feature = "python")]
+impl From<PtyFailure> for PyErr {
+    fn from(err: PtyFailure) -> PyErr {
+        err.into_kind().into()
+    }
+}
+
+/// Result alias for APIs that return the canonical error struct.
+pub type TypedPtyResult<T> = Result<T, PtyFailure>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,6 +379,34 @@ mod tests {
     fn test_result_type_alias() {
         let ok: PtyResult<i32> = Ok(42);
         assert_eq!(ok, Ok(42));
+    }
+
+    #[test]
+    fn test_pty_failure_helpers_and_source() {
+        let source = std::io::Error::new(std::io::ErrorKind::ConnectionReset, "reset");
+        let failure = PtyFailure::with_source(
+            PtyErrorKind::Timeout(std::time::Duration::from_millis(5)),
+            source,
+        );
+        assert!(failure.is_timeout());
+        assert!(!failure.is_eof());
+        assert!(!failure.is_closed());
+        assert!(std::error::Error::source(&failure).is_some());
+        assert!(failure.to_string().contains("Timeout after"));
+        let _ = failure.backtrace();
+    }
+
+    #[test]
+    fn test_pty_failure_from_kind() {
+        let failure: PtyFailure = PtyErrorKind::Eof.into();
+        assert!(failure.is_eof());
+        assert_eq!(failure.into_kind(), PtyErrorKind::Eof);
+    }
+
+    #[test]
+    fn test_typed_result_type_alias() {
+        let ok: TypedPtyResult<i32> = Ok(42);
+        assert!(matches!(ok, Ok(42)));
     }
 
     #[test]

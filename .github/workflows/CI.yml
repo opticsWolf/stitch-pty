@@ -45,6 +45,7 @@ jobs:
         run: |
           cargo fmt --all --check
           cargo clippy --all-targets -- -D warnings
+          cargo clippy --all-targets --all-features -- -D warnings
           pip install "ruff==0.16.5" "mypy==2.3.0"
           ruff check python/ tests/
           mypy python/stitch_pty/

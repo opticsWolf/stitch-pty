@@ -10,6 +10,7 @@ use crate::platform::ExitStatus;
 use crate::session::PtySession;
 use crate::terminal::HistoryScreen;
 use crate::winsize::Winsize;
+use std::path::Path;
 use std::time::Duration;
 
 /// PTY I/O plus an owned terminal emulator.
@@ -53,6 +54,33 @@ impl TerminalSession {
     ) -> PtyResult<Self> {
         let size = winsize.unwrap_or_else(|| Winsize::new(24, 80, 0, 0));
         let session = PtySession::spawn_with_env(program, args, env, Some(size), cwd).await?;
+        Ok(Self::new(session, size, scrollback))
+    }
+
+    /// Spawn using OS-native paths; see [`PtySession::spawn_path`].
+    pub async fn spawn_path(
+        program: impl AsRef<Path>,
+        args: &[String],
+        winsize: Option<Winsize>,
+        cwd: Option<&Path>,
+        scrollback: usize,
+    ) -> PtyResult<Self> {
+        let size = winsize.unwrap_or_else(|| Winsize::new(24, 80, 0, 0));
+        let session = PtySession::spawn_path(program, args, Some(size), cwd).await?;
+        Ok(Self::new(session, size, scrollback))
+    }
+
+    /// Spawn with an explicit environment and OS-native paths.
+    pub async fn spawn_path_with_env(
+        program: impl AsRef<Path>,
+        args: &[String],
+        env: &[(String, String)],
+        winsize: Option<Winsize>,
+        cwd: Option<&Path>,
+        scrollback: usize,
+    ) -> PtyResult<Self> {
+        let size = winsize.unwrap_or_else(|| Winsize::new(24, 80, 0, 0));
+        let session = PtySession::spawn_path_with_env(program, args, env, Some(size), cwd).await?;
         Ok(Self::new(session, size, scrollback))
     }
 

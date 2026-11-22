@@ -18,6 +18,7 @@ use pyo3::types::PyBytes;
 /// scrollback history. Raw bytes from the PTY are fed into the parser,
 /// which updates the screen state.
 #[pyclass]
+#[derive(Debug)]
 pub struct TerminalState {
     screen: HistoryScreen,
 }
@@ -124,17 +125,23 @@ impl TerminalState {
                     TermEvent::Bell => py.None().into_any(),
                     TermEvent::TitleChanged(t)
                     | TermEvent::IconChanged(t)
-                    | TermEvent::CwdChanged(t) => t.into_pyobject(py).unwrap().into_any().unbind(),
+                    | TermEvent::CwdChanged(t) => t
+                        .into_pyobject(py)
+                        .expect("String always converts to a Python object")
+                        .into_any()
+                        .unbind(),
                     // `bool` converts to a borrowed reference: own it first.
                     TermEvent::AltScreen { entered } => entered
                         .into_pyobject(py)
-                        .unwrap()
+                        .expect("bool always converts to a Python object")
                         .to_owned()
                         .into_any()
                         .unbind(),
-                    TermEvent::ScrollbackGrew(n) => {
-                        n.into_pyobject(py).unwrap().into_any().unbind()
-                    }
+                    TermEvent::ScrollbackGrew(n) => n
+                        .into_pyobject(py)
+                        .expect("usize always converts to a Python object")
+                        .into_any()
+                        .unbind(),
                 };
                 (tag, payload)
             })
@@ -228,7 +235,10 @@ impl TerminalState {
     /// active flags cannot represent the event (for example, a release event
     /// for a text key without ``REPORT_ALL_KEYS``).
     #[pyo3(signature = (key, modifiers=0, kind="press", text=None, shifted_key=None, base_layout_key=None, flags=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "PyO3 signature mirrors the documented Python keyboard API"
+    )]
     pub fn encode_key<'py>(
         &self,
         py: Python<'py>,

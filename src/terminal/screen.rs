@@ -1,4 +1,7 @@
-/// Terminal screen buffer with cursor management, margins, and dirty tracking.
+//! Terminal screen buffer with cursor management, margins, and dirty tracking.
+//!
+//! [`Screen`] owns the visible grid, cursor, scroll margins, and the row-level
+//! dirty set consumed by renderers. [`Char`] is the per-cell storage type.
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use unicode_width::UnicodeWidthChar;
@@ -333,6 +336,18 @@ pub struct Screen {
     pub alt_saved_cursor: Option<Cursor>,
 }
 
+impl fmt::Debug for Screen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Screen")
+            .field("columns", &self.columns)
+            .field("lines", &self.lines)
+            .field("cursor", &(self.cursor.x, self.cursor.y))
+            .field("dirty_rows", &self.dirty.len())
+            .field("alt_screen", &self.alt_screen)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Screen {
     pub fn new(columns: usize, lines: usize) -> Self {
         // Zero-sized screens are unrepresentable (every row index would be
@@ -424,7 +439,11 @@ impl Screen {
     }
 
     /// Store erased blank cells for reuse as reflow padding.
-    pub(crate) fn recycle_blank_cells(&mut self, cells: impl IntoIterator<Item = Char>, limit: usize) {
+    pub(crate) fn recycle_blank_cells(
+        &mut self,
+        cells: impl IntoIterator<Item = Char>,
+        limit: usize,
+    ) {
         let attrs = self.default_char.clone();
         let limit = limit.max(64);
         for mut cell in cells {
@@ -959,7 +978,7 @@ impl Screen {
     }
 
     pub(super) fn draw_char(&mut self, ch: char) {
-        let width = ch.width().unwrap_or(1);
+        let width = ch.width().unwrap_or(1).max(1);
         if width == 0 {
             if self.cursor.x > 0 && self.cursor.y < self.lines {
                 self.invalidate_row(self.cursor.y);
@@ -968,33 +987,54 @@ impl Screen {
             }
             return;
         }
-        if width >= 2 && self.cursor.x >= self.columns {
-            self.cursor.x = 0;
-            if self.cursor.y < self.lines - 1 {
-                self.cursor.y += 1;
-                self.wrapped[self.cursor.y] = true;
+
+        let autowrap = self.mode.has_private(mo::DECAWM);
+        if width == 1 {
+            // Single-column glyphs dominate terminal traffic; keep this path
+            // free of the wide-glyph width arithmetic.
+            if self.cursor.x >= self.columns {
+                if autowrap {
+                    self.cursor.x = 0;
+                    if self.cursor.y < self.lines - 1 {
+                        self.cursor.y += 1;
+                        self.wrapped[self.cursor.y] = true;
+                    } else if self.cursor.y < self.scroll_region().1 {
+                        self.scroll_up(1);
+                        let bottom = self.scroll_region().1;
+                        self.wrapped[bottom] = true;
+                    } else {
+                        self.cursor.x = self.columns.saturating_sub(1);
+                    }
+                } else {
+                    self.cursor.x = 0;
+                    if self.cursor.y < self.lines - 1 {
+                        self.cursor.y += 1;
+                    }
+                }
+            }
+        } else {
+            // A wide glyph needs both its leading and continuation cells. If
+            // they do not fit, wrap before drawing instead of leaving the
+            // cursor stationary or splitting the glyph across rows.
+            if autowrap {
+                if self.cursor.x.saturating_add(width) > self.columns {
+                    self.cursor.x = 0;
+                    if self.cursor.y < self.lines - 1 {
+                        self.cursor.y += 1;
+                        self.wrapped[self.cursor.y] = true;
+                    } else if self.cursor.y < self.scroll_region().1 {
+                        self.scroll_up(1);
+                        let bottom = self.scroll_region().1;
+                        self.wrapped[bottom] = true;
+                    } else {
+                        self.cursor.x = self.columns.saturating_sub(width);
+                    }
+                }
+            } else if self.cursor.x.saturating_add(width) > self.columns {
+                self.cursor.x = self.columns.saturating_sub(width);
             }
         }
-        if self.cursor.x >= self.columns {
-            if self.mode.has_private(mo::DECAWM) {
-                self.cursor.x = 0;
-                if self.cursor.y < self.lines - 1 {
-                    self.cursor.y += 1;
-                    self.wrapped[self.cursor.y] = true;
-                } else if self.cursor.y < self.scroll_region().1 {
-                    self.scroll_up(1);
-                    let bottom = self.scroll_region().1;
-                    self.wrapped[bottom] = true;
-                }
-            } else if self.cursor.x == self.columns {
-                self.cursor.x = 0;
-                if self.cursor.y < self.lines - 1 {
-                    self.cursor.y += 1;
-                }
-            } else {
-                self.cursor.x = 0;
-            }
-        }
+
         if self.mode.has_public(mo::IRM) && width == 1 {
             self.insert_characters(1);
         }
@@ -1012,15 +1052,14 @@ impl Screen {
             }
             self.dirty.insert(self.cursor.y);
         }
+
         if width == 1 {
             self.cursor.x += 1;
-        } else {
-            if self.cursor.x >= self.columns {
-                self.cursor.x = self.columns;
+            if !autowrap {
+                self.cursor.x = self.cursor.x.min(self.columns.saturating_sub(1));
             }
-        }
-        if !self.mode.has_private(mo::DECAWM) && width == 1 {
-            self.cursor.x = self.cursor.x.min(self.columns - 1);
+        } else {
+            self.cursor.x = self.cursor.x.saturating_add(width).min(self.columns);
         }
     }
 
@@ -1119,8 +1158,9 @@ impl Screen {
                 screen_profile::add(
                     &screen_profile::ERASE_CELLS,
                     ((self.columns.saturating_sub(self.cursor.x))
-                        + bottom.saturating_sub(self.cursor.y).saturating_mul(self.columns))
-                        as u64,
+                        + bottom
+                            .saturating_sub(self.cursor.y)
+                            .saturating_mul(self.columns)) as u64,
                 );
                 for i in self.cursor.x..self.columns {
                     self.buffer[self.cursor.y][i].erase_with(attrs);
@@ -1144,8 +1184,13 @@ impl Screen {
                 #[cfg(feature = "bench-profile")]
                 screen_profile::add(
                     &screen_profile::ERASE_CELLS,
-                    (self.cursor.y.saturating_sub(top).saturating_mul(self.columns)
-                        + self.cursor.x.min(self.columns - 1) + 1) as u64,
+                    (self
+                        .cursor
+                        .y
+                        .saturating_sub(top)
+                        .saturating_mul(self.columns)
+                        + self.cursor.x.min(self.columns - 1)
+                        + 1) as u64,
                 );
                 for y in top..self.cursor.y {
                     for x in 0..self.columns {
@@ -1849,9 +1894,43 @@ mod tests {
 
     #[test]
     fn test_draw_width2() {
-        let mut s = make_screen(10, 1);
+        let mut s = make_screen(10, 2);
         s.draw("コンニチハ");
-        assert_eq!(s.cursor.x, 0);
+        assert_eq!(s.cursor.x, 10);
+        assert_eq!(s.cursor.y, 0);
+        assert_eq!(s.buffer[0][8].data, "ハ");
+
+        s.draw("界");
+        assert_eq!(s.cursor.x, 2);
+        assert_eq!(s.cursor.y, 1);
+        assert_eq!(s.buffer[1][0].data, "界");
+        assert_eq!(s.buffer[1][1].data, " ");
+    }
+
+    #[test]
+    fn test_draw_consecutive_width2_advances_cursor() {
+        let mut s = make_screen(8, 2);
+        s.draw("界界界");
+        assert_eq!(s.cursor.x, 6);
+        assert_eq!(s.cursor.y, 0);
+        assert_eq!(s.buffer[0][0].data, "界");
+        assert_eq!(s.buffer[0][1].data, " ");
+        assert_eq!(s.buffer[0][2].data, "界");
+        assert_eq!(s.buffer[0][3].data, " ");
+        assert_eq!(s.buffer[0][4].data, "界");
+        assert_eq!(s.buffer[0][5].data, " ");
+    }
+
+    #[test]
+    fn test_draw_width2_prewraps_at_last_column() {
+        let mut s = make_screen(4, 2);
+        s.draw("abcd");
+        assert_eq!(s.cursor.x, 4);
+        s.draw("界");
+        assert_eq!(s.cursor.x, 2);
+        assert_eq!(s.cursor.y, 1);
+        assert!(s.wrapped[1]);
+        assert_eq!(s.buffer[1][0].data, "界");
     }
 
     #[test]
@@ -3002,8 +3081,10 @@ mod tests {
         s.draw("ab");
         s.draw("中"); // width-2 at column 2, only 1 col left
         let display = s.display();
-        // width-2 char placed at column 2, overflows beyond screen edge
-        assert_eq!(display[0], "ab中");
+        // The glyph is reanchored to the last two cells instead of overflowing
+        // past the screen edge; the cursor parks at the pending-wrap column.
+        assert_eq!(display[0], "a中 ");
+        assert_eq!(s.cursor.x, 3);
     }
 
     #[test]

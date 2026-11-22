@@ -203,7 +203,7 @@ pub trait Perform {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Parser {
     state: State,
     intermediates: [u8; MAX_INTERMEDIATES],
@@ -311,6 +311,8 @@ impl Parser {
             }
             Err(err) => {
                 let valid_bytes = err.valid_up_to();
+                // SAFETY: `Utf8Error::valid_up_to` is the index of the first
+                // invalid UTF-8 sequence, so the prefix is valid UTF-8.
                 let parsed = unsafe { std::str::from_utf8_unchecked(&bytes[..valid_bytes]) };
                 #[cfg(feature = "bench-profile")]
                 let dispatch_start = bench_profile::begin();
@@ -960,7 +962,10 @@ mod tests {
         params.push(4);
         assert_eq!(params.flat(), &[1, 2, 3, 4]);
         assert_eq!(
-            params.iter().map(|group| group.to_vec()).collect::<Vec<_>>(),
+            params
+                .iter()
+                .map(|group| group.to_vec())
+                .collect::<Vec<_>>(),
             vec![vec![1, 2, 3], vec![4]]
         );
         params.clear();

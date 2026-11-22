@@ -29,18 +29,15 @@ pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"], optional
 
 # Async runtime
 tokio = { version = "1.52", features = ["full", "process", "net", "io-util"] }
-tokio-util = { version = "0.7", features = ["codec"] }
 
 # Error handling
 thiserror = "2.0"
-tracing = "0.1"
 once_cell = "1.21"
 parking_lot = "0.12"
 async-trait = "0.1"
 
 # Terminal emulation (from pyte_rs)
 unicode-width = "0.2"
-unicode-segmentation = "1.13"
 bitflags = "2.13"
 regex = { version = "1", optional = true }
 

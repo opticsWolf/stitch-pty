@@ -19,7 +19,7 @@ use nix::sys::signal::{Signal, kill};
 use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 use nix::unistd::{ForkResult, Pid, close, fork, setsid};
 use parking_lot::Mutex;
-use std::ffi::CString;
+use std::ffi::{CString, OsStr, OsString};
 use std::os::fd::RawFd;
 use std::os::fd::{BorrowedFd, IntoRawFd};
 use std::os::unix::ffi::OsStrExt;
@@ -38,6 +38,8 @@ use tokio::io::unix::AsyncFd;
 /// libc::close, with no allocation or std::fs calls. Safe to call after
 /// fork() in a multithreaded process.
 pub fn close_random_fds_async_signal_safe(skip: &[RawFd]) {
+    // SAFETY: `sysconf` and `close` are async-signal-safe and `fd` is just an
+    // integer descriptor; closing an already-closed fd returns EBADF.
     unsafe {
         let max = libc::sysconf(libc::_SC_OPEN_MAX);
         let max = if max > 0 { max as RawFd } else { 4096 };
@@ -63,9 +65,15 @@ struct PreparedCommand {
     program: CString,
     // `argv`/`env` are never read directly — they own the buffers that
     // `argv_ptrs`/`envp_ptrs` point into, so they must stay alive.
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "owns CString buffers pointed to by argv_ptrs; must stay alive across fork/exec"
+    )]
     argv: Vec<CString>,
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "owns CString buffers pointed to by envp_ptrs; must stay alive across fork/exec"
+    )]
     env: Vec<CString>,
     argv_ptrs: Vec<*const c_char>,
     envp_ptrs: Vec<*const c_char>,
@@ -75,8 +83,8 @@ impl PreparedCommand {
     /// `env = None` inherits the parent environment. The inherited entries are
     /// materialised from `vars_os()` (raw bytes), not `vars()`, which would
     /// panic on a non-Unicode environment entry.
-    fn new(program: &str, args: &[String], env: Option<&[(String, String)]>) -> PtyResult<Self> {
-        let program_cstr = CString::new(program)
+    fn new(program: &OsStr, args: &[String], env: Option<&[(String, String)]>) -> PtyResult<Self> {
+        let program_cstr = CString::new(program.as_bytes())
             .map_err(|_| PtyErrorKind::ForkFailed("program contains NUL byte".into()))?;
 
         let mut argv = Vec::with_capacity(args.len() + 1);
@@ -131,14 +139,15 @@ impl PreparedCommand {
 }
 
 // Resolve `program` against PATH (called in the parent before fork).
-// Returns an absolute path string suitable for execve.
-fn resolve_executable(program: &str) -> String {
+// Returns an OS string suitable for `execve`, preserving non-UTF-8 bytes.
+fn resolve_executable(program: &OsStr) -> OsString {
+    let path = std::path::Path::new(program);
     // Try as absolute or relative path first
-    if let Ok(metadata) = std::fs::metadata(program)
+    if let Ok(metadata) = std::fs::metadata(path)
         && metadata.is_file()
-        && let Ok(abs) = std::fs::canonicalize(program)
+        && let Ok(abs) = std::fs::canonicalize(path)
     {
-        return abs.to_string_lossy().to_string();
+        return abs.into_os_string();
     }
 
     // Search PATH
@@ -149,12 +158,12 @@ fn resolve_executable(program: &str) -> String {
             && m.is_file()
             && let Ok(abs) = std::fs::canonicalize(&candidate)
         {
-            return abs.to_string_lossy().to_string();
+            return abs.into_os_string();
         }
     }
 
     // Fallback: return original program name (execve will try it)
-    program.to_string()
+    program.to_os_string()
 }
 
 // ============================================================================
@@ -163,6 +172,15 @@ fn resolve_executable(program: &str) -> String {
 
 pub struct UnixPtyMaster {
     async_fd: Option<AsyncFd<RawFd>>,
+}
+
+impl std::fmt::Debug for UnixPtyMaster {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnixPtyMaster")
+            .field("fd", &self.fd())
+            .field("open", &self.is_open())
+            .finish_non_exhaustive()
+    }
 }
 
 impl UnixPtyMaster {
@@ -174,7 +192,11 @@ impl UnixPtyMaster {
     }
 
     fn fd(&self) -> RawFd {
-        *self.async_fd.as_ref().unwrap().get_ref()
+        *self
+            .async_fd
+            .as_ref()
+            .expect("PTY async fd must exist while the master is open")
+            .get_ref()
     }
 }
 
@@ -182,12 +204,19 @@ impl UnixPtyMaster {
 impl PtyBackend for UnixPtyMaster {
     async fn read(&self, buf: &mut [u8]) -> std::io::Result<usize> {
         loop {
-            let mut guard = self.async_fd.as_ref().unwrap().readable().await?;
+            let mut guard = self
+                .async_fd
+                .as_ref()
+                .expect("PTY async fd must exist while the master is open")
+                .readable()
+                .await?;
 
             // try_io returns Result<io::Result<R>, TryIoError>.
             // Err(TryIoError) = WouldBlock (retry). Ok(Err(e)) = real error.
             match guard.try_io(|inner| {
                 let fd = *inner.get_ref();
+                // SAFETY: `fd` is open and `buf` is a valid mutable slice of
+                // `buf.len()` bytes for the duration of the syscall.
                 let ret = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len()) };
 
                 if ret < 0 {
@@ -210,10 +239,17 @@ impl PtyBackend for UnixPtyMaster {
 
     async fn write(&self, buf: &[u8]) -> std::io::Result<usize> {
         loop {
-            let mut guard = self.async_fd.as_ref().unwrap().writable().await?;
+            let mut guard = self
+                .async_fd
+                .as_ref()
+                .expect("PTY async fd must exist while the master is open")
+                .writable()
+                .await?;
 
             match guard.try_io(|inner| {
                 let fd = *inner.get_ref();
+                // SAFETY: `fd` is open and `buf` is a valid readable slice of
+                // `buf.len()` bytes for the duration of the syscall.
                 let ret = unsafe { libc::write(fd, buf.as_ptr() as *const _, buf.len()) };
 
                 if ret < 0 {
@@ -240,6 +276,7 @@ impl PtyBackend for UnixPtyMaster {
     fn set_winsize(&self, winsize: Winsize) -> PtyResult<()> {
         let ws: nix::pty::Winsize = winsize.into();
         let fd = self.fd();
+        // SAFETY: `fd` is an open PTY master and `ws` is a valid winsize struct.
         unsafe {
             let ret = libc::ioctl(fd, libc::TIOCSWINSZ, &ws as *const _);
             if ret < 0 {
@@ -249,9 +286,12 @@ impl PtyBackend for UnixPtyMaster {
                 )));
             }
         }
-        // Forward SIGWINCH to process group
+        // Forward SIGWINCH to process group.
+        // SAFETY: `fd` is an open terminal descriptor.
         let pgrp = unsafe { libc::tcgetpgrp(fd) };
         if pgrp > 0 {
+            // SAFETY: `kill` is async-signal-safe with a signal number and
+            // process-group id; failure only means no group was signaled.
             unsafe {
                 libc::kill(-pgrp, libc::SIGWINCH);
             }
@@ -260,8 +300,11 @@ impl PtyBackend for UnixPtyMaster {
     }
 
     fn get_winsize(&self) -> PtyResult<Winsize> {
+        // SAFETY: `Winsize` is a plain C struct whose all-zero bit pattern is
+        // valid before the ioctl fills it.
         let mut ws: nix::pty::Winsize = unsafe { std::mem::zeroed() };
         let fd = self.fd();
+        // SAFETY: `fd` is an open PTY master and `ws` is a valid out-parameter.
         unsafe {
             let ret = libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws as *mut _);
             if ret < 0 {
@@ -280,12 +323,18 @@ impl PtyBackend for UnixPtyMaster {
 
     fn is_open(&self) -> bool {
         let fd = self.fd();
+        // SAFETY: `fcntl` accepts any integer fd and reports EBADF for closed
+        // descriptors; no memory is dereferenced.
         unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
     }
 
     async fn shutdown_write(&self) -> PtyResult<()> {
         let fd = self.fd();
+        // SAFETY: `termios` is a plain C struct and all-zero is valid before
+        // `tcgetattr` fills it.
         let mut termios: libc::termios = unsafe { std::mem::zeroed() };
+        // SAFETY: `fd` is an open terminal descriptor and `termios` is a valid
+        // out-parameter.
         let eof = if unsafe { libc::tcgetattr(fd, &mut termios) } == 0 {
             termios.c_cc[libc::VEOF]
         } else {
@@ -314,7 +363,7 @@ impl Drop for UnixPtyMaster {
 // Unix ChildProcess + ChildKiller
 // ============================================================================
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UnixChildProcess {
     inner: Arc<Mutex<UnixChildState>>,
 }
@@ -485,7 +534,9 @@ impl PtyPair {
         let master_fd = result.master.into_raw_fd();
         let slave_fd = result.slave.into_raw_fd();
 
-        // Set non-blocking on master
+        // Set non-blocking on master.
+        // SAFETY: `master_fd` was just returned by `openpty` and is owned by
+        // this `PtyPair` until its `Drop` closes it.
         let master_borrowed: BorrowedFd = unsafe { BorrowedFd::borrow_raw(master_fd) };
         let flags = fcntl(master_borrowed, FcntlArg::F_GETFL)
             .map_err(|e| PtyErrorKind::OpenFailed(format!("fcntl GETFL: {}", e)))?;
@@ -511,6 +562,12 @@ impl Drop for PtyPair {
 
 /// Async-signal-safe child setup. Only uses raw pointers and libc calls.
 /// All CString/Vec allocations are done in the parent via PreparedCommand.
+///
+/// # Safety
+///
+/// The caller must have just called `fork`. All allocations happen in the
+/// parent before `fork`, and this function must only use async-signal-safe
+/// operations. `cmd` and `cwd` must outlive the call.
 unsafe fn child_setup(
     slave_fd: RawFd,
     master_fd: RawFd,
@@ -526,30 +583,39 @@ unsafe fn child_setup(
         libc::SIGTERM,
         libc::SIGALRM,
     ] {
+        // SAFETY: `signal` is async-signal-safe and accepts any valid signal
+        // number; SIG_DFL has no lifetime requirements.
         unsafe {
             libc::signal(*signo, libc::SIG_DFL);
         }
     }
 
     // Unblock all signals.
+    // SAFETY: `sigset_t` is a plain C struct and all-zero is a valid initial
+    // value before `sigemptyset` initializes it.
     let mut empty_set: libc::sigset_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `empty_set` is a valid signal-set pointer.
     unsafe {
         libc::sigemptyset(&mut empty_set);
     }
+    // SAFETY: `empty_set` is initialized; a null old-set pointer is allowed.
     unsafe {
         libc::sigprocmask(libc::SIG_SETMASK, &empty_set, std::ptr::null_mut());
     }
 
     // Create new session.
     if setsid().is_err() {
+        // SAFETY: `_exit` is async-signal-safe and never returns.
         unsafe {
             libc::_exit(1);
         }
     }
 
     // Set controlling terminal.
+    // SAFETY: `slave_fd` is an open slave PTY descriptor.
     let ret = unsafe { libc::ioctl(slave_fd, libc::TIOCSCTTY as libc::c_ulong, 0) };
     if ret < 0 {
+        // SAFETY: `_exit` is async-signal-safe and never returns.
         unsafe {
             libc::_exit(1);
         }
@@ -559,18 +625,23 @@ unsafe fn child_setup(
     close_random_fds_async_signal_safe(&[slave_fd, master_fd]);
 
     // dup2 to stdin/stdout/stderr.
+    // SAFETY: `slave_fd` is open and the standard fd numbers are valid targets.
     if unsafe { libc::dup2(slave_fd, libc::STDIN_FILENO) } < 0
         || unsafe { libc::dup2(slave_fd, libc::STDOUT_FILENO) } < 0
         || unsafe { libc::dup2(slave_fd, libc::STDERR_FILENO) } < 0
     {
+        // SAFETY: `_exit` is async-signal-safe and never returns.
         unsafe {
             libc::_exit(1);
         }
     }
 
+    // SAFETY: both descriptors are open in the child and closing either twice
+    // only returns EBADF.
     unsafe {
         libc::close(slave_fd);
     }
+    // SAFETY: see above; the master must not remain open in the child.
     unsafe {
         libc::close(master_fd);
     }
@@ -578,14 +649,18 @@ unsafe fn child_setup(
     // chdir before exec (async-signal-safe: no allocation, raw pointer).
     // 127 distinguishes it from exec failure (126) and setup failures (1).
     if let Some(dir) = cwd
+        // SAFETY: `dir` is a NUL-terminated `CString` allocated in the parent.
         && unsafe { libc::chdir(dir.as_ptr()) } != 0
     {
+        // SAFETY: `_exit` is async-signal-safe and never returns.
         unsafe {
             libc::_exit(127);
         }
     }
 
     // exec with prepared argv and envp (raw pointers, no allocation).
+    // SAFETY: `PreparedCommand` keeps program, argv, and envp CStrings and
+    // their pointer arrays alive until exec replaces this process image.
     #[cfg(target_os = "linux")]
     unsafe {
         libc::execvpe(
@@ -595,6 +670,7 @@ unsafe fn child_setup(
         );
     }
 
+    // SAFETY: same prepared-pointer lifetime guarantee as the Linux branch.
     #[cfg(not(target_os = "linux"))]
     unsafe {
         libc::execve(
@@ -604,7 +680,8 @@ unsafe fn child_setup(
         );
     }
 
-    // exec only returns on failure
+    // exec only returns on failure.
+    // SAFETY: `_exit` is async-signal-safe and never returns.
     unsafe {
         libc::_exit(126);
     }
@@ -612,10 +689,10 @@ unsafe fn child_setup(
 
 fn fork_pty(
     pty: &PtyPair,
-    program: &str,
+    program: &OsStr,
     args: &[String],
     env: Option<&[(String, String)]>,
-    cwd: Option<&str>,
+    cwd: Option<&OsStr>,
 ) -> PtyResult<Pid> {
     // Prepare all allocations in the parent process before fork().
     // This is critical for fork-safety on macOS where malloc locks
@@ -624,14 +701,17 @@ fn fork_pty(
     let cmd = PreparedCommand::new(&resolved, args, env)?;
     // The chdir target is prepared here too: the child must not allocate.
     let cwd_cstr = cwd
-        .map(CString::new)
+        .map(|dir| CString::new(dir.as_bytes()))
         .transpose()
         .map_err(|_| PtyErrorKind::ForkFailed("cwd contains NUL byte".into()))?;
 
+    // SAFETY: `fork` is a thin libc wrapper and all prepared allocations are
+    // valid in both processes.
     match unsafe { fork() } {
-        Ok(ForkResult::Child) => unsafe {
-            child_setup(pty.slave_fd, pty.master_fd, &cmd, cwd_cstr.as_ref());
-        },
+        Ok(ForkResult::Child) => {
+            // SAFETY: this is the direct child branch of the fork above.
+            unsafe { child_setup(pty.slave_fd, pty.master_fd, &cmd, cwd_cstr.as_ref()) }
+        }
         Ok(ForkResult::Parent { child }) => {
             let _ = close(pty.slave_fd);
             Ok(child)
@@ -654,6 +734,7 @@ pub fn open_pty(winsize: Option<Winsize>) -> PtyResult<UnixPtyMaster> {
     std::mem::forget(pair);
 
     // Close the slave FD — caller only gets the master.
+    // SAFETY: `slave_fd` was returned by `openpty` and is not owned elsewhere.
     unsafe {
         libc::close(slave_fd);
     }
@@ -661,12 +742,12 @@ pub fn open_pty(winsize: Option<Winsize>) -> PtyResult<UnixPtyMaster> {
     UnixPtyMaster::new(master_fd).map_err(|e| PtyErrorKind::AsyncIo(e.to_string()))
 }
 
-pub fn spawn(
-    program: &str,
+pub fn spawn_os(
+    program: &OsStr,
     args: &[String],
     env: Option<&[(String, String)]>,
     winsize: Option<Winsize>,
-    cwd: Option<&str>,
+    cwd: Option<&OsStr>,
 ) -> PtyResult<(UnixPtyMaster, UnixChildProcess)> {
     if let Some(dir) = cwd {
         crate::platform::validate_cwd(dir)?;

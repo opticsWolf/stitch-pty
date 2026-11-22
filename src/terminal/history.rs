@@ -1,16 +1,17 @@
-/// HistoryScreen — terminal screen with scrollback buffer.
-///
-/// Extends ``Screen`` with a fixed-capacity scrollback history.  When the
-/// visible area scrolls, lines are pushed into (or popped from) the history
-/// buffer.
+//! Terminal screen with a fixed-capacity scrollback buffer.
+//!
+//! [`HistoryScreen`] extends [`super::Screen`] with retained lines. When the
+//! visible area scrolls, rows move between the viewport and history without
+//! reallocating their cells.
 /// Internal granularity for moving evicted rows into scrollback. Small
 /// enough that capped histories recycle rows during a single large feed.
 const SCROLL_COLLECT_CHUNK: usize = 2_048;
 
 use super::parser::Parser;
-use super::screen::{Char, Margins, Screen};
 #[cfg(feature = "bench-profile")]
 use super::screen::screen_profile;
+use super::screen::{Char, Margins, Screen};
+use std::fmt;
 
 /// Pack a cell into the Python tuple shape (text, fg, bg, attrs_bitmask).
 fn pack_cell(c: &Char) -> (String, String, String, u8) {
@@ -69,6 +70,17 @@ pub struct HistoryScreen {
     scrollback_lines: usize,
     /// Lines that entered scrollback since the last `take_events()` drain.
     scrollback_grew: u64,
+}
+
+impl fmt::Debug for HistoryScreen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HistoryScreen")
+            .field("columns", &self.columns())
+            .field("lines", &self.lines())
+            .field("scrollback", &self.scrollback_lines())
+            .field("history_len", &self.history.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl HistoryScreen {
@@ -138,12 +150,11 @@ impl HistoryScreen {
     }
 
     /// History + visible buffer as styled cells: (text, fg, bg, attrs_bitmask).
+    ///
+    /// This is O(total retained lines); callers serializing a viewport should
+    /// prefer [`Self::styled_range`].
     pub fn styled_viewport(&self) -> Vec<Vec<(String, String, String, u8)>> {
-        self.history
-            .iter()
-            .chain(self.inner.buffer.iter())
-            .map(|row| row.iter().map(pack_cell).collect())
-            .collect()
+        self.styled_range(0, self.total_lines())
     }
 
     /// Styled cells for absolute rows `[start, start + count)`, clamped to the
@@ -157,10 +168,16 @@ impl HistoryScreen {
     ) -> Vec<Vec<(String, String, String, u8)>> {
         let total = self.total_lines();
         let end = start.saturating_add(count).min(total);
-        (start..end)
-            .filter_map(|row| self.row_cells(row))
-            .map(|row| row.iter().map(pack_cell).collect())
-            .collect()
+        let mut out = Vec::with_capacity(end.saturating_sub(start));
+        for row in start..end {
+            let Some(cells) = self.row_cells(row) else {
+                continue;
+            };
+            let mut styled = Vec::with_capacity(cells.len());
+            styled.extend(cells.iter().map(pack_cell));
+            out.push(styled);
+        }
+        out
     }
 
     /// Raw cells for one row, using the same history-plus-screen index as
@@ -584,14 +601,13 @@ impl HistoryScreen {
             let line_len = line.cells.len();
             let first = rows.len();
             let mut row: Vec<Char> = Vec::new();
-            let flush = |row: &mut Vec<Char>,
-                         rows: &mut Vec<(Vec<Char>, bool)>,
-                         pool: &mut Vec<Char>| {
-                while row.len() < columns {
-                    row.push(take_blank(pool));
-                }
-                rows.push((std::mem::take(row), true));
-            };
+            let flush =
+                |row: &mut Vec<Char>, rows: &mut Vec<(Vec<Char>, bool)>, pool: &mut Vec<Char>| {
+                    while row.len() < columns {
+                        row.push(take_blank(pool));
+                    }
+                    rows.push((std::mem::take(row), true));
+                };
             for cell in line.cells {
                 let wide = cell.width() >= 2;
                 let need = if wide { 2 } else { 1 };

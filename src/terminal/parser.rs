@@ -8,6 +8,7 @@ use super::events::{MAX_OSC_PAYLOAD, OscEvent, OscPayload};
 use super::screen::Screen;
 
 /// A `Perform` implementation that translates parser events into `Screen` calls.
+#[derive(Debug)]
 pub struct Performer<'a> {
     pub screen: &'a mut Screen,
 }
@@ -147,7 +148,8 @@ impl<'a> Perform for Performer<'a> {
     }
 
     fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
-        self.screen.csi_dispatch(params.flat(), intermediates, action);
+        self.screen
+            .csi_dispatch(params.flat(), intermediates, action);
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {
@@ -176,6 +178,7 @@ impl<'a> Perform for Performer<'a> {
 }
 
 /// ANSI stream parser wrapping our internal state machine.
+#[derive(Debug)]
 pub struct Parser {
     inner: ansi_parser::Parser,
 }
@@ -208,6 +211,7 @@ impl Default for Parser {
 }
 
 /// High-level ANSI stream handler (equivalent to `pyte.Stream`).
+#[derive(Debug)]
 pub struct Stream {
     parser: Parser,
     screen: Option<Screen>,

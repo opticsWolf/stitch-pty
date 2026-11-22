@@ -160,9 +160,12 @@ cursor in pending-wrap indexed out of bounds; fixed v0.7.2).
    expected output. Exercise split UTF-8, CSI, OSC and ST, scroll margins,
    alternate-screen restore, and history eviction under reflow.
 3. Include a mixed ASCII/CJK/combining corpus with explicit expected cell
-   positions. Stitch PTY 0.16.0 leaves the cursor stationary for consecutive
-   width-two characters. Treat that as a failing Unicode correctness case
-   until wide-character placement and wrapping are repaired.
+   positions. Consecutive width-two glyphs must advance the cursor by two cells
+   per glyph, leave a blank continuation cell, and pre-wrap before a glyph that
+   would span the right margin. A previous 0.16.0 build left the cursor
+   stationary for consecutive wide characters; that regression is covered by
+   `test_draw_consecutive_width2_advances_cursor` and
+   `test_draw_width2_prewraps_at_last_column`.
 
 ### Workloads and measurements
 

@@ -111,8 +111,11 @@ impl KeyCode {
     /// `pgup`, `f12`, `kp_enter`, …).
     pub fn from_name(name: &str) -> Option<Self> {
         let trimmed = name.trim();
-        if trimmed.chars().count() == 1 {
-            return Some(Self::char(trimmed.chars().next().unwrap()));
+        let mut chars = trimmed.chars();
+        if let Some(ch) = chars.next()
+            && chars.next().is_none()
+        {
+            return Some(Self::char(ch));
         }
         let normalized = trimmed.to_ascii_lowercase().replace('-', "_");
         let code = match normalized.as_str() {

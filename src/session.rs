@@ -40,6 +40,7 @@
 use crate::errors::{PtyErrorKind, PtyResult};
 use crate::platform::{ArcChildBackend, ArcPtyBackend, ExitStatus};
 use crate::winsize::Winsize;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -112,6 +113,57 @@ impl PtySession {
     ) -> PtyResult<Self> {
         let (pty, child) =
             crate::platform::spawn_platform(program, args, Some(env), winsize, cwd).await?;
+        Ok(Self {
+            pty,
+            child,
+            closed: AtomicBool::new(false),
+            eof: AtomicBool::new(false),
+        })
+    }
+
+    /// Spawn using OS-native paths, preserving non-UTF-8 program and cwd paths.
+    ///
+    /// This is the `Path`-based counterpart of [`PtySession::spawn`].
+    pub async fn spawn_path(
+        program: impl AsRef<Path>,
+        args: &[String],
+        winsize: Option<Winsize>,
+        cwd: Option<&Path>,
+    ) -> PtyResult<Self> {
+        let (pty, child) = crate::platform::spawn_platform_os(
+            program.as_ref().as_os_str(),
+            args,
+            None,
+            winsize,
+            cwd.map(Path::as_os_str),
+        )
+        .await?;
+        Ok(Self {
+            pty,
+            child,
+            closed: AtomicBool::new(false),
+            eof: AtomicBool::new(false),
+        })
+    }
+
+    /// Spawn with an explicit environment and OS-native paths.
+    ///
+    /// This is the `Path`-based counterpart of [`PtySession::spawn_with_env`].
+    pub async fn spawn_path_with_env(
+        program: impl AsRef<Path>,
+        args: &[String],
+        env: &[(String, String)],
+        winsize: Option<Winsize>,
+        cwd: Option<&Path>,
+    ) -> PtyResult<Self> {
+        let (pty, child) = crate::platform::spawn_platform_os(
+            program.as_ref().as_os_str(),
+            args,
+            Some(env),
+            winsize,
+            cwd.map(Path::as_os_str),
+        )
+        .await?;
         Ok(Self {
             pty,
             child,
@@ -444,6 +496,7 @@ impl PtySession {
 ///
 /// The handle owns an `Arc<PtySession>`, so it observes the same EOF and
 /// close state as the session and can be moved to a dedicated reader task.
+#[derive(Debug)]
 pub struct PtyReader {
     session: Arc<PtySession>,
 }
@@ -479,6 +532,7 @@ impl PtyReader {
 /// The handle owns an `Arc<PtySession>`, so writes and shutdown observe the
 /// same close state as the session. Use [`PtySession::reader`] for the paired
 /// read side.
+#[derive(Debug)]
 pub struct PtyWriter {
     session: Arc<PtySession>,
 }

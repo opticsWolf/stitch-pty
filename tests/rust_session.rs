@@ -114,6 +114,21 @@ async fn spawn_read_wait_reports_exit_status() {
 }
 
 #[tokio::test]
+async fn spawn_path_accepts_os_native_paths() {
+    let (program, args) = shell("echo path-api-ok");
+    let session = PtySession::spawn_path(
+        std::path::Path::new(program),
+        &args,
+        size(),
+        Some(std::env::temp_dir().as_path()),
+    )
+    .await
+    .expect("spawn_path should succeed");
+    let out = read_until_contains(&session, "path-api-ok", Duration::from_secs(5)).await;
+    assert!(out.contains("path-api-ok"), "unexpected output: {out:?}");
+}
+
+#[tokio::test]
 async fn wait_is_repeatable_after_exit() {
     let (program, args) = shell("exit 0");
     let session = PtySession::spawn(program, &args, size(), None)

@@ -1,8 +1,10 @@
+//! Terminal window geometry shared by Rust and Python APIs.
+
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
 #[cfg(feature = "python")]
-#[pyclass(from_py_object)]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Winsize {
     #[pyo3(get, set)]
@@ -32,6 +34,21 @@ impl Winsize {
             xpixel,
             ypixel,
         }
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for Winsize {
+    type Error = pyo3::PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, pyo3::PyAny>) -> Result<Self, Self::Error> {
+        let guard = obj.extract::<pyo3::PyRef<'py, Winsize>>()?;
+        Ok(Winsize::new(
+            guard.rows,
+            guard.cols,
+            guard.xpixel,
+            guard.ypixel,
+        ))
     }
 }
 
@@ -197,8 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn test_winsize_from_py_object_default() {
-        // Verify Winsize can be created from default (from_py_object)
+    fn test_winsize_python_default_is_zeroed() {
         let ws = Winsize::default();
         assert_eq!(ws.rows, 0);
         assert_eq!(ws.cols, 0);

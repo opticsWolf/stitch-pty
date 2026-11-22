@@ -30,7 +30,11 @@ pub mod parser;
 pub mod screen;
 
 // Re-export core types for convenience
+#[doc(inline)]
 pub use history::HistoryScreen;
+#[doc(inline)]
 pub use keyboard::{KeyCode, KeyEvent, KeyEventKind, KeyboardFlags, Modifiers, encode_key};
+#[doc(inline)]
 pub use parser::{Parser, Stream};
+#[doc(inline)]
 pub use screen::{Char, Cursor, Margins, Screen};

@@ -14,6 +14,14 @@ pub struct PtyMaster {
     inner: std::sync::Arc<dyn PtyBackend>,
 }
 
+impl std::fmt::Debug for PtyMaster {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PtyMaster")
+            .field("open", &self.inner.is_open())
+            .finish_non_exhaustive()
+    }
+}
+
 #[pymethods]
 impl PtyMaster {
     fn read<'py>(&self, py: Python<'py>, size: usize) -> PyResult<Bound<'py, PyAny>> {
@@ -107,6 +115,15 @@ impl PtyMaster {
 #[pyclass(skip_from_py_object)]
 pub struct PtyChild {
     inner: std::sync::Arc<dyn ChildBackend>,
+}
+
+impl std::fmt::Debug for PtyChild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PtyChild")
+            .field("pid", &self.inner.pid())
+            .field("running", &self.inner.is_running())
+            .finish_non_exhaustive()
+    }
 }
 
 #[pymethods]
@@ -268,7 +285,6 @@ pub fn spawn<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     let program = program.to_string();
     let args = args.unwrap_or_default();
-    let winsize = winsize;
     pyo3_async_runtimes::tokio::future_into_py(py, async move {
         let (pty_backend, child_backend) =
             spawn_platform(&program, &args, env.as_deref(), winsize, cwd.as_deref())

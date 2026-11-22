@@ -19,6 +19,7 @@ mod platform_windows;
 
 // Terminal emulation (embedded pyte_rs)
 pub mod terminal;
+#[doc(inline)]
 pub use terminal::{
     Char, Cursor, HistoryScreen, KeyCode, KeyEvent, KeyEventKind, KeyboardFlags, Modifiers, Parser,
     Screen, encode_key,
@@ -27,14 +28,20 @@ pub use terminal::{
 // High-level Rust session APIs
 pub mod session;
 pub mod terminal_session;
+#[doc(inline)]
 pub use expect::{ExpectError, ExpectOptions, ExpectPattern, ExpectResult};
+#[doc(inline)]
 pub use session::{DrainEnd, PtyReader, PtySession, PtyWriter};
+#[doc(inline)]
 pub use terminal_session::TerminalSession;
+#[doc(inline)]
 pub use winsize::Winsize;
 
 // Cross-platform modules
 pub mod async_io;
 pub mod errors;
+#[doc(inline)]
+pub use errors::{PtyErrorKind, PtyFailure, PtyResult, TypedPtyResult};
 pub mod expect;
 #[cfg(feature = "python")]
 mod python_api;
